@@ -24,31 +24,22 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-"""
-This sub-package contains cryoMethods protocols and tools.
-"""
 
-# from bibtex import _bibtex # Load bibtex dict with references
-_logo = "cryomethods_logo.png"
-_references = []
-from convert import getSupportedVersions, getVersion, getEnviron
-from initial_volume_selector import ProtInitialVolumeSelector
-from auto_classifier import ProtAutoClassifier
-#
-# # Wizards
-# from wizard import *
-from viewer import *
-#
-_environ = getEnviron()
+import pyworkflow.em as em
+from protocol_base import ProtocolRelionBase
 
 
-def validateInstallation():
-    """ This function will be used to check if RELION is properly installed. """
-    missingPaths = ["%s: %s" % (var, _environ[var])
-                    for var in ['RELION_HOME']
-                    if not os.path.exists(_environ[var])]
+class ProtAutoClassifier(ProtocolRelionBase):
+    """ This class contains the common functions for all Relion protocols.
+    In subclasses there should be little changes about how to create the command
+    line and the files produced.
 
-    if missingPaths:
-        return ["Missing variables:"] + missingPaths
-    else:
-        return [] # No errors
+    Most of the Relion protocols, have two modes: NORMAL or CONTINUE. That's why
+    some of the function have a template pattern approach to define the behaviour
+    depending on the case.
+    """
+    _label = 'auto classifier'
+    # -------------------------- DEFINE param functions -----------------------
+    def _defineParams(self, form):
+        ProtocolRelionBase._defineParams(form)
+        self._defineCTFParams(form, expertLev=em.LEVEL_NORMAL)
