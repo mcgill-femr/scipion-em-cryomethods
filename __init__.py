@@ -31,9 +31,9 @@ This sub-package contains cryoMethods protocols and tools.
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
 _references = []
-from convert import getSupportedVersions, getVersion, getEnviron
-from initial_volume_selector import ProtInitialVolumeSelector
-from auto_classifier import ProtAutoClassifier
+from convert import *
+from volume_selector import ProtInitialVolumeSelector
+# from auto_classifier import ProtAutoClassifier
 #
 # # Wizards
 # from wizard import *

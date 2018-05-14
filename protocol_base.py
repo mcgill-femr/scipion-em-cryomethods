@@ -31,9 +31,11 @@ from os.path import exists
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
-
 from pyworkflow.utils.path import cleanPath, replaceBaseExt
-from convert import (writeSetOfParticles, isVersion2, convertMask)
+
+from pyworkflow.em.packages.cryomethods.constants import (CHANGE_LABELS, V2_0,
+    ANGULAR_SAMPLING_LIST, MASK_FILL_ZERO)
+import convert as conv
 
 class ProtocolRelionBase(em.EMProtocol):
     """ This class contains the common functions for protocols developed by
@@ -44,6 +46,7 @@ class ProtocolRelionBase(em.EMProtocol):
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
 
+
     def __init__(self, **args):
         em.EMProtocol.__init__(self, **args)
 
@@ -52,11 +55,9 @@ class ProtocolRelionBase(em.EMProtocol):
         working dir for the protocol have been set.
         (maybe after recovery from mapper)
         """
-
+        self._level = 1
         self._createFilenameTemplates()
         self._createIterTemplates()
-
-        # self.ClassFnTemplate = '%(rootDir)s/relion_it%(iter)03d_class%(ref)03d.mrc:mrc'
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
@@ -103,7 +104,7 @@ class ProtocolRelionBase(em.EMProtocol):
         self._iterRegex = re.compile('_it(\d{3,3})_')
 
     # -------------------------- DEFINE param functions -----------------------
-    def _defineParams(self, form):
+    def _defineInputParams(self, form):
         form.addSection(label='Input')
         form.addParam('inputParticles', params.PointerParam,
                       pointerClass='SetOfParticles',
@@ -115,13 +116,20 @@ class ProtocolRelionBase(em.EMProtocol):
                           label='Subset size',
                           help='Number of individual particles that will be '
                                'use to obtain the best initial volume')
+            form.addParam('targetResol', params.FloatParam, default=10,
+                           label='Target Resolution (A)',
+                           help='In order to save time, you could rescale both '
+                                'particles and maps to a pisel size = resol/2. '
+                                'If set to 0, no rescale will be applied to '
+                                'the initial references.')
         else:
             form.addParam('copyAlignment', params.BooleanParam, default=False,
                           label='Consider previous alignment?',
                           condition='not doContinue',
                           help='If set to Yes, then alignment information from'
                                ' input particles will be considered.')
-            form.addParam('alignmentAsPriors', params.BooleanParam, default=False,
+            form.addParam('alignmentAsPriors', params.BooleanParam,
+                          default=False,
                           condition='not doContinue and copyAlignment',
                           expertLevel=em.LEVEL_ADVANCED,
                           label='Consider alignment as priors?',
@@ -147,12 +155,21 @@ class ProtocolRelionBase(em.EMProtocol):
                            'The same diameter will also be used for a '
                            'spherical mask of the reference structures if no '
                            'user-provided mask is specified.')
+        if not self.IS_VOLSELECTOR:
+            form.addParam('numberOfClasses', params.IntParam, default=2,
+                          condition='not doContinue and isClassify',
+                          label='Number of classes:',
+                          help='The number of classes (K) for a multi-reference '
+                               'refinement. These classes will be made in an '
+                               'unsupervised manner from a single reference by '
+                               'division of the data into random subsets during '
+                               'the first iteration.')
 
         group = form.addGroup('Reference 3D map')
 
         referenceClass = 'SetOfVolumes'
         referenceLabel = 'Input volumes'
-        if not self.self.IS_VOLSELECTOR:
+        if not self.IS_VOLSELECTOR:
             referenceClass += ', Volume'
             referenceLabel = 'Input volume(s)'
 
@@ -161,7 +178,8 @@ class ProtocolRelionBase(em.EMProtocol):
                        important=True,
                        label=referenceLabel,
                        help='Initial reference 3D map(s)')
-        group.addParam('isMapAbsoluteGreyScale', params.BooleanParam, default=False,
+        group.addParam('isMapAbsoluteGreyScale', params.BooleanParam,
+                       default=False,
                        label="Is initial 3D map on absolute greyscale?",
                        help='The probabilities are based on squared '
                             'differences, so that the absolute grey scale is '
@@ -225,8 +243,8 @@ class ProtocolRelionBase(em.EMProtocol):
                            'intrinsically implements the optimal linear, or '
                            'Wiener filter. Note that input particles should '
                            'contains CTF parameters.')
-        form.addParam('hasReferenceCTFCorrected', params.BooleanParam, default=False,
-                      expertLevel=expertLev,
+        form.addParam('hasReferenceCTFCorrected', params.BooleanParam,
+                      default=False, expertLevel=expertLev,
                       label='Has reference been CTF-corrected?',
                       help='Set this option to Yes if the reference map '
                            'represents CTF-unaffected density, e.g. it was '
@@ -247,8 +265,8 @@ class ProtocolRelionBase(em.EMProtocol):
                            'RELION, as this can be done inside the internal\n'
                            'CTF-correction. However, if the phases have been '
                            'flipped, the program will handle it.')
-        form.addParam('ignoreCTFUntilFirstPeak', params.BooleanParam, default=False,
-                      expertLevel=em.LEVEL_ADVANCED,
+        form.addParam('ignoreCTFUntilFirstPeak', params.BooleanParam,
+                      default=False, expertLevel=em.LEVEL_ADVANCED,
                       label='Ignore CTFs until first peak?',
                       help='If set to Yes, then CTF-amplitude correction will '
                            'only be performed from the first peak '
@@ -304,7 +322,7 @@ class ProtocolRelionBase(em.EMProtocol):
                            'over-estimated resolutions and overfitting.')
 
         # version 2.1+ only and not Volume selector protocol.
-        if getVersion() != V2_0 and not self.IS_VOLSELECTOR:
+        if conv.getVersion() != V2_0 and not self.IS_VOLSELECTOR:
             form.addParam('doSubsets', params.BooleanParam, default=False,
                           label='Use subsets for initial updates?',
                           help='If set to True, multiple maximization updates '
@@ -430,7 +448,8 @@ class ProtocolRelionBase(em.EMProtocol):
     def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Sampling')
         form.addParam('angularSamplingDeg', params.EnumParam, default=1,
-                      choices=ANGULAR_SAMPLING_LIST, expertLevel=expertLev,
+                      choices=ANGULAR_SAMPLING_LIST,
+                      expertLevel=expertLev,
                       label='Angular sampling interval (deg)',
                       help='There are only a few discrete angular samplings'
                            ' possible because we use the HealPix library to'
@@ -591,10 +610,7 @@ class ProtocolRelionBase(em.EMProtocol):
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
         self._initialize()
-        partsId = self._getInputParticles().getObjId()
-        volsId = self.inputVolumes.get().getObjId()
-        self._insertFunctionStep('convertInputStep', partsId, volsId,
-                                 self.targetResol.get())
+        self._insertFunctionStep('convertInputStep', self._getResetDeps())
         self._insertClassifyStep()
         self._insertFunctionStep('createOutputStep')
 
@@ -602,43 +618,51 @@ class ProtocolRelionBase(em.EMProtocol):
         """ Prepare the command line arguments before calling Relion. """
         # Join in a single line all key, value pairs of the args dict
         args = {}
-
         self._setNormalArgs(args)
         self._setComputeArgs(args)
 
         params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
-
         self._insertFunctionStep('runClassifyStep', params)
 
     # -------------------------- STEPS functions -------------------------------
-    def convertInputStep(self, particlesId, volumesId, tgResol):
+    def convertInputStep(self, particlesId, copyAlignment):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         Params:
-            particlesId, volumesId: use this parameters just to force redo of
-            convert if either the input particles and/or input volumes are
-            changed.
+            particlesId: use this parameters just to force redo of convert if
+                the input particles are changed.
         """
-        self._imgFnList = []
         imgSet = self._getInputParticles()
         imgStar = self._getFileName('input_star')
 
-        subset = em.SetOfParticles(filename=":memory:")
+        self.info("Converting set from '%s' into '%s'" %
+                  (imgSet.getFileName(), imgStar))
 
-        newIndex = 1
-        for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
-            self._scaleImages(newIndex, img)
-            newIndex += 1
-            subset.append(img)
-            subsetSize = self.subsetSize.get()
-            minSize = min(subsetSize, imgSet.getSize())
-            if subsetSize   > 0 and subset.getSize() == minSize:
-                break
-        writeSetOfParticles(subset, imgStar, self._getExtraPath(),
-                            alignType=em.ALIGN_NONE,
-                            postprocessImageRow=self._postprocessParticleRow)
-        self._convertInput(subset)
-        self._convertRef()
+        # Pass stack file as None to avoid write the images files
+        # If copyAlignment is set to False pass alignType to ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment \
+            else em.ALIGN_NONE
+        hasAlign = alignType != em.ALIGN_NONE
+        alignToPrior = hasAlign and getattr(self, 'alignmentAsPriors',
+                                            False)
+        fillRandomSubset = hasAlign and getattr(self, 'fillRandomSubset',
+                                                False)
+
+        conv.writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+                                 alignType=alignType,
+                                 postprocessImageRow=self._postprocessParticleRow,
+                                 fillRandomSubset=fillRandomSubset)
+
+        if alignToPrior:
+            mdParts = md.MetaData(imgStar)
+            self._copyAlignAsPriors(mdParts, alignType)
+            mdParts.write(imgStar)
+
+        if self.doCtfManualGroups:
+            self._splitInCTFGroups(imgStar)
+
+        if self._getRefArg():
+            self._convertRef()
 
     def runClassifyStep(self, params):
         """ Execute the relion steps with the give params. """
@@ -712,26 +736,28 @@ class ProtocolRelionBase(em.EMProtocol):
     # -------------------------- UTILS functions ------------------------------
     def _setNormalArgs(self, args):
         maskDiameter = self.maskDiameterA.get()
+        pixelSize = self._getPixeSize()
+
         if maskDiameter <= 0:
-            x, _, _ = self._getInputParticles().getDim()
-            maskDiameter = self._getInputParticles().getSamplingRate() * x
+            maskDiameter = pixelSize * self._getNewDim()
 
         args.update({'--i': self._getFileName('input_star'),
                      '--particle_diameter': maskDiameter,
-                     '--angpix': self._getPixeSize(),
+                     '--angpix': pixelSize,
                      })
         self._setCTFArgs(args)
 
         if self.maskZero == MASK_FILL_ZERO:
             args['--zero_mask'] = ''
 
+        args['--K'] = self.inputVolumes.get().getSize() if \
+            self.IS_VOLSELECTOR else self.numberOfClasses.get()
 
-
-        args['--K'] = self.inputVolumes.get().getSize()
         if self.limitResolEStep > 0:
             args['--strict_highres_exp'] = self.limitResolEStep.get()
 
-        args['--firstiter_cc'] = ''
+        if not self.isMapAbsoluteGreyScale:
+            args['--firstiter_cc'] = ''
         args['--ini_high'] = self.initialLowPassFilterA.get()
         args['--sym'] = self.symmetryGroup.get()
 
@@ -741,12 +767,65 @@ class ProtocolRelionBase(em.EMProtocol):
 
         self._setBasicArgs(args)
 
-    def _getScratchDir(self):
-        """ Returns the scratch dir value without spaces.
-         If none, the empty string will be returned.
-        """
-        scratchDir = self.scratchDir.get() or ''
-        return scratchDir.strip()
+    def _setCTFArgs(self, args):
+        # CTF stuff
+        if self.doCTF:
+            args['--ctf'] = ''
+
+        if self.hasReferenceCTFCorrected:
+            args['--ctf_corrected_ref'] = ''
+
+        if self._getInputParticles().isPhaseFlipped():
+            args['--ctf_phase_flipped'] = ''
+
+        if self.ignoreCTFUntilFirstPeak:
+            args['--ctf_intact_first_peak'] = ''
+
+    def _setBasicArgs(self, args):
+        """ Return a dictionary with basic arguments. """
+        args.update({'--flatten_solvent': '',
+                     '--norm': '',
+                     '--scale': '',
+                     '--o': self._getExtraPath('relion'),
+                     '--oversampling': self.oversampling.get()
+                     })
+
+        args['--tau2_fudge'] = self.regularisationParamT.get()
+        args['--iter'] = self._getnumberOfIters()
+
+        if not self.IS_VOLSELECTOR and conv.getVersion() != V2_0:
+            self._setSubsetArgs(args)
+
+        self._setSamplingArgs(args)
+        self._setMaskArgs(args)
+
+    def _setSubsetArgs(self, args):
+        if self._doSubsets():
+            args['--write_subsets'] = 1
+            args['--subset_size'] = self.subsetSize.get()
+            args['--max_subsets'] = self.subsetUpdates.get()
+
+    def _setSamplingArgs(self, args):
+        """Should be overwritten in subclasses"""
+        pass
+
+    def _setMaskArgs(self, args):
+        if self.referenceMask.hasValue():
+            mask = conv.convertMask(self.referenceMask.get(),
+                                    self._getTmpPath())
+            args['--solvent_mask'] = mask
+
+        if self.solventMask.hasValue():
+            solventMask = conv.convertMask(self.solventMask.get(),
+                                           self._getTmpPath())
+            args['--solvent_mask2'] = solventMask
+
+        if (conv.isVersion2() and self.referenceMask.hasValue()
+                and self.solventFscMask):
+            args['--solvent_correct_fsc'] = ''
+
+    def _getSamplingFactor(self):
+        return 1 if self.oversampling == 0 else 2 * self.oversampling.get()
 
     def _setComputeArgs(self, args):
         if not self.combineItersDisc:
@@ -766,57 +845,12 @@ class ProtocolRelionBase(em.EMProtocol):
         if self.doGpu:
             args['--gpu'] = self.gpusToUse.get()
 
-    def _getSamplingFactor(self):
-        return 1 if self.oversampling == 0 else 2 * self.oversampling.get()
-
-    def _setBasicArgs(self, args):
-        """ Return a dictionary with basic arguments. """
-        args.update({'--flatten_solvent': '',
-                     '--norm': '',
-                     '--scale': '',
-                     '--o': self._getExtraPath('relion'),
-                     '--oversampling': self.oversampling.get()
-                     })
-
-        args['--tau2_fudge'] = self.regularisationParamT.get()
-        args['--iter'] = self._getnumberOfIters()
-
-        self._setSamplingArgs(args)
-        self._setMaskArgs(args)
-
-    def _setSamplingArgs(self, args):
-        """ Set sampling related params. """
-        args['--healpix_order'] = self.angularSamplingDeg.get()
-        args['--offset_range'] = 5
-        args['--offset_step'] = (self._getSamplingFactor())
-
-    def _setCTFArgs(self, args):
-        # CTF stuff
-        if self.doCTF:
-            args['--ctf'] = ''
-
-        if self.hasReferenceCTFCorrected:
-            args['--ctf_corrected_ref'] = ''
-
-        if self._getInputParticles().isPhaseFlipped():
-            args['--ctf_phase_flipped'] = ''
-
-        if self.ignoreCTFUntilFirstPeak:
-            args['--ctf_intact_first_peak'] = ''
-
-    def _setMaskArgs(self, args):
-        if self.referenceMask.hasValue():
-            mask = convertMask(self.referenceMask.get(), self._getTmpPath())
-            args['--solvent_mask'] = mask
-
-        if self.solventMask.hasValue():
-            solventMask = convertMask(self.solventMask.get(),
-                                      self._getTmpPath())
-            args['--solvent_mask2'] = solventMask
-
-        if (isVersion2() and self.referenceMask.hasValue() and
-                self.solventFscMask):
-            args['--solvent_correct_fsc'] = ''
+    def _getScratchDir(self):
+        """ Returns the scratch dir value without spaces.
+         If none, the empty string will be returned.
+        """
+        scratchDir = self.scratchDir.get() or ''
+        return scratchDir.strip()
 
     def _getProgram(self, program='relion_refine'):
         """ Get the program name depending on the MPI use or not. """
@@ -845,6 +879,17 @@ class ProtocolRelionBase(em.EMProtocol):
     def _firstIter(self):
         return self._getIterNumber(0) or 1
 
+    def _splitInCTFGroups(self, imgStar):
+        """ Add a new column in the image star to separate the particles
+        into ctf groups """
+        from convert import splitInCTFGroups
+        splitInCTFGroups(imgStar,
+                         self.defocusRange.get(),
+                         self.numParticles.get())
+
+    def _getnumberOfIters(self):
+        return self.numberOfIterations.get()
+
     def _getIterVolumes(self, it, clean=False):
         """ Return a volumes .sqlite file for this iteration.
         If the file doesn't exists, it will be created by
@@ -860,7 +905,6 @@ class ProtocolRelionBase(em.EMProtocol):
             self._fillVolSetFromIter(volSet, it)
             volSet.write()
             volSet.close()
-
         return sqlteVols
 
     def _fillVolSetFromIter(self, volSet, it):
@@ -883,17 +927,6 @@ class ProtocolRelionBase(em.EMProtocol):
                 vol._rlnAccuracyTranslations = em.Float(accurracyTras)
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
-
-    def _splitInCTFGroups(self, imgStar):
-        """ Add a new column in the image star to separate the particles
-        into ctf groups """
-        from convert import splitInCTFGroups
-        splitInCTFGroups(imgStar,
-                         self.defocusRange.get(),
-                         self.numParticles.get())
-
-    def _getnumberOfIters(self):
-        return self.numberOfIterations.get()
 
     def _getRefArg(self):
         """ Return the filename that will be used for the --ref argument.
@@ -937,26 +970,6 @@ class ProtocolRelionBase(em.EMProtocol):
             row.setValue(md.RLN_MLMODEL_REF_IMAGE, newVolFn)
             row.addToMd(refMd)
         refMd.write(self._getRefStar())
-
-    def _postprocessImageRow(self, img, imgRow):
-        partId = img.getParticleId()
-        imgRow.setValue(md.RLN_PARTICLE_ID, long(partId))
-        imgRow.setValue(md.RLN_MICROGRAPH_NAME,
-                        "%06d@fake_movie_%06d.mrcs"
-                        % (img.getFrameId(), img.getMicId()))
-
-    def _postprocessParticleRow(self, part, partRow):
-        if part.hasAttribute('_rlnGroupName'):
-            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
-                             '%s' % part.getAttributeValue('_rlnGroupName'))
-        else:
-            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
-                             '%s' % part.getMicId())
-
-        ctf = part.getCTF()
-
-        if ctf is not None and ctf.getPhaseShift():
-            partRow.setValue(md.RLN_CTF_PHASESHIFT, ctf.getPhaseShift())
 
     def _getNewDim(self):
         tgResol = self.targetResol.get()
@@ -1020,3 +1033,25 @@ class ProtocolRelionBase(em.EMProtocol):
 
     def _getOutputVolFn(self, fn):
         return self._getExtraPath(replaceBaseExt(fn, '_origSize.mrc'))
+
+    def _postprocessImageRow(self, img, imgRow):
+        partId = img.getParticleId()
+        imgRow.setValue(md.RLN_PARTICLE_ID, long(partId))
+        imgRow.setValue(md.RLN_MICROGRAPH_NAME,
+                        "%06d@fake_movie_%06d.mrcs"
+                        % (img.getFrameId(), img.getMicId()))
+
+    def _postprocessParticleRow(self, part, partRow):
+        if part.hasAttribute('_rlnGroupName'):
+            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
+                             '%s' % part.getAttributeValue('_rlnGroupName'))
+        else:
+            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
+                             '%s' % part.getMicId())
+        ctf = part.getCTF()
+        if ctf is not None and ctf.getPhaseShift():
+            partRow.setValue(md.RLN_CTF_PHASESHIFT, ctf.getPhaseShift())
+
+    def _getResetDeps(self):
+        """Should be overwritten in subclasses"""
+        pass
