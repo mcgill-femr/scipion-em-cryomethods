@@ -55,7 +55,6 @@ class ProtocolRelionBase(em.EMProtocol):
         working dir for the protocol have been set.
         (maybe after recovery from mapper)
         """
-        self._level = 1
         self._createFilenameTemplates()
         self._createIterTemplates()
 
@@ -63,7 +62,7 @@ class ProtocolRelionBase(em.EMProtocol):
         """ Centralize how files are called for iterations and references. """
         self.extraIter = self._getExtraPath('relion_it%(iter)03d_')
         myDict = {
-            'input_star': self._getPath('0input_particles.star'),
+            'input_star': self._getPath('input_particles.star'),
             'data_scipion': self.extraIter + 'data_scipion.sqlite',
             'volumes_scipion': self.extraIter + 'volumes.sqlite',
             'data': self.extraIter + 'data.star',
@@ -125,12 +124,11 @@ class ProtocolRelionBase(em.EMProtocol):
         else:
             form.addParam('copyAlignment', params.BooleanParam, default=False,
                           label='Consider previous alignment?',
-                          condition='not doContinue',
                           help='If set to Yes, then alignment information from'
                                ' input particles will be considered.')
             form.addParam('alignmentAsPriors', params.BooleanParam,
                           default=False,
-                          condition='not doContinue and copyAlignment',
+                          condition='copyAlignment',
                           expertLevel=em.LEVEL_ADVANCED,
                           label='Consider alignment as priors?',
                           help='If set to Yes, then alignment information from '
@@ -138,7 +136,7 @@ class ProtocolRelionBase(em.EMProtocol):
                                'This option is mandatory if you want to do '
                                'local searches')
             form.addParam('fillRandomSubset', params.BooleanParam, default=False,
-                          condition='not doContinue and copyAlignment',
+                          condition='copyAlignment',
                           expertLevel=em.LEVEL_ADVANCED,
                           label='Consider random subset value?',
                           help='If set to Yes, then random subset value '
@@ -157,7 +155,6 @@ class ProtocolRelionBase(em.EMProtocol):
                            'user-provided mask is specified.')
         if not self.IS_VOLSELECTOR:
             form.addParam('numberOfClasses', params.IntParam, default=2,
-                          condition='not doContinue and isClassify',
                           label='Number of classes:',
                           help='The number of classes (K) for a multi-reference '
                                'refinement. These classes will be made in an '
@@ -445,11 +442,11 @@ class ProtocolRelionBase(em.EMProtocol):
                            'in the range of 7-12 Angstroms have proven '
                            'useful.')
 
-    def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED):
+    def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED, cond=''):
         form.addSection('Sampling')
         form.addParam('angularSamplingDeg', params.EnumParam, default=1,
                       choices=ANGULAR_SAMPLING_LIST,
-                      expertLevel=expertLev,
+                      expertLevel=expertLev, condition=cond,
                       label='Angular sampling interval (deg)',
                       help='There are only a few discrete angular samplings'
                            ' possible because we use the HealPix library to'
@@ -458,7 +455,7 @@ class ProtocolRelionBase(em.EMProtocol):
                            'approximate numbers and vary slightly over '
                            'the sphere.')
         form.addParam('offsetSearchRangePix', params.FloatParam,
-                      default=5, expertLevel=expertLev,
+                      default=5, expertLevel=expertLev, condition=cond,
                       label='Offset search range (pix)',
                       help='Probabilities will be calculated only for '
                            'translations in a circle with this radius (in '
@@ -467,7 +464,7 @@ class ProtocolRelionBase(em.EMProtocol):
                            'translation for each image in the previous '
                            'iteration.')
         form.addParam('offsetSearchStepPix', params.FloatParam,
-                      default=1.0, expertLevel=expertLev,
+                      default=1.0, expertLevel=expertLev, condition=cond,
                       label='Offset search step (pix)',
                       help='Translations will be sampled with this step-size '
                            '(in pixels). Translational sampling is also done '
@@ -475,7 +472,7 @@ class ProtocolRelionBase(em.EMProtocol):
                            'adaptive=1, the translations will first be '
                            'evaluated on a 2x coarser grid.')
         form.addParam('localAngularSearch', params.BooleanParam,
-                      default=False, expertLevel=expertLev,
+                      default=False, expertLevel=expertLev, condition=cond,
                       label='Perform local angular search?',
                       help='If set to Yes, then rather than performing '
                            'exhaustive angular searches, local searches '
@@ -485,7 +482,7 @@ class ProtocolRelionBase(em.EMProtocol):
                            'with a stddev of 1/3 of the range given below '
                            'will be enforced.')
         form.addParam('localAngularSearchRange', params.FloatParam,
-                      default=5.0, expertLevel=expertLev,
+                      default=5.0, expertLevel=expertLev, condition=cond,
                       label='Local angular search range',
                       help='Local angular searches will be performed within '
                            '+/- the given amount (in degrees) from the '
@@ -618,6 +615,7 @@ class ProtocolRelionBase(em.EMProtocol):
         """ Prepare the command line arguments before calling Relion. """
         # Join in a single line all key, value pairs of the args dict
         args = {}
+
         self._setNormalArgs(args)
         self._setComputeArgs(args)
 
@@ -625,7 +623,7 @@ class ProtocolRelionBase(em.EMProtocol):
         self._insertFunctionStep('runClassifyStep', params)
 
     # -------------------------- STEPS functions -------------------------------
-    def convertInputStep(self, particlesId, copyAlignment):
+    def convertInputStep(self, resetDeps, copyAlignment):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         Params:
@@ -643,8 +641,6 @@ class ProtocolRelionBase(em.EMProtocol):
         alignType = imgSet.getAlignment() if copyAlignment \
             else em.ALIGN_NONE
         hasAlign = alignType != em.ALIGN_NONE
-        alignToPrior = hasAlign and getattr(self, 'alignmentAsPriors',
-                                            False)
         fillRandomSubset = hasAlign and getattr(self, 'fillRandomSubset',
                                                 False)
 
@@ -653,10 +649,11 @@ class ProtocolRelionBase(em.EMProtocol):
                                  postprocessImageRow=self._postprocessParticleRow,
                                  fillRandomSubset=fillRandomSubset)
 
+        alignToPrior = hasAlign and getattr(self, 'alignmentAsPriors',
+                                            False)
+
         if alignToPrior:
-            mdParts = md.MetaData(imgStar)
-            self._copyAlignAsPriors(mdParts, alignType)
-            mdParts.write(imgStar)
+            self._copyAlignAsPriors(imgStar, alignType)
 
         if self.doCtfManualGroups:
             self._splitInCTFGroups(imgStar)
@@ -741,8 +738,8 @@ class ProtocolRelionBase(em.EMProtocol):
         if maskDiameter <= 0:
             maskDiameter = pixelSize * self._getNewDim()
 
-        args.update({'--i': self._getFileName('input_star'),
-                     '--particle_diameter': maskDiameter,
+        self._defineInputOutput(args)
+        args.update({'--particle_diameter': maskDiameter,
                      '--angpix': pixelSize,
                      })
         self._setCTFArgs(args)
@@ -786,7 +783,6 @@ class ProtocolRelionBase(em.EMProtocol):
         args.update({'--flatten_solvent': '',
                      '--norm': '',
                      '--scale': '',
-                     '--o': self._getExtraPath('relion'),
                      '--oversampling': self.oversampling.get()
                      })
 
@@ -828,6 +824,7 @@ class ProtocolRelionBase(em.EMProtocol):
         return 1 if self.oversampling == 0 else 2 * self.oversampling.get()
 
     def _setComputeArgs(self, args):
+        args['--pool'] = self.pooledParticles.get()
         if not self.combineItersDisc:
             args['--dont_combine_weights_via_disc'] = ''
 
@@ -839,8 +836,6 @@ class ProtocolRelionBase(em.EMProtocol):
         else:
             if self._getScratchDir():
                 args['--scratch_dir'] = self._getScratchDir()
-
-        args['--pool'] = self.pooledParticles.get()
 
         if self.doGpu:
             args['--gpu'] = self.gpusToUse.get()
@@ -972,7 +967,7 @@ class ProtocolRelionBase(em.EMProtocol):
         refMd.write(self._getRefStar())
 
     def _getNewDim(self):
-        tgResol = self.targetResol.get()
+        tgResol = self.getAttributeValue('targetResol', 0)
         partSet = self._getInputParticles()
         size = partSet.getXDim()
         nyquist = 2 * partSet.getSamplingRate()
@@ -1055,3 +1050,25 @@ class ProtocolRelionBase(em.EMProtocol):
     def _getResetDeps(self):
         """Should be overwritten in subclasses"""
         pass
+
+    def _doSubsets(self):
+        # Since 'doSubsets' property is only valid for 2.1+ protocols
+        # we need provide a default value for backward compatibility
+        return self.getAttributeValue('doSubsets', False)
+
+    def _copyAlignAsPriors(self, imgStar, alignType):
+        mdParts = md.MetaData(imgStar)
+
+        # set priors equal to orig. values
+        mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
+        mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
+        mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
+        if alignType == em.ALIGN_PROJ:
+            mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
+            mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
+
+        mdParts.write(imgStar)
+
+    def _defineInputOutput(self, args):
+        args['--i'] = self._getFileName('input_star')
+        args['--o'] = self._getExtraPath('relion')

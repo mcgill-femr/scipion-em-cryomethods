@@ -33,7 +33,7 @@ _logo = "cryomethods_logo.png"
 _references = []
 from convert import *
 from volume_selector import ProtInitialVolumeSelector
-# from auto_classifier import ProtAutoClassifier
+from auto_classifier import ProtAutoClassifier
 #
 # # Wizards
 # from wizard import *
