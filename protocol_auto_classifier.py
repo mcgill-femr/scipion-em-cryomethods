@@ -204,9 +204,7 @@ class ProtAutoClassifier(ProtocolRelionBase):
         mdStar = md.MetaData(imgStar)
 
         for row in md.iterRows(mdStar, sortByLabel=md.RLN_PARTICLE_CLASS):
-
-
-
+            pass
 
         print('Executing evaluation step')
         self._doneList.append(rLevId)

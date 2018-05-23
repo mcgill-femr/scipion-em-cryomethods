@@ -908,6 +908,8 @@ class ProtocolRelionBase(em.EMProtocol):
                                 self._getFileName('model', iter=it))
         for row in md.iterRows(modelStar):
             fn = row.getValue('rlnReferenceImage') + ":mrc"
+
+            itemId = "as"
             classDistrib = row.getValue('rlnClassDistribution')
             accurracyRot = row.getValue('rlnAccuracyRotations')
             accurracyTras = row.getValue('rlnAccuracyTranslations')

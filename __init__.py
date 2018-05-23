@@ -32,8 +32,8 @@ This sub-package contains cryoMethods protocols and tools.
 _logo = "cryomethods_logo.png"
 _references = []
 from convert import *
-from volume_selector import ProtInitialVolumeSelector
-from auto_classifier import ProtAutoClassifier
+from protocol_volume_selector import ProtInitialVolumeSelector
+from protocol_auto_classifier import ProtAutoClassifier
 #
 # # Wizards
 # from wizard import *
