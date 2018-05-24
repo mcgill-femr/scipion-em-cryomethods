@@ -89,7 +89,7 @@ class ProtAutoClassifier(ProtocolRelionBase):
                                                iter=0).replace( '000', '???')
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
-        self._iterRegex = re.compile('_it(\d{3,3})_')
+        self._classRegex = re.compile('_class(\d{2,2})_')
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -165,7 +165,7 @@ class ProtAutoClassifier(ProtocolRelionBase):
         If the input particles comes from Relion, just link the file.
         """
         makePath(self._getRunPath(self._level, rLev))
-        imgStar = self._getFileName('input_star', rLevI )
+        imgStar = self._getFileName('input_star')
 
         if self._level == 1:
             imgSet = self._getInputParticles()
