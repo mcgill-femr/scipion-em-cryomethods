@@ -126,3 +126,10 @@ class ProtInitialVolumeSelector(ProtocolRelionBase):
         return "%s, %s, %s" % (self._getInputParticles().getObjId(),
                                self.inputVolumes.get().getObjId(),
                                self.targetResol.get())
+
+    def _getClassId(self, volFile):
+        result = None
+        s = self._classRegex.search(volFile)
+        if s:
+            result = int(s.group(1)) # group 1 is 2 digits class number
+        return self.volDict[result]
