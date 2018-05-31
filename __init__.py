@@ -34,11 +34,14 @@ _references = []
 from convert import getSupportedVersions, getVersion, getEnviron
 from protocol_auto_classifier import ProtAutoClassifier
 from protocol_volume_selector import ProtInitialVolumeSelector
-#
-# # Wizards
-# from wizard import *
-from viewer import *
-#
+
+# Wizards
+from wizard import (TargetFilterWizard, InitialPassFilterWizard,
+                    MaskDiameterWizard)
+
+#Viewer
+from viewer import VolumeSelectorViewer
+
 _environ = getEnviron()
 
 

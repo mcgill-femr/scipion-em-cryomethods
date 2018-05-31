@@ -25,25 +25,24 @@
 # *
 # **************************************************************************
 import pyworkflow.em as em
-from pyworkflow.em.packages.cryomethods.protocol_base import ProtocolRelionBase
+from pyworkflow.em.packages.cryomethods.protocol_base import ProtocolBase
 from convert import writeSetOfParticles
 
 
-class ProtInitialVolumeSelector(ProtocolRelionBase):
-    """ This class contains the common functions for all Relion protocols.
-    In subclasses there should be little changes about how to create the command
-    line and the files produced.
-
-    Most of the Relion protocols, have two modes: NORMAL or CONTINUE. That's why
-    some of the function have a template pattern approach to define the behaviour
-    depending on the case.
+class ProtInitialVolumeSelector(ProtocolBase):
     """
+    Protocol to obtain a better initial volume using as input a set of
+    volumes and particles. The protocol uses a small subset (usually 1000/2000)
+    particles from the input set of particles to estimate a better and reliable
+    volume(s) to use as initial volume in an automatic way.
+    """
+
     _label = 'volume selector'
 
     IS_VOLSELECTOR = True
 
     def __init__(self, **args):
-        ProtocolRelionBase.__init__(self, **args)
+        ProtocolBase.__init__(self, **args)
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
