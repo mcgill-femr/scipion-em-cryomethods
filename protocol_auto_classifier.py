@@ -31,17 +31,17 @@ import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from protocol_base import ProtocolRelionBase
+from protocol_base import ProtocolBase
 from convert import writeSetOfParticles
 from pyworkflow.utils import makePath
 
 
-class ProtAutoClassifier(ProtocolRelionBase):
+class ProtAutoClassifier(ProtocolBase):
     _label = 'auto classifier'
     IS_VOLSELECTOR = False
 
     def __init__(self, **args):
-        ProtocolRelionBase.__init__(self, **args)
+        ProtocolBase.__init__(self, **args)
         self._level = 1
         self._rLev = 1
 
