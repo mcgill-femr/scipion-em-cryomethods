@@ -32,8 +32,8 @@ import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
 from protocol_base import ProtocolBase
-from convert import writeSetOfParticles
-from pyworkflow.utils import makePath
+from convert import writeSetOfParticles, rowToAlignment, relionToLocation
+from pyworkflow.utils import makePath, createLink, replaceBaseExt
 
 
 class ProtAutoClassifier(ProtocolBase):
@@ -45,6 +45,14 @@ class ProtAutoClassifier(ProtocolBase):
         self._level = 1
         self._rLev = 1
 
+    def _initialize(self):
+        """ This function is mean to be called after the
+        working dir for the protocol have been set.
+        (maybe after recovery from mapper)
+        """
+        self._createFilenameTemplates()
+        self._createIterTemplates()
+
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
         self.levDir = self._getExtraPath('lev_%(lev)02d/')
@@ -52,9 +60,12 @@ class ProtAutoClassifier(ProtocolBase):
         self.rLevIter = self.rLevDir + 'relion_it%(iter)03d_'
         # add to keys, data.star, optimiser.star and sampling.star
         myDict = {
-                  'input_star': self.levDir + 'id%(rLevId)s_particles.star',
+                  'input_star': self.levDir + 'input_rLev-%(rLev)s.star',
+                  'outputData': self.levDir + 'output_data.star',
+                  'map': self.levDir + 'map_rLev-%(rLev)s.mrc',
+                  'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+                  'outputModel': self.levDir + 'output_model.star',
                   'data': self.rLevIter + 'data.star',
-                  # 'model': self.extraIter + 'model.star',
                   # 'optimiser': self.extraIter + 'optimiser.star',
                   # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
                   # 'movie_particles': self._getPath('movie_particles.star'),
@@ -77,7 +88,7 @@ class ProtAutoClassifier(ProtocolBase):
             myDict[key_xmipp] = self.rLevDir + '%s.xmd' % key
         # add other keys that depends on prefixes
         for p in self.PREFIXES:
-            myDict['%smodel' % p] = self.rLevDir + '%smodel.star' % p
+            myDict['%smodel' % p] = self.rLevIter + '%smodel.star' % p
             myDict['%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
 
         self._updateFilenamesDict(myDict)
@@ -89,7 +100,8 @@ class ProtAutoClassifier(ProtocolBase):
                                                iter=0).replace( '000', '???')
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
-        self._classRegex = re.compile('_class(\d{2,2})_')
+        self._iterRegex = re.compile('_it(\d{3,3})_')
+        self._classRegex = re.compile('_class(\d{2,2}).')
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -120,33 +132,36 @@ class ProtAutoClassifier(ProtocolBase):
 
     def _insertLevelSteps(self):
         deps = []
-        clsNumber = self.numberOfClasses.get()
-        levelRuns = clsNumber**(self._level - 1)
+        levelRuns = self._getLevRuns(self._level)
+
+        self._insertFunctionStep('convertInputStep',
+                                 self._getResetDeps(),
+                                 self.copyAlignment,
+                                 prerequisites=deps)
 
         for rLev in range(1, levelRuns+1):
             self._rLev = rLev # Just to generate the proper input star file.
-            self._insertFunctionStep('convertInputStep', self._getResetDeps(),
-                                     self.copyAlignment, rLev,
-                                     prerequisites=deps)
             self._insertClassifyStep()
             self._setNewEvalIds(rLev)
-            evStep = self._insertEvaluationStep(rLev)
-            deps.append(evStep)
+        evStep = self._insertEvaluationStep()
+        deps.append(evStep)
         return deps
 
-    def _insertEvaluationStep(self, rLev):
-        evalDep = self._insertFunctionStep('evaluationStep', rLev)
-        return [evalDep]
+    def _insertEvaluationStep(self):
+        evalDep = self._insertFunctionStep('evaluationStep')
+        return evalDep
+
 
     def _stepsCheck(self):
         print('Just passing through this')
         self.finished = False
-        if self._level == 3: # condition to stop the cycle
+        if self._level == 2: # condition to stop the cycle
             self.finished = True
         outputStep = self._getFirstJoinStep()
         if self.finished:  # Unlock createOutputStep if finished all jobs
             if outputStep and outputStep.isWaiting():
                 outputStep.setStatus(cons.STATUS_NEW)
+                print('outputStep After setStatus')
         else:
             print('Not finished, cheking if previous step finished',
                   self._evalIdsList, self._doneList)
@@ -154,20 +169,19 @@ class ProtAutoClassifier(ProtocolBase):
                 print('_evalIdsList == _doneList')
                 self._level += 1
                 fDeps = self._insertLevelSteps()
-
                 if outputStep is not None:
                     outputStep.addPrerequisites(*fDeps)
                 self.updateSteps()
 
     # -------------------------- STEPS functions -------------------------------
-    def convertInputStep(self, resetDeps, copyAlignment, rLev):
+    def convertInputStep(self, resetDeps, copyAlignment):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
-        makePath(self._getRunPath(self._level, rLev))
-        imgStar = self._getFileName('input_star')
+        imgStar = self._getFileName('input_star',lev=self._level, rLev=1)
 
         if self._level == 1:
+            makePath(self._getRunPath(self._level, 1))
             imgSet = self._getInputParticles()
             self.info("Converting set from '%s' into '%s'" %
                       (imgSet.getFileName(), imgStar))
@@ -191,23 +205,84 @@ class ProtAutoClassifier(ProtocolBase):
             if self.doCtfManualGroups:
                 self._splitInCTFGroups(imgStar)
 
-            if self._getRefArg():
-                self._convertRef()
+            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
         else:
-            pass
+            noOfLevRuns = self._getLevRuns(self._level)
+            lastCls = None
 
-    def evaluationStep(self, rLev):
-        rLevId = self._getRunLevId(self._level, rLev)
-        imgStar = self._getFileName('data', iter=self._lastIter(),
-                                    lev=self._level, rLev=rLev)
+            prevStar = self._getFileName('outputData', lev=self._level-1)
+            mdData = md.MetaData(prevStar)
+            print('how many run levels? %d' % noOfLevRuns)
 
-        mdStar = md.MetaData(imgStar)
+            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+                if clsPart != lastCls:
+                    makePath(self._getRunPath(self._level, clsPart))
 
-        for row in md.iterRows(mdStar, sortByLabel=md.RLN_PARTICLE_CLASS):
-            pass
+                    if lastCls is not None:
+                        print("writing %s" % fn)
+                        mdInput.write(fn)
+                    paths = self._getRunPath(self._level, clsPart)
+                    makePath(paths)
+                    print ("Path: %s and newRlev: %d" % (paths, clsPart))
+                    lastCls = clsPart
+                    mdInput = md.MetaData()
+                    fn = self._getFileName('input_star', lev=self._level,
+                                           rLev=clsPart)
+                objId = mdInput.addObject()
+                row.writeToMd(mdInput, objId)
+            print("writing %s and ending the loop" % fn)
+            mdInput.write(fn)
 
-        print('Executing evaluation step')
-        self._doneList.append(rLevId)
+    def evaluationStep(self):
+        noOfLevRuns = self._getLevRuns(self._level)
+        iters = self.numberOfIterations.get()
+        self._newClass = 0
+        self._clsDict = {}
+        outModel = self._getFileName('outputModel', lev=self._level)
+        outStar = self._getFileName('outputData', lev=self._level)
+        mdInput = md.MetaData()
+        outMd = md.MetaData()
+
+
+        for rLev in range(1, noOfLevRuns+1):
+            rLevId = self._getRunLevId(self._level, rLev)
+            self._lastCls = None
+            mdModel = self._getFileName('model', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            print('Filename model star: %s' % mdModel)
+            self._mergeDataStar(outStar, mdInput, iters, rLev)
+            self._mergeModelStar(outMd , mdModel, rLev)
+
+            self._doneList.append(rLevId)
+
+        outMd.write('model_classes@' + outModel)
+        mdInput.write(outStar)
+
+        print('Finishing evaluation step')
+
+    def createOutputStep(self):
+        partSet = self.inputParticles.get()
+        classes3D = self._createSetOfClasses3D(partSet)
+        self._fillClassesFromIter(classes3D)
+
+        self._defineOutputs(outputClasses=classes3D)
+        self._defineSourceRelation(self.inputParticles, classes3D)
+
+        # create a SetOfVolumes and define its relations
+        volumes = self._createSetOfVolumes()
+        volumes.setSamplingRate(partSet.getSamplingRate())
+
+        for class3D in classes3D:
+            vol = class3D.getRepresentative()
+            vol.setObjId(class3D.getObjId())
+            volumes.append(vol)
+
+        self._defineOutputs(outputVolumes=volumes)
+        self._defineSourceRelation(self.inputParticles, volumes)
+
+        self._defineSourceRelation(self.inputVolumes, classes3D)
+        self._defineSourceRelation(self.inputVolumes, volumes)
 
     # -------------------------- UTILS functions -------------------------------
     def _setSamplingArgs(self, args):
@@ -258,3 +333,109 @@ class ProtAutoClassifier(ProtocolBase):
 
     def _getBoolAttr(self, attr=''):
         return getattr(attr, False)
+
+    def _getLevRuns(self, level):
+        clsNumber = self.numberOfClasses.get()
+        return clsNumber**(level - 1)
+
+    def _getRefArg(self):
+        if self._level==1:
+            return self._convertVolFn(self.inputVolumes.get())
+        return self._getFileName('map',lev=self._level-1, rLev=self._rLev)
+
+    def _convertVolFn(self, inputVol):
+        """ Return a new name if the inputFn is not .mrc """
+        index, fn = inputVol.getLocation()
+        return self._getTmpPath(replaceBaseExt(fn, '%02d.mrc' % index))
+
+    def _convertVol(self, ih, inputVol):
+        outputFn = self._convertVolFn(inputVol)
+
+        if outputFn:
+            xdim = self._getInputParticles().getXDim()
+            img = ih.read(inputVol)
+            img.scale(xdim, xdim, xdim)
+            img.write(outputFn)
+
+        return outputFn
+
+    def _mergeDataStar(self, outStar, mdInput, iter, rLev):
+        imgStar = self._getFileName('data', iter=iter,
+                                    lev=self._level, rLev=rLev)
+        mdData = md.MetaData(imgStar)
+
+        print("reading %s and begin the loop" % imgStar)
+        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            if clsPart != self._lastCls:
+                self._newClass += 1
+                self._clsDict['%s.%s' % (rLev, clsPart)] = self._newClass
+                self._lastCls = clsPart
+                # write symlink to new Maps
+                relionFn = self._getFileName('relionMap', lev=self._level,
+                                             iter=self._getnumberOfIters(),
+                                             ref3d=clsPart, rLev=rLev)
+                newFn = self._getFileName('map', lev=self._level,
+                                          rLev=self._newClass)
+                print(('link from %s to %s' % (relionFn, newFn)))
+                createLink(relionFn, newFn)
+
+            row.setValue(md.RLN_PARTICLE_CLASS, self._newClass)
+            row.addToMd(mdInput)
+        print("writing %s and ending the loop" % outStar)
+
+    def _mergeModelStar(self, outMd, mdInput, rLev):
+        modelStar = md.MetaData('model_classes@' + mdInput)
+
+        for classNumber, row in enumerate(md.iterRows(modelStar)):
+            # objId = self._clsDict['%s.%s' % (rLev, classNumber+1)]
+            row.addToMd(outMd)
+
+    def _loadClassesInfo(self):
+        """ Read some information about the produced Relion 3D classes
+        from the *model.star file.
+        """
+        self._classesInfo = {}  # store classes info, indexed by class id
+        mdModel = self._getFileName('outputModel', lev=self._level)
+
+        modelStar = md.MetaData('model_classes@' + mdModel)
+
+        for classNumber, row in enumerate(md.iterRows(modelStar)):
+            index, fn = relionToLocation(row.getValue('rlnReferenceImage'))
+            # Store info indexed by id, we need to store the row.clone() since
+            # the same reference is used for iteration
+            self._classesInfo[classNumber + 1] = (index, fn, row.clone())
+
+    def _fillClassesFromIter(self, clsSet):
+        """ Create the SetOfClasses3D from a given iteration. """
+        self._loadClassesInfo()
+        dataStar = self._getFileName('outputData', lev=self._level)
+        clsSet.classifyItems(updateItemCallback=self._updateParticle,
+                             updateClassCallback=self._updateClass,
+                             itemDataIterator=md.iterRows(dataStar,
+                                                          sortByLabel=md.RLN_IMAGE_ID))
+
+    def _updateParticle(self, item, row):
+        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
+        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
+
+        item._rlnLogLikeliContribution = em.Float(
+            row.getValue('rlnLogLikeliContribution'))
+        item._rlnMaxValueProbDistribution = em.Float(
+            row.getValue('rlnMaxValueProbDistribution'))
+        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+
+    def _updateClass(self, item):
+        classId = item.getObjId()
+        if classId in self._classesInfo:
+            index, fn, row = self._classesInfo[classId]
+            fn += ":mrc"
+            item.setAlignmentProj()
+            item.getRepresentative().setLocation(index, fn)
+            item._rlnclassDistribution = em.Float(
+                row.getValue('rlnClassDistribution'))
+            item._rlnAccuracyRotations = em.Float(
+                row.getValue('rlnAccuracyRotations'))
+            item._rlnAccuracyTranslations = em.Float(
+                row.getValue('rlnAccuracyTranslations'))
+

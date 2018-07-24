@@ -44,6 +44,41 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
 
+    def _createFilenameTemplates(self):
+        """ Centralize how files are called for iterations and references. """
+        self.extraIter = self._getExtraPath('relion_it%(iter)03d_')
+        myDict = {
+            'input_star': self._getPath('input_particles.star'),
+            'data_scipion': self.extraIter + 'data_scipion.sqlite',
+            'volumes_scipion': self.extraIter + 'volumes.sqlite',
+            'data': self.extraIter + 'data.star',
+            'model': self.extraIter + 'model.star',
+            'optimiser': self.extraIter + 'optimiser.star',
+            'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
+            'all_avgPmax_xmipp': self._getTmpPath(
+                'iterations_avgPmax_xmipp.xmd'),
+            'all_changes_xmipp': self._getTmpPath(
+                'iterations_changes_xmipp.xmd'),
+            'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
+            'movie_particles': self._getPath('movie_particles.star'),
+            'dataFinal': self._getExtraPath("relion_data.star"),
+            'modelFinal': self._getExtraPath("relion_model.star"),
+            'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
+            'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
+            'preprocess_parts_star': self._getPath("preprocess_particles.star"),
+        }
+        # add to keys, data.star, optimiser.star and sampling.star
+        for key in self.FILE_KEYS:
+            myDict[key] = self.extraIter + '%s.star' % key
+            key_xmipp = key + '_xmipp'
+            myDict[key_xmipp] = self.extraIter + '%s.xmd' % key
+        # add other keys that depends on prefixes
+        for p in self.PREFIXES:
+            myDict['%smodel' % p] = self.extraIter + '%smodel.star' % p
+            myDict['%svolume' % p] = self.extraIter + p + \
+                                     'class%(ref3d)03d.mrc:mrc'
+        self._updateFilenamesDict(myDict)
+
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)

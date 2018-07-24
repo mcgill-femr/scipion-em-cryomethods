@@ -27,6 +27,7 @@
 """
 This sub-package contains cryoMethods protocols and tools.
 """
+import os
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
