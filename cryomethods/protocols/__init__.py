@@ -24,35 +24,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-"""
-This sub-package contains cryoMethods protocols and tools.
-"""
-import os
 
-# from bibtex import _bibtex # Load bibtex dict with references
-_logo = "cryomethods_logo.png"
-_references = []
-from convert import getSupportedVersions, getVersion, getEnviron
 from protocol_auto_classifier import ProtAutoClassifier
 from protocol_volume_selector import ProtInitialVolumeSelector
 
-# Wizards
-from wizard import (TargetFilterWizard, InitialPassFilterWizard,
-                    MaskDiameterWizard)
-
-#Viewer
-from viewer import VolumeSelectorViewer
-
-_environ = getEnviron()
-
-
-def validateInstallation():
-    """ This function will be used to check if RELION is properly installed. """
-    missingPaths = ["%s: %s" % (var, _environ[var])
-                    for var in ['RELION_HOME']
-                    if not os.path.exists(_environ[var])]
-
-    if missingPaths:
-        return ["Missing variables:"] + missingPaths
-    else:
-        return [] # No errors
