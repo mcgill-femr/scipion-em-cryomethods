@@ -42,6 +42,7 @@ class ProtocolBase(em.EMProtocol):
     cryomethods that uses Relion programs.
     """
     IS_VOLSELECTOR = False
+    IS_AUTOCLASSIFY = False
     OUTPUT_TYPE = em.SetOfVolumes
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
@@ -262,6 +263,13 @@ class ProtocolBase(em.EMProtocol):
 
     def _defineOptimizationParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection(label='Optimisation')
+        if self.IS_AUTOCLASSIFY:
+            form.addParam('level', params.IntParam, default=4,
+                          expertLevel=expertLev,
+                          label='Number of levels',
+                          help='Number of levels to be performed. A level is '
+                               'defined as all the classification runs for '
+                               'every class from the previous level.')
         form.addParam('numberOfIterations', params.IntParam, default=25,
                       expertLevel=expertLev,
                       label='Number of iterations',

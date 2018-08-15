@@ -31,8 +31,6 @@ import os
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_HOME, V2_0, V2_1
-
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
 _references = []
@@ -84,7 +82,7 @@ class Plugin:
     @classmethod
     def getSupportedVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V2_0, V2_1]
+        return []
 
     @classmethod
     def validateInstallation(cls):
@@ -92,7 +90,7 @@ class Plugin:
         properly installed. """
         environ = cls.getEnviron()
         missingPaths = ["%s: %s" % (var, environ[var])
-                        for var in [RELION_HOME]
+                        for var in ['RELION_HOME']
                         if not os.path.exists(environ[var])]
 
         return (["Missing variables:"] + missingPaths) if missingPaths else []

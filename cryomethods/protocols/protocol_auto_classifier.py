@@ -31,14 +31,16 @@ import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from protocol_base import ProtocolBase
-from convert import writeSetOfParticles, rowToAlignment, relionToLocation
 from pyworkflow.utils import makePath, createLink, replaceBaseExt
+
+from .protocol_base import ProtocolBase
+from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
+                                 relionToLocation)
 
 
 class ProtAutoClassifier(ProtocolBase):
     _label = 'auto classifier'
-    IS_VOLSELECTOR = False
+    IS_AUTOCLASSIFY = True
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -155,7 +157,7 @@ class ProtAutoClassifier(ProtocolBase):
     def _stepsCheck(self):
         print('Just passing through this')
         self.finished = False
-        if self._level == 2: # condition to stop the cycle
+        if self._level == self.level.get(): # condition to stop the cycle
             self.finished = True
         outputStep = self._getFirstJoinStep()
         if self.finished:  # Unlock createOutputStep if finished all jobs
@@ -438,4 +440,3 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyRotations'))
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
-

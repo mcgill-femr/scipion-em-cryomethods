@@ -25,8 +25,9 @@
 # *
 # **************************************************************************
 import pyworkflow.em as em
-from pyworkflow.em.packages.cryomethods.protocol_base import ProtocolBase
-from convert import writeSetOfParticles
+
+from cryomethods.convert import writeSetOfParticles
+from .protocol_base import ProtocolBase
 
 
 class ProtInitialVolumeSelector(ProtocolBase):

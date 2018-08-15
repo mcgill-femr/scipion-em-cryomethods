@@ -37,7 +37,7 @@ from pyworkflow.utils.path import (createLink, cleanPath, copyFile,
                                    replaceBaseExt, getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
-from pyworkflow.em.packages.relion.constants import V2_0, V2_1
+from relion.constants import V2_0, V2_1
 
 # This dictionary will be used to map
 # between CTFModel properties and Xmipp labels
