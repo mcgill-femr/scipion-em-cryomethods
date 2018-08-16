@@ -118,3 +118,5 @@ class Plugin(pyworkflow.em.Plugin):
 
         return (["Missing variables:"] + missingPaths) if missingPaths else []
 
+
+pyworkflow.em.Domain.registerPlugin(__name__)
