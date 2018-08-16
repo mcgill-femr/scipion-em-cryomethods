@@ -31,6 +31,8 @@ import os
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
+from .constants import RELION_HOME, CRYOMETHODS_HOME, V2_0, V2_1
+
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
 _references = []
@@ -41,16 +43,21 @@ class Plugin:
 
     @classmethod
     def __getHome(cls, *paths):
+        """ Return the python files path and possible some subfolders. """
+        return os.path.join(os.environ[CRYOMETHODS_HOME], *paths)
+
+    @classmethod
+    def __getRelionHome(cls, *paths):
         """ Return the binary home path and possible some subfolders. """
         return os.path.join(os.environ[RELION_HOME], *paths)
 
     @classmethod
-    def getEnviron(cls):
+    def getRelionEnviron(cls):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = pwutils.Environ(os.environ)
-        binPath = cls.__getHome('bin')
-        libPath = cls.__getHome('lib') + ":" + cls.__getHome('lib64')
+        binPath = cls.__getRelionHome('bin')
+        libPath = cls.__getRelionHome('lib') + ":" + cls.__getRelionHome('lib64')
 
         if not binPath in environ['PATH']:
             environ.update({'PATH': binPath,
@@ -65,11 +72,29 @@ class Plugin:
         return environ
 
     @classmethod
+    def getEnviron(cls):
+        """ Setup the environment variables needed to launch Relion. """
+
+        environ = cls.getRelionEnviron()
+        pythonPath = cls.__getHome('alignLib') + ":" + \
+                     cls.__getHome('imageLib') + ":" + \
+                     cls.__getHome('alignLib/tompy')
+
+        libPath = cls.__getHome('alignLib/SpharmonicKit27') + ":" + \
+                  cls.__getHome('alignLib/frm/swig')
+
+        if not pythonPath in environ['PYTHONPATH']:
+            environ.update({'PYTHONPATH': pythonPath,
+                            'LD_LIBRARY_PATH': libPath,
+                            }, position=pwutils.Environ.BEGIN)
+        return environ
+
+    @classmethod
     def getActiveVersion(cls):
         """ Return the version of the Relion binaries that is currently active.
         In the current implementation it will be inferred from the RELION_HOME
         variable, so it should contain the version number in it. """
-        home = cls.__getHome()
+        home = cls.__getRelionHome()
         for v in cls.getSupportedVersions():
             if v in home:
                 return v
@@ -82,7 +107,7 @@ class Plugin:
     @classmethod
     def getSupportedVersions(cls):
         """ Return the list of supported binary versions. """
-        return []
+        return [V2_0, V2_1]
 
     @classmethod
     def validateInstallation(cls):
