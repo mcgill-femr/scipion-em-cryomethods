@@ -37,9 +37,6 @@ from pyworkflow.utils.path import (createLink, copyFile, replaceBaseExt,
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 
-from mrc import Mrc
-
-
 def loadMrc(fn, writable=True):
     """Return a NumPy array memory mapped from an existing MRC file.
 
@@ -60,6 +57,9 @@ def loadMrc(fn, writable=True):
     header entries.  Changes made to the array elements or the header
     will affect the file to which the array is bound.
     """
+    Plugin.getEnviron()
+    import Mrc
+
 
     mode = 'r'
     if writable:

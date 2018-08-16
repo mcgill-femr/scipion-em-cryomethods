@@ -39,8 +39,6 @@ _references = []
 
 
 class Plugin(pyworkflow.em.Plugin):
-    # __metaclass__ = pyworkflow.em.PluginMeta
-
     @classmethod
     def __getHome(cls, *paths):
         """ Return the python files path and possible some subfolders. """
@@ -84,6 +82,7 @@ class Plugin(pyworkflow.em.Plugin):
                   cls.__getHome('alignLib/frm/swig')
 
         if not pythonPath in environ['PYTHONPATH']:
+            print("ENTRO AAAAAAAAAAAA", pythonPath, os.environ['PYTHONPATH'])
             environ.update({'PYTHONPATH': pythonPath,
                             'LD_LIBRARY_PATH': libPath,
                             }, position=pwutils.Environ.BEGIN)
@@ -120,3 +119,5 @@ class Plugin(pyworkflow.em.Plugin):
 
         return (["Missing variables:"] + missingPaths) if missingPaths else []
 
+
+pyworkflow.em.Domain.registerPlugin(__name__)
