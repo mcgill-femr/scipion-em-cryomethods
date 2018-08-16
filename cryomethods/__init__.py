@@ -38,8 +38,8 @@ _logo = "cryomethods_logo.png"
 _references = []
 
 
-class Plugin:
-    __metaclass__ = pyworkflow.em.PluginMeta
+class Plugin(pyworkflow.em.Plugin):
+    # __metaclass__ = pyworkflow.em.PluginMeta
 
     @classmethod
     def __getHome(cls, *paths):
