@@ -33,9 +33,9 @@ import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
 from pyworkflow.utils.path import cleanPath, replaceBaseExt
 
-from pyworkflow.em.packages.cryomethods.constants import (CHANGE_LABELS, V2_0,
-    ANGULAR_SAMPLING_LIST, MASK_FILL_ZERO)
-import convert as conv
+from cryomethods.constants import (CHANGE_LABELS, V2_0, ANGULAR_SAMPLING_LIST,
+                                    MASK_FILL_ZERO)
+import cryomethods.convert as conv
 
 class ProtocolBase(em.EMProtocol):
     """ This class contains the common functions for protocols developed by
