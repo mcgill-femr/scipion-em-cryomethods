@@ -28,7 +28,7 @@ from pyworkflow.em.constants import FILTER_LOW_PASS_NO_DECAY
 from pyworkflow.em.wizard import (ParticleMaskRadiusWizard, UNIT_ANGSTROM,
                                   FilterVolumesWizard, BandPassFilterDialog,
                                   dialog)
-from protocol_volume_selector import ProtInitialVolumeSelector
+from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 
 #===============================================================================
 # MASKS

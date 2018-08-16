@@ -27,8 +27,7 @@
 from pyworkflow.tests import *
 from pyworkflow.utils import Environ
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-from pyworkflow.em.packages.cryomethods import ProtInitialVolumeSelector
-# from pyworkflow.em.protocol import ImageHandler
+from cryomethods.protocols import ProtInitialVolumeSelector, ProtAutoClassifier
 
 class TestBase(BaseTest):
     @classmethod
