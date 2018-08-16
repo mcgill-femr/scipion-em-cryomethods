@@ -1,3 +1,3 @@
 
-from .test_volume_selector import *
-from .test_autoclassify import *
+from test_volume_selector import *
+from test_autoclassify import *
