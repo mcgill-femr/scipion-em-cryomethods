@@ -32,17 +32,46 @@ from collections import OrderedDict
 from itertools import izip
 
 from pyworkflow.object import ObjectWrap, String, Integer
-from pyworkflow.utils import Environ
-from pyworkflow.utils.path import (createLink, cleanPath, copyFile,
-                                   replaceBaseExt, getExt, removeExt)
+from pyworkflow.utils.path import (createLink, copyFile, replaceBaseExt,
+                                   getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
-from relion.constants import V2_0, V2_1
+
+from mrc import Mrc
+
+
+def loadMrc(fn, writable=True):
+    """Return a NumPy array memory mapped from an existing MRC file.
+
+    The returned NumPy array will have an attribute, Mrc, that is
+    an instance of the Mrc class.  You can use that to access the
+    header or extended header of the file.  For instance, if x
+    was returned by bindFile(), x.Mrc.hdr.Num is the number of x
+    samples, number of y samples, and number of sections from the
+    file's header.
+
+    Positional parameters:
+    fn -- Is the name of the MRC file to bind.
+
+    Keyword parameters:
+    writable -- If True, the returned array will allow the elements of
+    the array to be modified.  The Mrc instance packaged with the
+    array will also allow modification of the header and extended
+    header entries.  Changes made to the array elements or the header
+    will affect the file to which the array is bound.
+    """
+
+    mode = 'r'
+    if writable:
+        mode = 'r+'
+    a = Mrc(fn, mode)
+
+    return a.data_withMrc(fn)
+
 
 # This dictionary will be used to map
-# between CTFModel properties and Xmipp labels
-RELION_HOME = 'RELION_HOME'
-ACQUISITION_DICT = OrderedDict([ 
+# between CTFModel properties and Relion labels
+ACQUISITION_DICT = OrderedDict([
        ("_amplitudeContrast", md.RLN_CTF_Q0),
        ("_sphericalAberration", md.RLN_CTF_CS),
        ("_voltage", md.RLN_CTF_VOLTAGE),
@@ -122,44 +151,6 @@ ALIGNMENT_DICT = OrderedDict([
        ("_rlnAngleTilt", md.RLN_ORIENT_TILT),
        ("_rlnAnglePsi", md.RLN_ORIENT_PSI),
        ])
-
-
-def getEnviron():
-    """ Setup the environment variables needed to launch Relion. """
-    
-    environ = Environ(os.environ)
-
-    relionHome = os.environ[RELION_HOME]
-    
-    binPath = join(relionHome, 'bin')
-    libPath = join(relionHome, 'lib') + ":" + join(relionHome, 'lib64')
-    
-    if not binPath in environ['PATH']:
-        environ.update({'PATH': binPath,
-                        'LD_LIBRARY_PATH': libPath,
-                        'SCIPION_MPI_FLAGS': os.environ.get('RELION_MPI_FLAGS', ''),
-                        }, position=Environ.BEGIN)
-    
-    # Take Scipion CUDA library path
-    cudaLib = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
-    environ.addLibrary(cudaLib)
-
-    return environ
-
-def getVersion():
-    path = os.environ['RELION_HOME']
-    for v in getSupportedVersions():
-        if v in path:
-            return v
-    return ''
-
-
-def isVersion2():
-    return getVersion().startswith("2.")
-
-
-def getSupportedVersions():
-    return [V2_0, V2_1]
 
 
 def locationToRelion(index, filename):
