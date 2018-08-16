@@ -39,7 +39,6 @@ _references = []
 
 
 class Plugin(pyworkflow.em.Plugin):
-
     @classmethod
     def __getHome(cls, *paths):
         """ Return the python files path and possible some subfolders. """
@@ -119,5 +118,3 @@ class Plugin(pyworkflow.em.Plugin):
 
         return (["Missing variables:"] + missingPaths) if missingPaths else []
 
-
-pyworkflow.em.Domain.registerPlugin(__name__)
