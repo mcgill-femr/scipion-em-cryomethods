@@ -25,17 +25,18 @@
 # *
 # **************************************************************************
 import re
+from glob import glob
 from collections import Counter
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import makePath, createLink, replaceBaseExt
+from pyworkflow.utils import makePath, copyFile, replaceBaseExt
 
 from .protocol_base import ProtocolBase
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation)
+                                 relionToLocation, loadMrc)
 
 
 class ProtAutoClassifier(ProtocolBase):
@@ -261,6 +262,7 @@ class ProtAutoClassifier(ProtocolBase):
         outMd.write('model_classes@' + outModel)
         mdInput.write(outStar)
 
+        self._alignVolumes()
         print('Finishing evaluation step')
 
     def createOutputStep(self):
@@ -380,7 +382,7 @@ class ProtAutoClassifier(ProtocolBase):
                 newFn = self._getFileName('map', lev=self._level,
                                           rLev=self._newClass)
                 print(('link from %s to %s' % (relionFn, newFn)))
-                createLink(relionFn, newFn)
+                copyFile(relionFn, newFn)
 
             row.setValue(md.RLN_PARTICLE_CLASS, self._newClass)
             row.addToMd(mdInput)
@@ -440,3 +442,8 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyRotations'))
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
+
+    def _alignVolumes(self):
+        levPath = self._getLevelPath(self._level)
+        listVol = sorted(glob(levPath + "*.mrc"))
+        print ('list of volumes: ', listVol)

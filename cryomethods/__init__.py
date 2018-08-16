@@ -39,7 +39,6 @@ _references = []
 
 
 class Plugin(pyworkflow.em.Plugin):
-    # __metaclass__ = pyworkflow.em.PluginMeta
 
     @classmethod
     def __getHome(cls, *paths):
@@ -120,3 +119,5 @@ class Plugin(pyworkflow.em.Plugin):
 
         return (["Missing variables:"] + missingPaths) if missingPaths else []
 
+
+pyworkflow.em.Domain.registerPlugin(__name__)
