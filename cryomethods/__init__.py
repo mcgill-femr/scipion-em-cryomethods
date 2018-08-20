@@ -45,6 +45,24 @@ class Plugin(pyworkflow.em.Plugin):
         return os.path.join(os.environ[CRYOMETHODS_HOME], *paths)
 
     @classmethod
+    def getEnviron(cls):
+        """ Setup the environment variables needed to launch Relion. """
+
+        environ = cls.getRelionEnviron()
+        pythonPath = cls.__getHome('alignLib') + ":" + \
+                     cls.__getHome('imageLib') + ":" + \
+                     cls.__getHome('alignLib/tompy')
+
+        libPath = cls.__getHome('alignLib/SpharmonicKit27') + ":" + \
+                  cls.__getHome('alignLib/frm/swig')
+
+        if not pythonPath in environ['PYTHONPATH']:
+            environ.update({'PYTHONPATH': pythonPath,
+                            'LD_LIBRARY_PATH': libPath,
+                            }, position=pwutils.Environ.BEGIN)
+        return environ
+
+    @classmethod
     def __getRelionHome(cls, *paths):
         """ Return the binary home path and possible some subfolders. """
         return os.path.join(os.environ[RELION_HOME], *paths)
@@ -70,24 +88,6 @@ class Plugin(pyworkflow.em.Plugin):
         return environ
 
     @classmethod
-    def getEnviron(cls):
-        """ Setup the environment variables needed to launch Relion. """
-
-        environ = cls.getRelionEnviron()
-        pythonPath = cls.__getHome('alignLib') + ":" + \
-                     cls.__getHome('imageLib') + ":" + \
-                     cls.__getHome('alignLib/tompy')
-
-        libPath = cls.__getHome('alignLib/SpharmonicKit27') + ":" + \
-                  cls.__getHome('alignLib/frm/swig')
-
-        if not pythonPath in environ['PYTHONPATH']:
-            environ.update({'PYTHONPATH': pythonPath,
-                            'LD_LIBRARY_PATH': libPath,
-                            }, position=pwutils.Environ.BEGIN)
-        return environ
-
-    @classmethod
     def getActiveRelionVersion(cls):
         """ Return the version of the Relion binaries that is currently active.
         In the current implementation it will be inferred from the RELION_HOME
@@ -99,13 +99,30 @@ class Plugin(pyworkflow.em.Plugin):
         return ''
 
     @classmethod
-    def isVersion2Active(cls):
-        return cls.getActiveVersion().startswith("2.")
+    def getActiveVersion(cls):
+        """ Return the version of the Relion binaries that is currently active.
+        In the current implementation it will be inferred from the RELION_HOME
+        variable, so it should contain the version number in it. """
+        home = cls.__getHome()
+        for v in cls.getSupportedVersions():
+            if v in home:
+                return v
+        return ''
+
+    @classmethod
+    def isVersion2Relion(cls):
+        return cls.getActiveRelionVersion().startswith("2.")
+
 
     @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
         return [V2_0, V2_1]
+
+    @classmethod
+    def getSupportedVersions(cls):
+        """ Return the list of supported binary versions. """
+        return ['0.1']
 
     @classmethod
     def validateInstallation(cls):

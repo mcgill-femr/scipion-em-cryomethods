@@ -799,7 +799,7 @@ class ProtocolBase(em.EMProtocol):
                                            self._getTmpPath())
             args['--solvent_mask2'] = solventMask
 
-        if (conv.isVersion2() and self.referenceMask.hasValue()
+        if (Plugin.isVersion2Relion() and self.referenceMask.hasValue()
                 and self.solventFscMask):
             args['--solvent_correct_fsc'] = ''
 
