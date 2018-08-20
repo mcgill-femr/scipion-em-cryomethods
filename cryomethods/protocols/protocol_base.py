@@ -33,9 +33,11 @@ import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
 from pyworkflow.utils.path import cleanPath, replaceBaseExt
 
-from cryomethods.constants import (CHANGE_LABELS, V2_0, ANGULAR_SAMPLING_LIST,
-                                    MASK_FILL_ZERO)
+from cryomethods import Plugin
+from cryomethods.constants import (V2_0, ANGULAR_SAMPLING_LIST, MASK_FILL_ZERO)
 import cryomethods.convert as conv
+
+
 
 class ProtocolBase(em.EMProtocol):
     """ This class contains the common functions for protocols developed by
@@ -298,7 +300,7 @@ class ProtocolBase(em.EMProtocol):
                            'over-estimated resolutions and overfitting.')
 
         # version 2.1+ only and not Volume selector protocol.
-        if conv.getVersion() != V2_0 and not self.IS_VOLSELECTOR:
+        if Plugin.getActiveRelionVersion() != V2_0 and not self.IS_VOLSELECTOR:
             form.addParam('doSubsets', params.BooleanParam, default=False,
                           label='Use subsets for initial updates?',
                           help='If set to True, multiple maximization updates '

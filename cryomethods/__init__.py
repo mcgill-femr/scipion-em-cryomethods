@@ -88,12 +88,12 @@ class Plugin(pyworkflow.em.Plugin):
         return environ
 
     @classmethod
-    def getActiveVersion(cls):
+    def getActiveRelionVersion(cls):
         """ Return the version of the Relion binaries that is currently active.
         In the current implementation it will be inferred from the RELION_HOME
         variable, so it should contain the version number in it. """
         home = cls.__getRelionHome()
-        for v in cls.getSupportedVersions():
+        for v in cls.getSupportedRelionVersions():
             if v in home:
                 return v
         return ''
@@ -103,7 +103,7 @@ class Plugin(pyworkflow.em.Plugin):
         return cls.getActiveVersion().startswith("2.")
 
     @classmethod
-    def getSupportedVersions(cls):
+    def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
         return [V2_0, V2_1]
 
