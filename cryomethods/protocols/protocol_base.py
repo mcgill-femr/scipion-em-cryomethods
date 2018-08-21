@@ -772,7 +772,7 @@ class ProtocolBase(em.EMProtocol):
         args['--tau2_fudge'] = self.regularisationParamT.get()
         args['--iter'] = self._getnumberOfIters()
 
-        if not self.IS_VOLSELECTOR and conv.getVersion() != V2_0:
+        if not self.IS_VOLSELECTOR and Plugin.getActiveRelionVersion() != V2_0:
             self._setSubsetArgs(args)
 
         self._setSamplingArgs(args)
