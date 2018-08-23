@@ -26,11 +26,10 @@
 # **************************************************************************
 from glob import glob
 from pyworkflow.tests import *
+
 from cryomethods import Plugin
 from cryomethods.convert import loadMrc, alignVolumes
 
-# from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-# from cryomethods.protocols import ProtInitialVolumeSelector
 
 class TestBase(BaseTest):
     @classmethod
@@ -38,50 +37,12 @@ class TestBase(BaseTest):
         cls.dataset = DataSet.getDataSet(dataProject)
         cls.volumes = cls.dataset.getFile('import/case2/*class00?.mrc')
 
-    # def checkOutput(self, prot, outputName, conditions=[]):
-    #     """ Check that an output was generated and
-    #     the condition is valid.
-    #     """
-    #     o = getattr(prot, outputName, None)
-    #     locals()[outputName] = o
-    #     self.assertIsNotNone(o, "Output: %s is None" % outputName)
-    #     for cond in conditions:
-    #         self.assertTrue(eval(cond), 'Condition failed: ' + cond)
-    #
-    # @classmethod
-    # def runImportParticles(cls, pattern, samplingRate, checkStack=False):
-    #     """ Run an Import particles protocol. """
-    #     protImport = cls.newProtocol(ProtImportParticles,
-    #                                  importFrom=4,
-    #                                  sqliteFile=pattern,
-    #                                  samplingRate=samplingRate,
-    #                                  checkStack=checkStack)
-    #     cls.launchProtocol(protImport)
-    #     # check that input images have been imported (a better way to do this?)
-    #     if protImport.outputParticles is None:
-    #         raise Exception('Import of images: %s, failed. outputParticles '
-    #                         'is None.' % pattern)
-    #     return protImport
-    #
-    # @classmethod
-    # def runImportVolumes(cls, pattern, samplingRate):
-    #     """ Run an Import particles protocol. """
-    #     protImport = cls.newProtocol(ProtImportVolumes,
-    #                                  filesPath=pattern,
-    #                                  filesPattern='relion*_class*.mrc',
-    #                                  samplingRate=samplingRate)
-    #     cls.launchProtocol(protImport)
-    #     return protImport
-
 
 class TestAlignVolumes(TestBase):
     @classmethod
     def setUpClass(cls):
         setupTestProject(cls)
         TestBase.setData()
-        # cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
-        # cls.protImportVol = cls.runImportVolumes(cls.volumes, 7.08)
-
 
     def testAlignVolumes(self):
         Plugin.setEnviron()

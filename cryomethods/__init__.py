@@ -74,7 +74,7 @@ class Plugin(pyworkflow.em.Plugin):
         for path in pythonPath:
             if not path in sys.path:
                 sys.path.append(path)
-
+        os.environ.update(cls.getEnviron())
 
     @classmethod
     def getRelionEnviron(cls):
