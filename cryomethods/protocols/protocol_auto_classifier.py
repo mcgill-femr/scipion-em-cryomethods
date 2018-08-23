@@ -36,7 +36,7 @@ from pyworkflow.utils import makePath, copyFile, replaceBaseExt
 
 from .protocol_base import ProtocolBase
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc)
+                                 relionToLocation)
 
 
 class ProtAutoClassifier(ProtocolBase):
@@ -63,28 +63,30 @@ class ProtAutoClassifier(ProtocolBase):
         self.rLevIter = self.rLevDir + 'relion_it%(iter)03d_'
         # add to keys, data.star, optimiser.star and sampling.star
         myDict = {
-                  'input_star': self.levDir + 'input_rLev-%(rLev)s.star',
-                  'outputData': self.levDir + 'output_data.star',
-                  'map': self.levDir + 'map_rLev-%(rLev)s.mrc',
-                  'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
-                  'outputModel': self.levDir + 'output_model.star',
-                  'data': self.rLevIter + 'data.star',
-                  # 'optimiser': self.extraIter + 'optimiser.star',
-                  # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
-                  # 'movie_particles': self._getPath('movie_particles.star'),
-                  # 'dataFinal': self._getExtraPath("relion_data.star"),
-                  # 'modelFinal': self._getExtraPath("relion_model.star"),
-                  # 'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
-                  # 'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
-                  # 'preprocess_parts_star': self._getPath("preprocess_particles.star"),
-                  #
-                  # 'data_scipion': self.extraIter + 'data_scipion.sqlite',
-                  # 'volumes_scipion': self.extraIter + 'volumes.sqlite',
-                  #
-                  # 'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
-                  'all_avgPmax_xmipp': self._getTmpPath('iterations_avgPmax_xmipp.xmd'),
-                  'all_changes_xmipp': self._getTmpPath('iterations_changes_xmipp.xmd'),
-                  }
+            'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
+            'outputData': self.levDir + 'output_data.star',
+            'map': self.levDir + 'map_rLev-%(rLev)03d.mrc',
+            'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+            'outputModel': self.levDir + 'output_model.star',
+            'data': self.rLevIter + 'data.star',
+            # 'optimiser': self.extraIter + 'optimiser.star',
+            # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
+            # 'movie_particles': self._getPath('movie_particles.star'),
+            # 'dataFinal': self._getExtraPath("relion_data.star"),
+            # 'modelFinal': self._getExtraPath("relion_model.star"),
+            # 'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
+            # 'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
+            # 'preprocess_parts_star': self._getPath("preprocess_particles.star"),
+            #
+            # 'data_scipion': self.extraIter + 'data_scipion.sqlite',
+            # 'volumes_scipion': self.extraIter + 'volumes.sqlite',
+            #
+            # 'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
+            'all_avgPmax_xmipp': self._getTmpPath(
+                'iterations_avgPmax_xmipp.xmd'),
+            'all_changes_xmipp': self._getTmpPath(
+                'iterations_changes_xmipp.xmd'),
+        }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
             key_xmipp = key + '_xmipp'
@@ -92,7 +94,8 @@ class ProtAutoClassifier(ProtocolBase):
         # add other keys that depends on prefixes
         for p in self.PREFIXES:
             myDict['%smodel' % p] = self.rLevIter + '%smodel.star' % p
-            myDict['%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
+            myDict[
+                '%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
 
         self._updateFilenamesDict(myDict)
 
@@ -100,7 +103,7 @@ class ProtAutoClassifier(ProtocolBase):
         """ Setup the regex on how to find iterations. """
         self._iterTemplate = self._getFileName('data', lev=self._level,
                                                rLev=self._rLev,
-                                               iter=0).replace( '000', '???')
+                                               iter=0).replace('000', '???')
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
         self._iterRegex = re.compile('_it(\d{3,3})_')
@@ -142,8 +145,8 @@ class ProtAutoClassifier(ProtocolBase):
                                  self.copyAlignment,
                                  prerequisites=deps)
 
-        for rLev in range(1, levelRuns+1):
-            self._rLev = rLev # Just to generate the proper input star file.
+        for rLev in range(1, levelRuns + 1):
+            self._rLev = rLev  # Just to generate the proper input star file.
             self._insertClassifyStep()
             self._setNewEvalIds(rLev)
         evStep = self._insertEvaluationStep()
@@ -154,11 +157,10 @@ class ProtAutoClassifier(ProtocolBase):
         evalDep = self._insertFunctionStep('evaluationStep')
         return evalDep
 
-
     def _stepsCheck(self):
         print('Just passing through this')
         self.finished = False
-        if self._level == self.level.get(): # condition to stop the cycle
+        if self._level == self.level.get():  # condition to stop the cycle
             self.finished = True
         outputStep = self._getFirstJoinStep()
         if self.finished:  # Unlock createOutputStep if finished all jobs
@@ -181,7 +183,7 @@ class ProtAutoClassifier(ProtocolBase):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
-        imgStar = self._getFileName('input_star',lev=self._level, rLev=1)
+        imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
 
         if self._level == 1:
             makePath(self._getRunPath(self._level, 1))
@@ -196,7 +198,8 @@ class ProtAutoClassifier(ProtocolBase):
 
             hasAlign = alignType != em.ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
+            fillRandomSubset = hasAlign and self._getBoolAttr(
+                'fillRandomSubset')
 
             writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
                                 alignType=alignType,
@@ -213,7 +216,7 @@ class ProtAutoClassifier(ProtocolBase):
             noOfLevRuns = self._getLevRuns(self._level)
             lastCls = None
 
-            prevStar = self._getFileName('outputData', lev=self._level-1)
+            prevStar = self._getFileName('outputData', lev=self._level - 1)
             mdData = md.MetaData(prevStar)
             print('how many run levels? %d' % noOfLevRuns)
 
@@ -247,15 +250,14 @@ class ProtAutoClassifier(ProtocolBase):
         mdInput = md.MetaData()
         outMd = md.MetaData()
 
-
-        for rLev in range(1, noOfLevRuns+1):
+        for rLev in range(1, noOfLevRuns + 1):
             rLevId = self._getRunLevId(self._level, rLev)
             self._lastCls = None
             mdModel = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             print('Filename model star: %s' % mdModel)
             self._mergeDataStar(outStar, mdInput, iters, rLev)
-            self._mergeModelStar(outMd , mdModel, rLev)
+            self._mergeModelStar(outMd, mdModel, rLev)
 
             self._doneList.append(rLevId)
 
@@ -294,8 +296,8 @@ class ProtAutoClassifier(ProtocolBase):
         if self.doImageAlignment:
             args['--healpix_order'] = self.angularSamplingDeg.get()
             args['--offset_range'] = self.offsetSearchRangePix.get()
-            args['--offset_step']  = (self.offsetSearchStepPix.get() *
-                                      self._getSamplingFactor())
+            args['--offset_step'] = (self.offsetSearchStepPix.get() *
+                                     self._getSamplingFactor())
             if self.localAngularSearch:
                 args['--sigma_ang'] = self.localAngularSearchRange.get() / 3.
         else:
@@ -309,7 +311,7 @@ class ProtAutoClassifier(ProtocolBase):
         self._evalIdsList.append(self._getRunLevId(self._level, levelRuns))
 
     def _getRunLevId(self, level, levelRuns):
-        return "%s.%s" %(level, levelRuns)
+        return "%s.%s" % (level, levelRuns)
 
     def _getFirstJoinStepName(self):
         # This function will be used for streaming, to check which is
@@ -331,7 +333,7 @@ class ProtAutoClassifier(ProtocolBase):
         return self._getLevelPath(level, 'rLev_%02d' % runLevel, *paths)
 
     def _defineInputOutput(self, args):
-        args['--i'] = self._getFileName('input_star',lev=self._level,
+        args['--i'] = self._getFileName('input_star', lev=self._level,
                                         rLev=self._rLev)
         args['--o'] = self._getRunPath(self._level, self._rLev, 'relion')
 
@@ -340,12 +342,12 @@ class ProtAutoClassifier(ProtocolBase):
 
     def _getLevRuns(self, level):
         clsNumber = self.numberOfClasses.get()
-        return clsNumber**(level - 1)
+        return clsNumber ** (level - 1)
 
     def _getRefArg(self):
-        if self._level==1:
+        if self._level == 1:
             return self._convertVolFn(self.inputVolumes.get())
-        return self._getFileName('map',lev=self._level-1, rLev=self._rLev)
+        return self._getFileName('map', lev=self._level - 1, rLev=self._rLev)
 
     def _convertVolFn(self, inputVol):
         """ Return a new name if the inputFn is not .mrc """
@@ -444,6 +446,34 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyTranslations'))
 
     def _alignVolumes(self):
-        levPath = self._getLevelPath(self._level)
-        listVol = sorted(glob(levPath + "*.mrc"))
-        print ('list of volumes: ', listVol)
+        import os, sys
+        import numpy as np
+        from cryomethods.convert import (loadMrc, saveMrc, alignVolumes,
+                                         applyTransforms)
+
+        from cryomethods import Plugin
+        Plugin.setEnviron()
+        os.environ.update(Plugin.getEnviron())
+
+        filePaths = self._getLevelPath(self._level, "*.mrc")
+        listVol = sorted(glob(filePaths))
+
+        volRef = listVol.pop(0)
+
+        print('os.environ: ', os.environ['LD_LIBRARY_PATH'])
+
+        for vol in listVol:
+            npRef = loadMrc(volRef, False)
+            npVolAlign = loadMrc(vol, False)
+            npVolFlipAlign = np.fliplr(npVolAlign)
+
+            axis, shifts, angles, score = alignVolumes(npVolAlign, npRef)
+            axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
+                                                           npRef)
+            print("Scores: ", score, scoref)
+            if scoref > score:
+                pass
+            else:
+                pass
+
+

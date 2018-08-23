@@ -27,7 +27,7 @@
 """
 This sub-package contains cryoMethods protocols and tools.
 """
-import os
+import os, sys
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
@@ -44,28 +44,37 @@ class Plugin(pyworkflow.em.Plugin):
         """ Return the python files path and possible some subfolders. """
         return os.path.join(os.environ[CRYOMETHODS_HOME], *paths)
 
+
     @classmethod
     def getEnviron(cls):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = cls.getRelionEnviron()
-        pythonPath = cls.__getHome('alignLib') + ":" + \
-                     cls.__getHome('imageLib') + ":" + \
-                     cls.__getHome('alignLib/tompy')
-
         libPath = cls.__getHome('alignLib/SpharmonicKit27') + ":" + \
                   cls.__getHome('alignLib/frm/swig')
 
-        if not pythonPath in environ['PYTHONPATH']:
-            environ.update({'PYTHONPATH': pythonPath,
-                            'LD_LIBRARY_PATH': libPath,
+        if not libPath in environ['LD_LIBRARY_PATH']:
+            environ.update({'LD_LIBRARY_PATH': libPath
                             }, position=pwutils.Environ.BEGIN)
         return environ
+
 
     @classmethod
     def __getRelionHome(cls, *paths):
         """ Return the binary home path and possible some subfolders. """
         return os.path.join(os.environ[RELION_HOME], *paths)
+
+
+    @classmethod
+    def setEnviron(cls):
+        pythonPath = [cls.__getHome('alignLib'),
+                      cls.__getHome('imageLib'),
+                      cls.__getHome('alignLib/frm/swig'),
+                      cls.__getHome('alignLib/tompy')]
+        for path in pythonPath:
+            if not path in sys.path:
+                sys.path.append(path)
+
 
     @classmethod
     def getRelionEnviron(cls):

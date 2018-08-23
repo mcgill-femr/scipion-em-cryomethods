@@ -36,6 +36,9 @@ from pyworkflow.utils.path import (createLink, copyFile, replaceBaseExt,
                                    getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
+from cryomethods import Plugin
+from cryomethods.constants import CRYOMETHODS_HOME
+
 
 def loadMrc(fn, writable=True):
     """Return a NumPy array memory mapped from an existing MRC file.
@@ -57,50 +60,69 @@ def loadMrc(fn, writable=True):
     header entries.  Changes made to the array elements or the header
     will affect the file to which the array is bound.
     """
-    Plugin.getEnviron()
-    import Mrc
-
+    import mrc
 
     mode = 'r'
     if writable:
         mode = 'r+'
-    a = Mrc(fn, mode)
+    a = mrc.Mrc(fn, mode)
 
     return a.data_withMrc(fn)
+
+
+def saveMrc(npVol, fn):
+    pass
+
+
+def alignVolumes(volToAlign, VolRef):
+    import frm
+
+    axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign, None,
+                                                None, 20)
+    return axis, shifts, angles, score
+
+
+def applyTransforms(volume, shifts, angles, axis=None):
+    import translate3d
+    import rotate3d
+
+    npVol = translate3d(volume, shifts[0], shifts[1], shifts[2])
+    volume = rotate3d(npVol, angles[0], angles[1], angles[2], center=axis)
+    return volume
 
 
 # This dictionary will be used to map
 # between CTFModel properties and Relion labels
 ACQUISITION_DICT = OrderedDict([
-       ("_amplitudeContrast", md.RLN_CTF_Q0),
-       ("_sphericalAberration", md.RLN_CTF_CS),
-       ("_voltage", md.RLN_CTF_VOLTAGE),
-        ("_magnification", md.RLN_CTF_MAGNIFICATION)
-       ])
+    ("_amplitudeContrast", md.RLN_CTF_Q0),
+    ("_sphericalAberration", md.RLN_CTF_CS),
+    ("_voltage", md.RLN_CTF_VOLTAGE),
+    ("_magnification", md.RLN_CTF_MAGNIFICATION)
+])
 
 COOR_DICT = OrderedDict([
-             ("_x", md.RLN_IMAGE_COORD_X),
-             ("_y", md.RLN_IMAGE_COORD_Y)
-             ])
+    ("_x", md.RLN_IMAGE_COORD_X),
+    ("_y", md.RLN_IMAGE_COORD_Y)
+])
 
 COOR_EXTRA_LABELS = [
     # Additional autopicking-related metadata
     md.RLN_PARTICLE_AUTOPICK_FOM,
     md.RLN_PARTICLE_CLASS,
     md.RLN_ORIENT_PSI
-    ]
+]
 
 CTF_DICT = OrderedDict([
-       ("_defocusU", md.RLN_CTF_DEFOCUSU),
-       ("_defocusV", md.RLN_CTF_DEFOCUSV),
-       ("_defocusAngle", md.RLN_CTF_DEFOCUS_ANGLE)
-       ])
+    ("_defocusU", md.RLN_CTF_DEFOCUSU),
+    ("_defocusV", md.RLN_CTF_DEFOCUSV),
+    ("_defocusAngle", md.RLN_CTF_DEFOCUS_ANGLE)
+])
 
 CTF_PSD_DICT = OrderedDict([
-       ("_psdFile", md.RLN_CTF_IMAGE)
-       ])
+    ("_psdFile", md.RLN_CTF_IMAGE)
+])
 
-CTF_EXTRA_LABELS = [   
+CTF_EXTRA_LABELS = [
     md.RLN_CTF_FOM,
     md.RLN_CTF_PHASESHIFT,
     # In Relion the ctf also contains acquisition information
@@ -109,13 +131,13 @@ CTF_EXTRA_LABELS = [
     md.RLN_CTF_VOLTAGE,
     md.RLN_CTF_MAGNIFICATION,
     md.RLN_CTF_DETECTOR_PIXEL_SIZE
-    ]
+]
 
 # Some extra labels
 IMAGE_EXTRA_LABELS = [
     md.RLN_SELECT_PARTICLES_ZSCORE,
     md.RLN_IMAGE_FRAME_NR
-    ]
+]
 
 # Extra labels for movie refinement & polishing
 MOVIE_EXTRA_LABELS = [
@@ -142,15 +164,15 @@ MOVIE_EXTRA_LABELS = [
 #        ("_angleY2", md.RLN_ANGLE_Y2),
 #        ("_angleTilt", md.RLN_ANGLE_TILT)
 #        ])
- 
-ALIGNMENT_DICT = OrderedDict([ 
-       ("_rlnOriginX", md.RLN_ORIENT_ORIGIN_X),
-       ("_rlnOriginY", md.RLN_ORIENT_ORIGIN_Y),
-       ("_rlnOriginZ", md.RLN_ORIENT_ORIGIN_Z),
-       ("_rlnAngleRot", md.RLN_ORIENT_ROT),
-       ("_rlnAngleTilt", md.RLN_ORIENT_TILT),
-       ("_rlnAnglePsi", md.RLN_ORIENT_PSI),
-       ])
+
+ALIGNMENT_DICT = OrderedDict([
+    ("_rlnOriginX", md.RLN_ORIENT_ORIGIN_X),
+    ("_rlnOriginY", md.RLN_ORIENT_ORIGIN_Y),
+    ("_rlnOriginZ", md.RLN_ORIENT_ORIGIN_Z),
+    ("_rlnAngleRot", md.RLN_ORIENT_ROT),
+    ("_rlnAngleTilt", md.RLN_ORIENT_TILT),
+    ("_rlnAnglePsi", md.RLN_ORIENT_PSI),
+])
 
 
 def locationToRelion(index, filename):
@@ -159,7 +181,7 @@ def locationToRelion(index, filename):
     """
     if index != em.NO_INDEX:
         return "%06d@%s" % (index, filename)
-    
+
     return filename
 
 
@@ -192,8 +214,8 @@ def objectToRow(obj, row, attrDict, extraLabels=[]):
     Params:
         obj: the EMObject instance (input)
         row: the XmippMdRow instance (output)
-        attrDict: dictionary with the map between obj attributes(keys) and 
-            row MDLabels in Xmipp (values).        
+        attrDict: dictionary with the map between obj attributes(keys) and
+            row MDLabels in Xmipp (values).
         extraLabels: a list with extra labels that could be included
             as _xmipp_labelName
     """
@@ -202,18 +224,18 @@ def objectToRow(obj, row, attrDict, extraLabels=[]):
     else:
         enabled = False
     row.setValue(md.RLN_IMAGE_ENABLED, enabled)
-    
+
     for attr, label in attrDict.iteritems():
         if hasattr(obj, attr):
             valueType = md.label2Python(label)
             row.setValue(label, valueType(getattr(obj, attr).get()))
 
     attrLabels = attrDict.values()
-    
+
     for label in extraLabels:
         attrName = '_' + md.label2Str(label)
         if label not in attrLabels and hasattr(obj, attrName):
-            value = obj.getAttributeValue(attrName) 
+            value = obj.getAttributeValue(attrName)
             row.setValue(label, value)
 
 
@@ -222,27 +244,27 @@ def rowToObject(row, obj, attrDict, extraLabels=[]):
     Params:
         row: the XmippMdRow instance (input)
         obj: the EMObject instance (output)
-        attrDict: dictionary with the map between obj attributes(keys) and 
+        attrDict: dictionary with the map between obj attributes(keys) and
             row MDLabels in Xmipp (values).
         extraLabels: a list with extra labels that could be included
             as properties with the label name such as: _rlnSomeThing
     """
     obj.setEnabled(row.getValue(md.RLN_IMAGE_ENABLED, 1) > 0)
-    
+
     for attr, label in attrDict.iteritems():
         value = row.getValue(label)
         if not hasattr(obj, attr):
             setattr(obj, attr, ObjectWrap(value))
         else:
             getattr(obj, attr).set(value)
-        
+
     attrLabels = attrDict.values()
-    
+
     for label in extraLabels:
         if label not in attrLabels and row.hasLabel(label):
             labelStr = md.label2Str(label)
             setattr(obj, '_' + labelStr, row.getValueAsObject(label))
-    
+
 
 def setObjId(obj, mdRow, label=md.RLN_IMAGE_ID):
     obj.setObjId(mdRow.getValue(label, None))
@@ -261,10 +283,10 @@ def rowToAcquisition(acquisitionRow):
     """ Create an acquisition from a row of a meta """
     if acquisitionRow.containsAll(ACQUISITION_DICT):
         acquisition = em.Acquisition()
-        rowToObject(acquisitionRow, acquisition, ACQUISITION_DICT) 
-    else:                
+        rowToObject(acquisitionRow, acquisition, ACQUISITION_DICT)
+    else:
         acquisition = None
-    
+
     return acquisition
 
 
@@ -276,12 +298,12 @@ def setPsdFiles(ctfModel, ctfRow):
     for attr, label in CTF_PSD_DICT.iteritems():
         if ctfRow.containsLabel(label):
             setattr(ctfModel, attr, String(ctfRow.getValue(label)))
-    
-        
+
+
 def ctfModelToRow(ctfModel, ctfRow):
     """ Set labels values from ctfModel to md row. """
     objectToRow(ctfModel, ctfRow, CTF_DICT, extraLabels=CTF_EXTRA_LABELS)
-    
+
 
 def rowToCtfModel(ctfRow):
     """ Create a CTFModel from a row of a meta """
@@ -292,12 +314,13 @@ def rowToCtfModel(ctfRow):
         setPsdFiles(ctfModel, ctfRow)
     else:
         ctfModel = None
-        
+
     return ctfModel
 
 
 def geometryFromMatrix(matrix, inverseTransform):
-    from pyworkflow.em.transformations import translation_from_matrix, euler_from_matrix
+    from pyworkflow.em.transformations import translation_from_matrix, \
+        euler_from_matrix
 
     if inverseTransform:
         from numpy.linalg import inv
@@ -345,11 +368,11 @@ def alignmentToRow(alignment, alignmentRow, alignType):
     # Also set the priors
     alignmentRow.setValue(md.RLN_ORIENT_ORIGIN_X_PRIOR, shifts[0])
     alignmentRow.setValue(md.RLN_ORIENT_ORIGIN_Y_PRIOR, shifts[1])
-    
+
     if is2D:
         angle = angles[0] + angles[2]
         alignmentRow.setValue(md.RLN_ORIENT_PSI, -angle)
-        flip = bool(numpy.linalg.det(matrix[0:2,0:2]) < 0)
+        flip = bool(numpy.linalg.det(matrix[0:2, 0:2]) < 0)
         if flip:
             print "FLIP in 2D not implemented"
     elif is3D:
@@ -361,14 +384,14 @@ def alignmentToRow(alignment, alignmentRow, alignType):
                         "to No")
     else:
         alignmentRow.setValue(md.RLN_ORIENT_ORIGIN_Z, shifts[2])
-        alignmentRow.setValue(md.RLN_ORIENT_ROT,  angles[0])
+        alignmentRow.setValue(md.RLN_ORIENT_ROT, angles[0])
         alignmentRow.setValue(md.RLN_ORIENT_TILT, angles[1])
-        alignmentRow.setValue(md.RLN_ORIENT_PSI,  angles[2])
+        alignmentRow.setValue(md.RLN_ORIENT_PSI, angles[2])
         # Also set the priors
         alignmentRow.setValue(md.RLN_ORIENT_ROT_PRIOR, angles[0])
         alignmentRow.setValue(md.RLN_ORIENT_TILT_PRIOR, angles[1])
         alignmentRow.setValue(md.RLN_ORIENT_PSI_PRIOR, angles[2])
-        
+
 
 def rowToAlignment(alignmentRow, alignType):
     """
@@ -398,7 +421,7 @@ def rowToAlignment(alignmentRow, alignType):
         alignment.setMatrix(M)
     else:
         alignment = None
-    
+
     return alignment
 
 
@@ -436,35 +459,35 @@ def rowToCoordinate(coordRow):
 
     else:
         coord = None
-        
+
     return coord
 
 
 def imageToRow(img, imgRow, imgLabel=md.RLN_IMAGE_NAME, **kwargs):
-    # Provide a hook to be used if something is needed to be 
+    # Provide a hook to be used if something is needed to be
     # done for special cases before converting image to row
     preprocessImageRow = kwargs.get('preprocessImageRow', None)
     if preprocessImageRow:
         preprocessImageRow(img, imgRow)
-        
-    setRowId(imgRow, img) # Set the id in the metadata as MDL_ITEM_ID
+
+    setRowId(imgRow, img)  # Set the id in the metadata as MDL_ITEM_ID
     index, fn = img.getLocation()
     # check if the is a file mapping
     filesDict = kwargs.get('filesDict', {})
     filename = filesDict.get(fn, fn)
-     
+
     imgRow.setValue(imgLabel, locationToRelion(index, filename))
 
     if kwargs.get('writeCtf', True) and img.hasCTF():
         ctfModelToRow(img.getCTF(), imgRow)
-        
+
     # alignment is mandatory at this point, it shoud be check
     # and detected defaults if not passed at readSetOf.. level
-    alignType = kwargs.get('alignType') 
-    
+    alignType = kwargs.get('alignType')
+
     if alignType != em.ALIGN_NONE and img.hasTransform():
         alignmentToRow(img.getTransform(), imgRow, alignType)
-                
+
     if kwargs.get('writeAcquisition', True) and img.hasAcquisition():
         acquisitionToRow(img.getAcquisition(), imgRow)
 
@@ -472,7 +495,7 @@ def imageToRow(img, imgRow, imgLabel=md.RLN_IMAGE_NAME, **kwargs):
     objectToRow(img, imgRow, {},
                 extraLabels=IMAGE_EXTRA_LABELS + kwargs.get('extraLabels', []))
 
-    # Provide a hook to be used if something is needed to be 
+    # Provide a hook to be used if something is needed to be
     # done for special cases before converting image to row
     postprocessImageRow = kwargs.get('postprocessImageRow', None)
     if postprocessImageRow:
@@ -490,7 +513,8 @@ def particleToRow(part, partRow, **kwargs):
         # use a fake micrograph name using id to relion
         # could at least group for CTF using that
         if not partRow.hasLabel(md.RLN_MICROGRAPH_NAME):
-            partRow.setValue(md.RLN_MICROGRAPH_NAME, 'fake_micrograph_%06d.mrc' % part.getMicId())
+            partRow.setValue(md.RLN_MICROGRAPH_NAME,
+                             'fake_micrograph_%06d.mrc' % part.getMicId())
     if part.hasAttribute('_rlnParticleId'):
         partRow.setValue(md.RLN_PARTICLE_ID, long(part._rlnParticleId.get()))
     imageToRow(part, partRow, md.RLN_IMAGE_NAME, **kwargs)
@@ -499,56 +523,57 @@ def particleToRow(part, partRow, **kwargs):
 def rowToParticle(partRow, **kwargs):
     """ Create a Particle from a row of a meta """
     img = em.Particle()
-    
-    # Provide a hook to be used if something is needed to be 
+
+    # Provide a hook to be used if something is needed to be
     # done for special cases before converting image to row
     preprocessImageRow = kwargs.get('preprocessImageRow', None)
     if preprocessImageRow:
         preprocessImageRow(img, partRow)
-    
+
     # Decompose Relion filename
     index, filename = relionToLocation(partRow.getValue(md.RLN_IMAGE_NAME))
     img.setLocation(index, filename)
-    
+
     if partRow.containsLabel(md.RLN_PARTICLE_CLASS):
         img.setClassId(partRow.getValue(md.RLN_PARTICLE_CLASS))
-    
+
     if kwargs.get('readCtf', True):
         img.setCTF(rowToCtfModel(partRow))
-        
+
     # alignment is mandatory at this point, it shoud be check
     # and detected defaults if not passed at readSetOf.. level
-    alignType = kwargs.get('alignType') 
-    
+    alignType = kwargs.get('alignType')
+
     if alignType != em.ALIGN_NONE:
         img.setTransform(rowToAlignment(partRow, alignType))
-        
+
     if kwargs.get('readAcquisition', True):
         img.setAcquisition(rowToAcquisition(partRow))
-        
+
     if kwargs.get('magnification', None):
         img.getAcquisition().setMagnification(kwargs.get("magnification"))
-    
+
     setObjId(img, partRow)
     # Read some extra labels
     rowToObject(partRow, img, {},
                 extraLabels=IMAGE_EXTRA_LABELS + kwargs.get('extraLabels', []))
 
     img.setCoordinate(rowToCoordinate(partRow))
-    
+
     # copy micId if available from row to particle
     if partRow.hasLabel(md.RLN_MICROGRAPH_ID):
         img.setMicId(partRow.getValue(md.RLN_MICROGRAPH_ID))
-    
+
     # copy particleId if available from row to particle
     if partRow.hasLabel(md.RLN_PARTICLE_ID):
         img._rlnParticleId = Integer(partRow.getValue(md.RLN_PARTICLE_ID))
-    
+
     # copy particleId if available from row to particle
     if partRow.hasLabel(md.RLN_PARTICLE_RANDOM_SUBSET):
-        img._rln_halfId = Integer(partRow.getValue(md.RLN_PARTICLE_RANDOM_SUBSET))
-    
-    # Provide a hook to be used if something is needed to be 
+        img._rln_halfId = Integer(
+            partRow.getValue(md.RLN_PARTICLE_RANDOM_SUBSET))
+
+    # Provide a hook to be used if something is needed to be
     # done for special cases before converting image to row
     postprocessImageRow = kwargs.get('postprocessImageRow', None)
     if postprocessImageRow:
@@ -561,27 +586,27 @@ def readSetOfParticles(filename, partSet, **kwargs):
         filename: The metadata filename where the image are.
         imgSet: the SetOfParticles that will be populated.
         rowToParticle: this function will be used to convert the row to Object
-    """    
+    """
     imgMd = md.MetaData(filename)
     # By default remove disabled items from metadata
     # be careful if you need to preserve the original number of items
     if kwargs.get('removeDisabled', True):
         imgMd.removeDisabled()
-    
+
     for imgRow in md.iterRows(imgMd):
         img = rowToParticle(imgRow, **kwargs)
         partSet.append(img)
-        
+
     partSet.setHasCTF(img.hasCTF())
     partSet.setAlignment(kwargs['alignType'])
-    
+
 
 def setOfImagesToMd(imgSet, imgMd, imgToFunc, **kwargs):
     """ This function will fill Relion metadata from a SetOfMicrographs
     Params:
         imgSet: the set of images to be converted to metadata
         md: metadata to be filled
-        rowFunc: this function can be used to setup the row before 
+        rowFunc: this function can be used to setup the row before
             adding to meta
     """
     if 'alignType' not in kwargs:
@@ -606,7 +631,7 @@ def writeSetOfParticles(imgSet, starFile,
     kwargs['filesDict'] = filesDict
     partMd = md.MetaData()
     setOfImagesToMd(imgSet, partMd, particleToRow, **kwargs)
-    
+
     # Remove Magnification from metadata to avoid wrong values of pixel size.
     # In Relion if Magnification and DetectorPixelSize are in metadata,
     # pixel size is ignored in the command line.
@@ -615,7 +640,7 @@ def writeSetOfParticles(imgSet, starFile,
     blockName = kwargs.get('blockName', 'Particles')
     partMd.write('%s@%s' % (blockName, starFile))
 
-    
+
 def writeReferences(inputSet, outputRoot, useBasename=False, **kwargs):
     """
     Write references star and stack files from SetOfAverages or SetOfClasses2D/3D.
@@ -666,9 +691,9 @@ def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
     mdAll.sort(md.RLN_CTF_DEFOCUSU)
 
     focusGroup = 1
-    counter=0
+    counter = 0
     oldDefocusU = mdAll.getValue(md.RLN_CTF_DEFOCUSU, mdAll.firstObject())
-    groupName = '%s_%06d_%05d'%('ctfgroup',oldDefocusU,focusGroup)
+    groupName = '%s_%06d_%05d' % ('ctfgroup', oldDefocusU, focusGroup)
     for objId in mdAll:
         counter = counter + 1
         defocusU = mdAll.getValue(md.RLN_CTF_DEFOCUSU, objId)
@@ -678,16 +703,18 @@ def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
             if (defocusU - oldDefocusU) > defocusRange:
                 focusGroup = focusGroup + 1
                 oldDefocusU = defocusU
-                groupName = '%s_%06d_%05d'%('ctfgroup',oldDefocusU,focusGroup)
-                counter=0
-        mdAll.setValue(md.RLN_MLMODEL_GROUP_NAME,groupName,objId)
+                groupName = '%s_%06d_%05d' % (
+                'ctfgroup', oldDefocusU, focusGroup)
+                counter = 0
+        mdAll.setValue(md.RLN_MLMODEL_GROUP_NAME, groupName, objId)
 
     mdAll.write(imgStar)
     mdCount = md.MetaData()
-    mdCount.aggregate(mdAll, md.AGGR_COUNT, md.RLN_MLMODEL_GROUP_NAME, md.RLN_MLMODEL_GROUP_NAME, md.MDL_COUNT)
+    mdCount.aggregate(mdAll, md.AGGR_COUNT, md.RLN_MLMODEL_GROUP_NAME,
+                      md.RLN_MLMODEL_GROUP_NAME, md.MDL_COUNT)
     print "number of particles per group: ", mdCount
 
-       
+
 def prependToFileName(imgRow, prefixPath):
     """ Prepend some root name to imageRow filename. """
     index, imgPath = relionToLocation(imgRow.getValue(md.RLN_IMAGE_NAME))
@@ -701,8 +728,8 @@ def relativeFromFileName(imgRow, prefixPath):
     newImgPath = os.path.relpath(imgPath, prefixPath)
     newLoc = locationToRelion(index, newImgPath)
     imgRow.setValue(md.RLN_IMAGE_NAME, newLoc)
-    
-    
+
+
 def copyOrLinkFileName(imgRow, prefixDir, outputDir, copyFiles=False):
     index, imgPath = relionToLocation(imgRow.getValue(md.RLN_IMAGE_NAME))
     baseName = os.path.basename(imgPath)
@@ -712,9 +739,9 @@ def copyOrLinkFileName(imgRow, prefixDir, outputDir, copyFiles=False):
             copyFile(os.path.join(prefixDir, imgPath), newName)
         else:
             createLink(os.path.join(prefixDir, imgPath), newName)
-            
+
     imgRow.setValue(md.RLN_IMAGE_NAME, locationToRelion(index, newName))
-    
+
 
 def setupCTF(imgRow, sampling):
     """ Do some validations and set some values
@@ -725,15 +752,17 @@ def setupCTF(imgRow, sampling):
     hasDefocusU = imgRow.containsLabel(md.MDL_CTF_DEFOCUSU)
     hasDefocusV = imgRow.containsLabel(md.MDL_CTF_DEFOCUSV)
     hasDefocusAngle = imgRow.containsLabel(md.MDL_CTF_DEFOCUS_ANGLE)
-    
+
     if hasDefocusU or hasDefocusV:
         if not hasDefocusU:
-            imgRow.setValue(md.MDL_CTF_DEFOCUSU, imgRow.getValue(md.MDL_CTF_DEFOCUSV))
+            imgRow.setValue(md.MDL_CTF_DEFOCUSU,
+                            imgRow.getValue(md.MDL_CTF_DEFOCUSV))
         if not hasDefocusV:
-            imgRow.setValue(md.MDL_CTF_DEFOCUSV, imgRow.getValue(md.MDL_CTF_DEFOCUSU))
+            imgRow.setValue(md.MDL_CTF_DEFOCUSV,
+                            imgRow.getValue(md.MDL_CTF_DEFOCUSU))
         if not hasDefocusAngle:
             imgRow.setValue(md.MDL_CTF_DEFOCUS_ANGLE, 0.)
-            
+
 
 def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
     """ Convert binary images files to a format read by Relion.
@@ -746,7 +775,7 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
     """
     filesDict = {}
     ih = em.ImageHandler()
-    
+
     def getUniqueFileName(fn, extension):
         """ Get an unique file for either link or convert files.
         It is possible that the base name overlap if they come
@@ -754,24 +783,24 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
         """
         newFn = join(outputDir, replaceBaseExt(fn, extension))
         newRoot = removeExt(newFn)
-        
+
         values = filesDict.values()
         counter = 1
-        
+
         while newFn in values:
             counter += 1
             newFn = '%s_%05d.%s' % (newRoot, counter, extension)
-            
+
         return newFn
 
     def createBinaryLink(fn):
-        """ Just create a link named .mrcs to Relion understand 
+        """ Just create a link named .mrcs to Relion understand
         that it is a binary stack file and not a volume.
         """
         newFn = getUniqueFileName(fn, extension)
         createLink(fn, newFn)
         return newFn
-        
+
     def convertStack(fn):
         """ Convert from a format that is not read by Relion
         to an spider stack.
@@ -779,25 +808,27 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
         newFn = getUniqueFileName(fn, 'stk')
         ih.convertStack(fn, newFn)
         return newFn
-        
-    ext = getExt(imgSet.getFirstItem().getFileName())[1:] # remove dot in extension
-    
+
+    ext = getExt(imgSet.getFirstItem().getFileName())[
+          1:]  # remove dot in extension
+
     if ext == extension:
         mapFunc = createBinaryLink
         print "convertBinaryFiles: creating soft links."
     elif ext == 'mrc' and extension == 'mrcs':
         mapFunc = createBinaryLink
         print "convertBinaryFiles: creating soft links (mrcs -> mrc)."
-    elif ext.endswith('hdf'): # assume eman .hdf format
+    elif ext.endswith('hdf'):  # assume eman .hdf format
         mapFunc = convertStack
-        print "convertBinaryFiles: converting stacks. (%s -> %s)" % (extension, ext)
+        print "convertBinaryFiles: converting stacks. (%s -> %s)" % (
+        extension, ext)
     else:
         mapFunc = None
-        
+
     if mapFunc is not None:
         for fn in imgSet.getFiles():
-            newFn = mapFunc(fn) # convert or link 
-            filesDict[fn] = newFn # map new filename
+            newFn = mapFunc(fn)  # convert or link
+            filesDict[fn] = newFn  # map new filename
             print "   %s -> %s" % (newFn, fn)
 
     return filesDict
@@ -811,8 +842,9 @@ def convertBinaryVol(vol, outputDir):
     Return:
         new file name of the volume (converted or not).
     """
-    
+
     ih = em.ImageHandler()
+
     # This approach can be extended when
     # converting from a binary file format that
     # is not read from Relion
@@ -823,9 +855,9 @@ def convertBinaryVol(vol, outputDir):
         newFn = join(outputDir, replaceBaseExt(fn, 'mrc'))
         ih.convert(fn, newFn)
         return newFn
-        
+
     ext = vol.getFileName()
-    
+
     if not ext.endswith('.mrc'):
         fn = convertToMrc(vol.getFileName())
     else:
@@ -843,13 +875,13 @@ def convertMask(img, outputDir):
     Return:
         new file name of the mask.
     """
-    
+
     ih = em.ImageHandler()
     imgFn = getImageLocation(img.getLocation())
     newFn = join(outputDir, replaceBaseExt(imgFn, 'mrc'))
-    
+
     ih.truncateMask(imgFn, newFn)
-    
+
     return newFn
 
 
@@ -876,7 +908,7 @@ def readSetOfCoordinates(coordSet, coordFiles, micList=None):
             readCoordinates(mic, coordFn, coordSet)
         except Exception:
             print "WARNING: Error reading coordinates star file: ", coordFn
-        
+
 
 def readCoordinates(mic, fileName, coordsSet):
     for row in md.iterRows(fileName):
@@ -987,7 +1019,7 @@ def writeMicCoordinates(mic, coordList, outputFn, getPosFunc=None):
     """
     if getPosFunc is None:
         getPosFunc = lambda coord: coord.getPostion()
-   
+
     extraLabels = coordList[0].hasAttribute('_rlnClassNumber')
     f = openStar(outputFn, extraLabels)
 
@@ -1003,3 +1035,5 @@ def writeMicCoordinates(mic, coordList, outputFn, getPosFunc=None):
                        coord._rlnAnglePsi))
 
     f.close()
+
+
