@@ -446,7 +446,7 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyTranslations'))
 
     def _alignVolumes(self):
-        import os, sys
+        import os
         import numpy as np
         from cryomethods.convert import (loadMrc, saveMrc, alignVolumes,
                                          applyTransforms)
@@ -460,8 +460,6 @@ class ProtAutoClassifier(ProtocolBase):
 
         volRef = listVol.pop(0)
 
-        print('os.environ: ', os.environ['LD_LIBRARY_PATH'])
-
         for vol in listVol:
             npRef = loadMrc(volRef, False)
             npVolAlign = loadMrc(vol, False)
@@ -472,8 +470,9 @@ class ProtAutoClassifier(ProtocolBase):
                                                            npRef)
             print("Scores: ", score, scoref)
             if scoref > score:
-                pass
+                npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
-                pass
+                npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
+            saveMrc(npVol, vol)
 

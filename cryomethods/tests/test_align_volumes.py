@@ -25,8 +25,9 @@
 # *
 # **************************************************************************
 from glob import glob
-from pyworkflow.tests import *
+import numpy as np
 
+from pyworkflow.tests import *
 from cryomethods import Plugin
 from cryomethods.convert import loadMrc, alignVolumes
 
@@ -46,12 +47,18 @@ class TestAlignVolumes(TestBase):
 
     def testAlignVolumes(self):
         Plugin.setEnviron()
-
         volList = sorted(glob(self.volumes))
         volRef = volList.pop(0)
+        maxScore = 0
 
         for vol in volList:
             volRefNp = loadMrc(volRef)
             volNp = loadMrc(vol)
+            volNpFp = np.fliplr(volNp)
             axis, shifts, angles, score = alignVolumes(volNp, volRefNp)
-            print(axis, shifts, angles, score)
+            axisFp, shiftsFp, anglesFp, scoreFp = alignVolumes(volNpFp, volRefNp)
+            print('scores : w/o flip- %03f w flip %03f' %(score, scoreFp))
+            if scoreFp > score:
+                print('flipped map is better: ', vol)
+            else:
+                print('original map is better ', vol)

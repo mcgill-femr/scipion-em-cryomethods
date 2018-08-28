@@ -71,14 +71,15 @@ def loadMrc(fn, writable=True):
 
 
 def saveMrc(npVol, fn):
-    pass
+    import mrc
+    mrc.save(npVol, fn, ifExists='overwrite')
 
 
 def alignVolumes(volToAlign, VolRef):
     import frm
 
-    axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign, None,
-                                                None, 20)
+    axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign,
+                                                None, None, 20)
     return axis, shifts, angles, score
 
 
