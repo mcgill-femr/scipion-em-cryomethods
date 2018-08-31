@@ -25,6 +25,7 @@
 # *
 # **************************************************************************
 import re
+import numpy as np
 from glob import glob
 from collections import Counter
 
@@ -34,9 +35,12 @@ import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
 from pyworkflow.utils import makePath, copyFile, replaceBaseExt
 
-from .protocol_base import ProtocolBase
+from cryomethods import Plugin
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation)
+                                 relionToLocation, loadMrc, saveMrc,
+                                 alignVolumes, applyTransforms)
+
+from .protocol_base import ProtocolBase
 
 
 class ProtAutoClassifier(ProtocolBase):
@@ -66,6 +70,7 @@ class ProtAutoClassifier(ProtocolBase):
             'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
             'outputData': self.levDir + 'output_data.star',
             'map': self.levDir + 'map_rLev-%(rLev)03d.mrc',
+            'avgMap': self.levDir + 'map_average.mrc',
             'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
             'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
@@ -265,6 +270,7 @@ class ProtAutoClassifier(ProtocolBase):
         mdInput.write(outStar)
 
         self._alignVolumes()
+        self._estimatePCA()
         print('Finishing evaluation step')
 
     def createOutputStep(self):
@@ -446,33 +452,89 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyTranslations'))
 
     def _alignVolumes(self):
-        import os
-        import numpy as np
-        from cryomethods.convert import (loadMrc, saveMrc, alignVolumes,
-                                         applyTransforms)
-
-        from cryomethods import Plugin
         Plugin.setEnviron()
-        os.environ.update(Plugin.getEnviron())
 
-        filePaths = self._getLevelPath(self._level, "*.mrc")
-        listVol = sorted(glob(filePaths))
-
+        filesPath = self._getLevelPath(self._level, "*.mrc")
+        listVol = sorted(glob(filesPath))
+        lenVols = len(listVol)
         volRef = listVol.pop(0)
 
+        # creating average map
+        avgVol = self._getFileName('avgMap', lev=self._level)
+        copyFile(volRef, avgVol)
+
+        #reading volumes as numpy arrays
+        npRef = loadMrc(volRef, writable=False)
+        npAvgVol = loadMrc(avgVol, writable=True)
+
+        #alignining each volume vs. reference
         for vol in listVol:
-            npRef = loadMrc(volRef, False)
             npVolAlign = loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
             axis, shifts, angles, score = alignVolumes(npVolAlign, npRef)
             axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
                                                            npRef)
-            print("Scores: ", score, scoref)
             if scoref > score:
                 npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
+            npAvgVol += npVol
             saveMrc(npVol, vol)
+
+        npAvgVol = np.divide(npAvgVol, lenVols)
+        saveMrc(npAvgVol, avgVol)
+
+    def _estimatePCA(self):
+        from itertools import izip
+        Plugin.setEnviron()
+        avgVol = self._getFileName('avgMap', lev=self._level)
+        npAvgVol = loadMrc(avgVol, False)
+        listNpVol = []
+        m = []
+        dType = npAvgVol.dtype
+        print(dType)
+
+        filePaths = self._getLevelPath(self._level, "map_rLev-???.mrc")
+        listVol = sorted(glob(filePaths))
+
+        for vol in listVol:
+            volNp = loadMrc(vol, False)
+            diffVol = volNp - npAvgVol
+            dim = volNp.shape[0]
+            lenght = dim**3
+            volList = diffVol.reshape(lenght)
+            listNpVol.append(volList)
+
+        covMatrix = np.cov(listNpVol)
+        u, s, vh = np.linalg.svd(covMatrix)
+
+        print(' this is the matrix "s" from svd: ', s)
+        print(' this is the matrix "vh" from svd: ', vh)
+
+
+
+        newBaseAxis = vh.T.dot(listNpVol)
+
+        for i, volNewBaseList in enumerate(newBaseAxis):
+            volBase = volNewBaseList.reshape((dim, dim, dim))
+            nameVol = 'volume_base_%02d.mrc' % (i+1)
+            saveMrc(volBase.astype(dType),
+                    self._getLevelPath(self._level, nameVol))
+
+
+        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
+
+        matDist = []
+        for list1 in matProj:
+            rows = []
+            for list2 in matProj:
+                v = 0
+                for i,j in izip(list1, list2):
+                    v += (i - j)**2
+                rows.append(v**0.5)
+            matDist.append(rows)
+        print('distance: \n', matDist)
+
 
