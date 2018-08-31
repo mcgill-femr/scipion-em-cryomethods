@@ -84,11 +84,11 @@ def alignVolumes(volToAlign, VolRef):
 
 
 def applyTransforms(volume, shifts, angles, axis=None):
-    import translate3d
-    import rotate3d
+    import transform
 
-    npVol = translate3d(volume, shifts[0], shifts[1], shifts[2])
-    volume = rotate3d(npVol, angles[0], angles[1], angles[2], center=axis)
+    npVol = transform.translate3d(volume, shifts[0], shifts[1], shifts[2])
+    volume = transform.rotate3d(npVol, angles[0], angles[1], angles[2],
+                                center=axis)
     return volume
 
 
