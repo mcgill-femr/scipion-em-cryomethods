@@ -50,16 +50,24 @@ class Plugin(pyworkflow.em.Plugin):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = cls.getRelionEnviron()
-        pythonPath = [cls.__getHome('alignLib'),
-                      cls.__getHome('imageLib'),
+        pythonPath = [cls.__getHome('imageLib'),
+                      cls.__getHome('alignLib'),
                       cls.__getHome('alignLib/frm/swig'),
                       cls.__getHome('alignLib/tompy')]
 
+        libPath = [cls.__getHome('alignLib/frm/swig'),
+                   cls.__getHome('alignLib/tompy'),
+                   cls.__getHome('alignLib/SpharmonicKit27')]
+
+        for lPath in libPath:
+            if not lPath in os.environ['LD_LIBRARY_PATH']:
+               environ.update({'LD_LIBRARY_PATH': lPath},
+                              position=pwutils.Environ.BEGIN)
+
         for pPath in pythonPath:
-            if not pPath in environ['PYTHONPATH']:
-               # environ.update({'PYTHONPATH': pPath},
-               #                position=pwutils.Environ.BEGIN)
-               sys.path.append(pPath)
+            if not pPath in os.environ['PYTHONPATH']:
+                environ.update({'PYTHONPATH': pPath},
+                               position=pwutils.Environ.BEGIN)
         return environ
 
 
@@ -72,14 +80,16 @@ class Plugin(pyworkflow.em.Plugin):
     @classmethod
     def setEnviron(cls):
         environ = cls.getEnviron()
-        libPath = [cls.__getHome('alignLib/frm/swig'),
-                   cls.__getHome('alignLib/tompy'),
-                   cls.__getHome('alignLib/SpharmonicKit27')]
-        for lPath in libPath:
-            if not lPath in os.environ['LD_LIBRARY_PATH']:
-               environ.update({'LD_LIBRARY_PATH': lPath},
-                              position=pwutils.Environ.BEGIN)
-        os.environ.update(environ)
+        pythonPath = [cls.__getHome('imageLib'),
+                      cls.__getHome('alignLib'),
+                      cls.__getHome('alignLib/frm/swig'),
+                      cls.__getHome('alignLib/tompy')]
+
+        for path in pythonPath:
+            if not path in sys.path:
+                sys.path.append(path)
+        os.environ.update(cls.getEnviron())
+
 
     @classmethod
     def getRelionEnviron(cls):
