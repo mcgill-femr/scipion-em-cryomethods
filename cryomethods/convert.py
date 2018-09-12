@@ -71,23 +71,24 @@ def loadMrc(fn, writable=True):
 
 
 def saveMrc(npVol, fn):
-    pass
+    import mrc
+    mrc.save(npVol, fn, ifExists='overwrite')
 
 
 def alignVolumes(volToAlign, VolRef):
     import frm
 
-    axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign, None,
-                                                None, 20)
+    axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign,
+                                                None, None, 20)
     return axis, shifts, angles, score
 
 
 def applyTransforms(volume, shifts, angles, axis=None):
-    import translate3d
-    import rotate3d
+    import transform
 
-    npVol = translate3d(volume, shifts[0], shifts[1], shifts[2])
-    volume = rotate3d(npVol, angles[0], angles[1], angles[2], center=axis)
+    npVol = transform.translate3d(volume, shifts[0], shifts[1], shifts[2])
+    volume = transform.rotate3d(npVol, angles[0], angles[1], angles[2],
+                                center=axis)
     return volume
 
 

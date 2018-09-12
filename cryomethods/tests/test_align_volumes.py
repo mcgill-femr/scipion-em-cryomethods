@@ -24,11 +24,14 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+import sys
 from glob import glob
-from pyworkflow.tests import *
+import numpy as np
 
+from pyworkflow.utils import basename
+from pyworkflow.tests import *
 from cryomethods import Plugin
-from cryomethods.convert import loadMrc, alignVolumes
+from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
 
 
 class TestBase(BaseTest):
@@ -46,12 +49,66 @@ class TestAlignVolumes(TestBase):
 
     def testAlignVolumes(self):
         Plugin.setEnviron()
-
         volList = sorted(glob(self.volumes))
         volRef = volList.pop(0)
+        maxScore = 0
 
         for vol in volList:
             volRefNp = loadMrc(volRef)
             volNp = loadMrc(vol)
+            volNpFp = np.fliplr(volNp)
+
             axis, shifts, angles, score = alignVolumes(volNp, volRefNp)
-            print(axis, shifts, angles, score)
+            axisf, shiftsf, anglesf, scoref = alignVolumes(volNpFp, volRefNp)
+            print('scores : w/o flip- %03f w flip %03f' %(score, scoref))
+            if scoref > score:
+                print('angles:', anglesf[0], anglesf[1], anglesf[2],)
+                print('shifts:', shiftsf[0], shiftsf[1], shiftsf[2],)
+                npVol = applyTransforms(volNpFp, shiftsf, anglesf, axisf)
+                print('flipped map is better: ', vol)
+            else:
+                print('angles:', angles[0], angles[1], angles[2],)
+                print('shifts:', shifts[0], shifts[1], shifts[2],)
+                npVol = applyTransforms(volNp, shifts, angles, axis)
+                print('original map is better ', vol)
+
+            saveMrc(npVol, '/home/josuegbl/'+basename(vol))
+
+    def testPCA(self):
+        Plugin.setEnviron()
+        volList = sorted(glob(self.volumes))
+        mList = []
+        for vol in volList:
+            volNp = loadMrc(vol)
+            lenght = volNp.shape[0]**3,
+            volList = volNp.reshape(lenght)
+            mList.append(volList)
+
+        covMatrix = np.cov(mList)
+        # print('Covariance : ', covMatrix)
+
+        eigValues, eigVectors = np.linalg.eig(covMatrix)
+
+        # Make a list of (eigenvalue, eigenvector) tuples
+        eigPairs = [(np.abs(eigValues[i]), eigVectors[:,i]) for i in range(len(eigValues))]
+
+        # Sort the (eigenvalue, eigenvector) tuples from high to low
+        eigPairs.sort(key=lambda x: x[0], reverse=True)
+
+        matrix_w = np.hstack((eigPairs[0][1].reshape(3,1), eigPairs[1][1].reshape(3,1)))
+        # print('Matrix W:\n', matrix_w)
+
+        transformed = matrix_w.T.dot(mList)
+
+        matProj = np.transpose(np.dot(transformed, np.transpose(mList)))
+
+        matDist = []
+        for list1 in matProj:
+            rows = []
+            for list2 in matProj:
+                v = 0
+                for i,j in izip(list1, list2):
+                    v += (i - j)**2
+                rows.append(v)
+            matDist.append(rows)
+        print(matDist)
