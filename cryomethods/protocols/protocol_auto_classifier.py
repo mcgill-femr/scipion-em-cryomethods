@@ -509,13 +509,16 @@ class ProtAutoClassifier(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
+        cuttOffMatrix = 0.05*s[0]
+        sCut = [i for i in s if i > cuttOffMatrix]
 
-        print(' this is the matrix "s" from svd: ', s)
-        print(' this is the matrix "vh" from svd: ', vh)
+        print(' autovals "s" from svd: ', s)
+        print(' autovals cutoff  "sCut": ', sCut)
+        # print(' this is the matrix "vh" from svd: ', vh)
+        vhDel = np.transpose(np.delete(vh, np.s_[len(sCut):vh.shape[1]], axis=0))
+        print(' this is the matrix "vhDel": ', vhDel)
 
-
-
-        newBaseAxis = vh.T.dot(listNpVol)
+        newBaseAxis = vhDel.T.dot(listNpVol)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
@@ -523,9 +526,15 @@ class ProtAutoClassifier(ProtocolBase):
             saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
 
-
         matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
 
+        projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
+        f = open(projFile, 'w')
+        for list in matProj:
+            s = "%s\n" % list
+            f.write(s)
+        f.close()
+        
         matDist = []
         for list1 in matProj:
             rows = []
