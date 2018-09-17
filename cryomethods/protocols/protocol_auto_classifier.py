@@ -509,13 +509,21 @@ class ProtAutoClassifier(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = 0.05*s[0]
-        sCut = [i for i in s if i > cuttOffMatrix]
+        cuttOffMatrix = 0.9*sum(s)
+        aggVal = 0
+        sCut = 0
+        for i in s:
+            aggVal =+ i
+            if aggVal < cuttOffMatrix:
+                sCut =+ 1
 
-        print(' autovals "s" from svd: ', s)
-        print(' autovals cutoff  "sCut": ', sCut)
-        # print(' this is the matrix "vh" from svd: ', vh)
-        vhDel = np.transpose(np.delete(vh, np.s_[len(sCut):vh.shape[1]], axis=0))
+        eigValsFile = self._getLevelPath(self._level, 'eigenvalues.txt')
+        self._createMFile(s, eigValsFile)
+
+        eigVecsFile = self._getLevelPath(self._level, 'eigenvectors.txt')
+        self._createMFile(vh, eigVecsFile)
+
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         print(' this is the matrix "vhDel": ', vhDel)
 
         newBaseAxis = vhDel.T.dot(listNpVol)
@@ -529,12 +537,8 @@ class ProtAutoClassifier(ProtocolBase):
         matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
 
         projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
-        f = open(projFile, 'w')
-        for list in matProj:
-            s = "%s\n" % list
-            f.write(s)
-        f.close()
-        
+        self._createMFile(matProj, projFile)
+
         matDist = []
         for list1 in matProj:
             rows = []
@@ -544,6 +548,13 @@ class ProtAutoClassifier(ProtocolBase):
                     v += (i - j)**2
                 rows.append(v**0.5)
             matDist.append(rows)
-        print('distance: \n', matDist)
+        distFile = self._getLevelPath(self._level, 'distance_matrix.txt')
+        self._createMFile(matDist, distFile)
 
+    def _createMFile(self, matrix, name='matrix.txt'):
+        f = open(name, 'w')
+        for list in matrix:
+            s = "%s\n" % list
+            f.write(s)
+        f.close()
 
