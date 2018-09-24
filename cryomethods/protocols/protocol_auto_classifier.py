@@ -25,6 +25,7 @@
 # *
 # **************************************************************************
 import re
+import copy
 import numpy as np
 from glob import glob
 from collections import Counter
@@ -494,7 +495,6 @@ class ProtAutoClassifier(ProtocolBase):
         listNpVol = []
         m = []
         dType = npAvgVol.dtype
-        print(dType)
 
         filePaths = self._getLevelPath(self._level, "map_rLev-???.mrc")
         listVol = sorted(glob(filePaths))
@@ -509,13 +509,22 @@ class ProtAutoClassifier(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = 0.9*sum(s)
-        aggVal = 0
+        cuttOffMatrix = sum(s) *0.95
         sCut = 0
+
+        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
+
+
         for i in s:
-            aggVal =+ i
-            if aggVal < cuttOffMatrix:
-                sCut =+ 1
+            print('cuttOffMatrix: ', cuttOffMatrix)
+            if cuttOffMatrix > 0:
+                print("Pass, i = %s " %i)
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+
+        print('sCut: ', sCut)
 
         eigValsFile = self._getLevelPath(self._level, 'eigenvalues.txt')
         self._createMFile(s, eigValsFile)
@@ -539,17 +548,58 @@ class ProtAutoClassifier(ProtocolBase):
         projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
         self._createMFile(matProj, projFile)
 
-        matDist = []
-        for list1 in matProj:
-            rows = []
-            for list2 in matProj:
-                v = 0
-                for i,j in izip(list1, list2):
-                    v += (i - j)**2
-                rows.append(v**0.5)
-            matDist.append(rows)
-        distFile = self._getLevelPath(self._level, 'distance_matrix.txt')
-        self._createMFile(matDist, distFile)
+
+        #K-means method to split the classes:
+        # Number of training data
+        n = matProj.shape[0]
+        # Number of features in the data
+        c = matProj.shape[1]
+        print('Data: ', n, 'features:', c)
+        # Generate random centers, here we use sigma and mean to ensure it
+        # represent the whole data
+
+        mean = np.mean(matProj, axis = 0)
+        std = np.std(matProj, axis = 0)
+        centers = np.random.randn(sCut,c)*std + mean
+
+
+        centers_old = np.zeros(centers.shape) # to store old centers
+        centers_new = copy.deepcopy(centers) # Store new centers
+
+        clusters = np.zeros(n)
+        distances = np.zeros((n,sCut))
+
+        error = np.linalg.norm(centers_new - centers_old)
+
+        # When, after an update, the estimate of that center stays the same, exit loop
+        while error != 0:
+            # Measure the distance to every center
+            for i in range(sCut):
+                distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
+            # Assign all training data to closest center
+            clusters = np.argmin(distances, axis = 1)
+
+            centers_old = copy.deepcopy(centers_new)
+            # Calculate mean for every cluster and update the center
+            for i in range(sCut):
+                centers_new[i] = np.mean(matProj[clusters == i], axis=0)
+            error = np.linalg.norm(centers_new - centers_old)
+        centers_new
+
+        print('clusters: ', clusters)
+
+
+        # matDist = []
+        # for list1 in matProj:
+        #     rows = []
+        #     for list2 in matProj:
+        #         v = 0
+        #         for i,j in izip(list1, list2):
+        #             v += (i - j)**2
+        #         rows.append(v**0.5)
+        #     matDist.append(rows)
+        # distFile = self._getLevelPath(self._level, 'distance_matrix.txt')
+        # self._createMFile(matDist, distFile)
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')
