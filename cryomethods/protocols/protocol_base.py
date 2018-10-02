@@ -860,8 +860,7 @@ class ProtocolBase(em.EMProtocol):
     def _splitInCTFGroups(self, imgStar):
         """ Add a new column in the image star to separate the particles
         into ctf groups """
-        from cryomethods.convert import splitInCTFGroups
-        splitInCTFGroups(imgStar,
+        conv.splitInCTFGroups(imgStar,
                          self.defocusRange.get(),
                          self.numParticles.get())
 
