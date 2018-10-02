@@ -533,6 +533,8 @@ class ProtAutoClassifier(ProtocolBase):
         self._createMFile(vh, eigVecsFile)
 
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        self._createMFile(vhDel, 'matrix_vhDel.txt')
+
         print(' this is the matrix "vhDel": ', vhDel)
 
         newBaseAxis = vhDel.T.dot(listNpVol)
@@ -540,9 +542,11 @@ class ProtAutoClassifier(ProtocolBase):
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (i+1)
+            print('-------------saving map %s-----------------' % nameVol)
+            print('Dimensions are: ', volBase.shape)
             saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
-
+            print('------------map %s stored------------------' % nameVol)
         matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
 
         projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
