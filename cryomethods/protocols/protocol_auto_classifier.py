@@ -579,15 +579,16 @@ class ProtAutoClassifier(ProtocolBase):
         error = np.linalg.norm(centers_new - centers_old)
 
         # When, after an update, the estimate of that center stays the same, exit loop
+        print('while begins')
         while error != 0:
-            # Measure the distance to every center
+            print('Measure the distance to every center')
             for i in range(sCut):
                 distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
-            # Assign all training data to closest center
+            print('Assign all training data to closest center')
             clusters = np.argmin(distances, axis = 1)
 
             centers_old = copy.deepcopy(centers_new)
-            # Calculate mean for every cluster and update the center
+            print('Calculate mean for every cluster and update the center')
             for i in range(sCut):
                 centers_new[i] = np.mean(matProj[clusters == i], axis=0)
             error = np.linalg.norm(centers_new - centers_old)
