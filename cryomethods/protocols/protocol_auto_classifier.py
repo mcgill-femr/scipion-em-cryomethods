@@ -504,9 +504,10 @@ class ProtAutoClassifier(ProtocolBase):
 
         for vol in listVol:
             volNp = loadMrc(vol, False)
-            diffVol = volNp - npAvgVol
             dim = volNp.shape[0]
             lenght = dim**3
+            # Now, using diff volume to estimate PCA
+            diffVol = volNp - npAvgVol
             volList = diffVol.reshape(lenght)
             listNpVol.append(volList)
 
@@ -580,7 +581,8 @@ class ProtAutoClassifier(ProtocolBase):
 
         # When, after an update, the estimate of that center stays the same, exit loop
         print('while begins')
-        while error != 0:
+        count = 1
+        while error != 0 or count == 100:
             print('Measure the distance to every center')
             for i in range(sCut):
                 distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
@@ -592,8 +594,9 @@ class ProtAutoClassifier(ProtocolBase):
             for i in range(sCut):
                 centers_new[i] = np.mean(matProj[clusters == i], axis=0)
             error = np.linalg.norm(centers_new - centers_old)
+            print('error: %s' % error)
+            count =+ 1
         centers_new
-
         print('clusters: ', clusters)
 
 
