@@ -256,9 +256,11 @@ class ProtAutoClassifier(ProtocolBase):
         mdInput = md.MetaData()
         outMd = md.MetaData()
 
+        print("entering in the loop to merge dataModel")
         for rLev in range(1, noOfLevRuns + 1):
             rLevId = self._getRunLevId(self._level, rLev)
             self._lastCls = None
+
             mdModel = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             print('Filename model star: %s' % mdModel)
@@ -460,15 +462,15 @@ class ProtAutoClassifier(ProtocolBase):
         lenVols = len(listVol)
         volRef = listVol.pop(0)
 
-        # creating average map
+        print('creating average map')
         avgVol = self._getFileName('avgMap', lev=self._level)
         copyFile(volRef, avgVol)
 
-        #reading volumes as numpy arrays
+        print('reading volumes as numpy arrays')
         npRef = loadMrc(volRef, writable=False)
         npAvgVol = loadMrc(avgVol, writable=True)
 
-        #alignining each volume vs. reference
+        print('alignining each volume vs. reference')
         for vol in listVol:
             npVolAlign = loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
@@ -485,10 +487,10 @@ class ProtAutoClassifier(ProtocolBase):
             saveMrc(npVol, vol)
 
         npAvgVol = np.divide(npAvgVol, lenVols)
+        print('saving rotated volume')
         saveMrc(npAvgVol, avgVol)
 
     def _estimatePCA(self):
-        from itertools import izip
         Plugin.setEnviron()
         avgVol = self._getFileName('avgMap', lev=self._level)
         npAvgVol = loadMrc(avgVol, False)
