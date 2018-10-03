@@ -582,7 +582,7 @@ class ProtAutoClassifier(ProtocolBase):
         # When, after an update, the estimate of that center stays the same, exit loop
         print('while loop begins', matProj)
         count = 1
-        while (error != 0) or (count <= 100):
+        while (error != 0) and (count <= 100):
             print('Measure the distance to every center')
             for i in range(sCut):
                 distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
