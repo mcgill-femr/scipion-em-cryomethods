@@ -484,10 +484,11 @@ class ProtAutoClassifier(ProtocolBase):
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
             npAvgVol += npVol
+            print('saving rot volume %s' % vol)
             saveMrc(npVol, vol)
 
         npAvgVol = np.divide(npAvgVol, lenVols)
-        print('saving rotated volume')
+        print('saving average volume')
         saveMrc(npAvgVol, avgVol)
 
     def _estimatePCA(self):
