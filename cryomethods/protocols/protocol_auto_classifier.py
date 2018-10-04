@@ -29,6 +29,7 @@ import copy
 import numpy as np
 from glob import glob
 from collections import Counter
+import random
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -563,30 +564,27 @@ class ProtAutoClassifier(ProtocolBase):
         # Number of features in the data
         c = matProj.shape[1]
         print('Data: ', n, 'features:', c)
-        # Generate random centers, here we use sigma and mean to ensure it
-        # represent the whole data
 
-        mean = np.mean(matProj, axis = 0)
-        std = np.std(matProj, axis = 0)
-        centers = np.random.randn(sCut,c)*std + mean
-
+        #n centers from projection matrix were used as initial centers
+        centers = matProj[random.sample(xrange(n), c), :]
 
         centers_old = np.zeros(centers.shape) # to store old centers
         centers_new = copy.deepcopy(centers) # Store new centers
 
         clusters = np.zeros(n)
-        distances = np.zeros((n,sCut))
+        distances = np.zeros((n,c))
 
         error = np.linalg.norm(centers_new - centers_old)
         print('first error: ', error)
-        # When, after an update, the estimate of that center stays the same, exit loop
+        # When, after an update, the estimate of that center stays
+        #  the same, exit loop
         print('while loop begins', matProj)
         count = 1
         while (error != 0) and (count <= 10):
             print('Measure the distance to every center')
             for i in range(sCut):
                 distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
-                print('Distances: ', distances[:,i], '\n\n')
+                print('Distances: ', distances[:,i], '++++')
 
             print('Assign all training data to closest center')
             clusters = np.argmin(distances, axis = 1)
@@ -596,7 +594,7 @@ class ProtAutoClassifier(ProtocolBase):
             print('Calculate mean for every cluster and update the center')
             for i in range(sCut):
                 centers_new[i] = np.mean(matProj[clusters == i], axis=0)
-            print("----Centers NEW: ", centers_new, centers_old)
+            print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
             error = np.linalg.norm(centers_new - centers_old)
             count += 1
             print('error: ', error, 'count: ', count)
