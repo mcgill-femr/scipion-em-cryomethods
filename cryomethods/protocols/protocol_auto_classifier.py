@@ -165,7 +165,7 @@ class ProtAutoClassifier(ProtocolBase):
         return evalDep
 
     def _stepsCheck(self):
-        print('Just passing through this')
+        print('Just beginning _stepCheck')
         self.finished = False
         if self._level == self.level.get():  # condition to stop the cycle
             self.finished = True
@@ -248,31 +248,9 @@ class ProtAutoClassifier(ProtocolBase):
             mdInput.write(fn)
 
     def evaluationStep(self):
-        noOfLevRuns = self._getLevRuns(self._level)
-        iters = self.numberOfIterations.get()
-        self._newClass = 0
-        self._clsDict = {}
-        outModel = self._getFileName('outputModel', lev=self._level)
-        outStar = self._getFileName('outputData', lev=self._level)
-        mdInput = md.MetaData()
-        outMd = md.MetaData()
-
-        print("entering in the loop to merge dataModel")
-        for rLev in range(1, noOfLevRuns + 1):
-            rLevId = self._getRunLevId(self._level, rLev)
-            self._lastCls = None
-
-            mdModel = self._getFileName('model', iter=iters,
-                                        lev=self._level, rLev=rLev)
-            print('Filename model star: %s' % mdModel)
-            self._mergeDataStar(outStar, mdInput, iters, rLev)
-            self._mergeModelStar(outMd, mdModel, rLev)
-
-            self._doneList.append(rLevId)
-
-        outMd.write('model_classes@' + outModel)
-        mdInput.write(outStar)
-
+        print('Starting evaluation step')
+        self._mergeMetaDatas()
+        self._getAverageVol()
         self._alignVolumes()
         self._estimatePCA()
         print('Finishing evaluation step')
@@ -455,42 +433,50 @@ class ProtAutoClassifier(ProtocolBase):
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
 
-    def _alignVolumes(self):
-        Plugin.setEnviron()
-
-        filesPath = self._getLevelPath(self._level, "*.mrc")
-        listVol = sorted(glob(filesPath))
-        lenVols = len(listVol)
-        volRef = listVol.pop(0)
+    def _getAverageVol(self):
+        # Plugin.setEnviron()
+        listVol = self._getFilePathVolumes()
 
         print('creating average map')
         avgVol = self._getFileName('avgMap', lev=self._level)
-        copyFile(volRef, avgVol)
 
+        print('alignining each volume vs. reference')
+        for vol in listVol:
+            npVol = loadMrc(vol, False)
+            if vol == listVol[0]:
+                npAvgVol = np.zeros(npVol.shape)
+            npAvgVol += npVol
+
+        npAvgVol = np.divide(npAvgVol, len(listVol))
+        print('saving average volume')
+        saveMrc(npAvgVol, avgVol)
+
+    def _alignVolumes(self):
+        Plugin.setEnviron()
+        listVol = self._getFilePathVolumes()
         print('reading volumes as numpy arrays')
-        npRef = loadMrc(volRef, writable=False)
-        npAvgVol = loadMrc(avgVol, writable=True)
+        avgVol = self._getFileName('avgMap', lev=self._level)
+        npAvgVol = loadMrc(avgVol, writable=False)
 
         print('alignining each volume vs. reference')
         for vol in listVol:
             npVolAlign = loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
-            axis, shifts, angles, score = alignVolumes(npVolAlign, npRef)
+            axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
             axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
-                                                           npRef)
+                                                           npAvgVol)
             if scoref > score:
                 npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
-            npAvgVol += npVol
             print('saving rot volume %s' % vol)
             saveMrc(npVol, vol)
 
-        npAvgVol = np.divide(npAvgVol, lenVols)
-        print('saving average volume')
-        saveMrc(npAvgVol, avgVol)
+    def _getFilePathVolumes(self):
+        filesPath = self._getLevelPath(self._level, "*.mrc")
+        return sorted(glob(filesPath))
 
     def _estimatePCA(self):
         Plugin.setEnviron()
@@ -507,9 +493,9 @@ class ProtAutoClassifier(ProtocolBase):
             volNp = loadMrc(vol, False)
             dim = volNp.shape[0]
             lenght = dim**3
-            # Now, using diff volume to estimate PCA
-            diffVol = volNp - npAvgVol
-            volList = diffVol.reshape(lenght)
+            # Now, not using diff volume to estimate PCA
+            # diffVol = volNp - npAvgVol
+            volList = volNp.reshape(lenght)
             listNpVol.append(volList)
 
         covMatrix = np.cov(listNpVol)
@@ -518,8 +504,6 @@ class ProtAutoClassifier(ProtocolBase):
         sCut = 0
 
         print('cuttOffMatrix & s: ', cuttOffMatrix, s)
-
-
         for i in s:
             print('cuttOffMatrix: ', cuttOffMatrix)
             if cuttOffMatrix > 0:
@@ -528,7 +512,6 @@ class ProtAutoClassifier(ProtocolBase):
                 sCut += 1
             else:
                 break
-
         print('sCut: ', sCut)
 
         eigValsFile = self._getLevelPath(self._level, 'eigenvalues.txt')
@@ -566,7 +549,7 @@ class ProtAutoClassifier(ProtocolBase):
         print('Data: ', n, 'features:', c)
 
         #n centers from projection matrix were used as initial centers
-        centers = matProj[random.sample(xrange(n), c), :]
+        centers = matProj[random.sample(xrange(n), c).sort(), :]
 
         centers_old = np.zeros(centers.shape) # to store old centers
         centers_new = copy.deepcopy(centers) # Store new centers
@@ -582,9 +565,8 @@ class ProtAutoClassifier(ProtocolBase):
         count = 1
         while (error != 0) and (count <= 10):
             print('Measure the distance to every center')
-            for i in range(sCut):
-                distances[:,i] = np.linalg.norm(matProj - centers[i], axis=1)
-                print('Distances: ', distances[:,i], '++++')
+            distances = self._getDistance(matProj, centers)
+            print('Distances: ', distances[:,i], '++++')
 
             print('Assign all training data to closest center')
             clusters = np.argmin(distances, axis = 1)
@@ -613,6 +595,13 @@ class ProtAutoClassifier(ProtocolBase):
         # distFile = self._getLevelPath(self._level, 'distance_matrix.txt')
         # self._createMFile(matDist, distFile)
 
+    def _getDistance(self, m1, m2):
+        #estimatation of the distance bt row vectors
+        distances = np.zeros(( m1.shape[0], m1.shape[1]))
+        for i, row in enumerate(m2):
+            distances[:, i+1] = np.linalg.norm(m1 - row, axis=1)
+        return distances
+
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')
         for list in matrix:
@@ -620,3 +609,29 @@ class ProtAutoClassifier(ProtocolBase):
             f.write(s)
         f.close()
 
+    def _mergeMetaDatas(self):
+        noOfLevRuns = self._getLevRuns(self._level)
+        iters = self.numberOfIterations.get()
+        self._newClass = 0
+        self._clsDict = {}
+        outModel = self._getFileName('outputModel', lev=self._level)
+        outStar = self._getFileName('outputData', lev=self._level)
+        mdInput = md.MetaData()
+        outMd = md.MetaData()
+
+        print("entering in the loop to merge dataModel")
+        for rLev in range(1, noOfLevRuns + 1):
+            rLevId = self._getRunLevId(self._level, rLev)
+            self._lastCls = None
+
+            mdModel = self._getFileName('model', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            print('Filename model star: %s' % mdModel)
+            self._mergeDataStar(outStar, mdInput, iters, rLev)
+            self._mergeModelStar(outMd, mdModel, rLev)
+
+            self._doneList.append(rLevId)
+
+        outMd.write('model_classes@' + outModel)
+        mdInput.write(outStar)
+        print("finished _mergeMetaDatas function")
