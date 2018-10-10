@@ -248,6 +248,7 @@ class ProtAutoClassifier(ProtocolBase):
             mdInput.write(fn)
 
     def evaluationStep(self):
+        Plugin.setEnviron()
         print('Starting evaluation step')
         self._mergeMetaDatas()
         self._getAverageVol()
@@ -434,7 +435,6 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyTranslations'))
 
     def _getAverageVol(self):
-        # Plugin.setEnviron()
         listVol = self._getFilePathVolumes()
 
         print('creating average map')
@@ -452,7 +452,6 @@ class ProtAutoClassifier(ProtocolBase):
         saveMrc(npAvgVol, avgVol)
 
     def _alignVolumes(self):
-        Plugin.setEnviron()
         listVol = self._getFilePathVolumes()
         print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
@@ -479,7 +478,6 @@ class ProtAutoClassifier(ProtocolBase):
         return sorted(glob(filesPath))
 
     def _estimatePCA(self):
-        Plugin.setEnviron()
         avgVol = self._getFileName('avgMap', lev=self._level)
         npAvgVol = loadMrc(avgVol, False)
         listNpVol = []
