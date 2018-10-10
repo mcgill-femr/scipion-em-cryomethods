@@ -253,7 +253,8 @@ class ProtAutoClassifier(ProtocolBase):
         self._mergeMetaDatas()
         self._getAverageVol()
         self._alignVolumes()
-        self._estimatePCA()
+        matrixProj = self._estimatePCA()
+        self._clusteringData(matrixProj)
         print('Finishing evaluation step')
 
     def createOutputStep(self):
@@ -444,18 +445,20 @@ class ProtAutoClassifier(ProtocolBase):
         for vol in listVol:
             npVol = loadMrc(vol, False)
             if vol == listVol[0]:
+                dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
         print('saving average volume')
-        saveMrc(npAvgVol, avgVol)
+        saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _alignVolumes(self):
         listVol = self._getFilePathVolumes()
         print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
         npAvgVol = loadMrc(avgVol, writable=False)
+        dType = npAvgVol.dtype
 
         print('alignining each volume vs. reference')
         for vol in listVol:
@@ -471,7 +474,7 @@ class ProtAutoClassifier(ProtocolBase):
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
             print('saving rot volume %s' % vol)
-            saveMrc(npVol, vol)
+            saveMrc(npVol.astype(dType), vol)
 
     def _getFilePathVolumes(self):
         filesPath = self._getLevelPath(self._level, "*.mrc")
@@ -537,8 +540,9 @@ class ProtAutoClassifier(ProtocolBase):
 
         projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
         self._createMFile(matProj, projFile)
+        return matProj
 
-
+    def _clusteringData(self, matProj):
         #K-means method to split the classes:
         # Number of training data
         n = matProj.shape[0]
@@ -572,7 +576,7 @@ class ProtAutoClassifier(ProtocolBase):
 
             centers_old = copy.deepcopy(centers_new)
             print('Calculate mean for every cluster and update the center')
-            for i in range(sCut):
+            for i in range(c):
                 centers_new[i] = np.mean(matProj[clusters == i], axis=0)
             print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
             error = np.linalg.norm(centers_new - centers_old)
