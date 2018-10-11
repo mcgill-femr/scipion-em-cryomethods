@@ -609,7 +609,7 @@ class ProtAutoClassifier(ProtocolBase):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
-            distances[:, i] = np.linalg.norm(m1 - row, axis=1)
+            distances[:, i+1] = np.linalg.norm(m1 - row, axis=1)
         if neg == True:
             distances = -distances
         return distances
