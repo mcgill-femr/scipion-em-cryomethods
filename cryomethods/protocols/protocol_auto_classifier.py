@@ -547,6 +547,12 @@ class ProtAutoClassifier(ProtocolBase):
         return matProj
 
     def _clusteringData(self, matProj):
+        if True:
+            self._doKmeans(matProj)
+        else:
+            self._doAfinePropagation(matProj)
+
+    def _doKmeans(self, matProj):
         #K-means method to split the classes:
         # Number of training data
         n = matProj.shape[0]
@@ -572,7 +578,7 @@ class ProtAutoClassifier(ProtocolBase):
         while (error != 0) and (count <= 10):
             print('Measure the distance to every center')
             distances = self._getDistance(matProj, centers)
-            print('Distances: ', distances[:,i], '++++')
+            print('Distances: ', distances, '++++')
 
             print('Assign all training data to closest center')
             clusters = np.argmin(distances, axis = 1)
@@ -588,24 +594,24 @@ class ProtAutoClassifier(ProtocolBase):
             print('error: ', error, 'count: ', count)
         print('clusters: ', clusters)
 
+    def _doAfinePropagation(self, matProj):
+        #affinity propagation method to split the classes:
+        # Number of training data
+        n = matProj.shape[0]
+        # Number of features in the data
+        c = matProj.shape[1]
+        print('Data: ', n, 'features:', c)
 
-        # matDist = []
-        # for list1 in matProj:
-        #     rows = []
-        #     for list2 in matProj:
-        #         v = 0
-        #         for i,j in izip(list1, list2):
-        #             v += (i - j)**2
-        #         rows.append(v**0.5)
-        #     matDist.append(rows)
-        # distFile = self._getLevelPath(self._level, 'distance_matrix.txt')
-        # self._createMFile(matDist, distFile)
+        sMatrix = self._getDistance(matProj, matProj, neg=True)
 
-    def _getDistance(self, m1, m2):
+
+    def _getDistance(self, m1, m2, neg=False):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
             distances[:, i] = np.linalg.norm(m1 - row, axis=1)
+        if neg == True:
+            distances = -distances
         return distances
 
     def _createMFile(self, matrix, name='matrix.txt'):
