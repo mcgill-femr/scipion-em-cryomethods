@@ -254,7 +254,10 @@ class ProtAutoClassifier(ProtocolBase):
         self._getAverageVol()
         self._alignVolumes()
         matrixProj = self._estimatePCA()
-        self._clusteringData(matrixProj)
+        if matrixProj.shape[1] >= 2:
+            self._clusteringData(matrixProj)
+        else:
+            print('there is only ONE class')
         print('Finishing evaluation step')
 
     def createOutputStep(self):
@@ -454,6 +457,7 @@ class ProtAutoClassifier(ProtocolBase):
         saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _alignVolumes(self):
+        Plugin.setEnviron()
         listVol = self._getFilePathVolumes()
         print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
@@ -601,7 +605,7 @@ class ProtAutoClassifier(ProtocolBase):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
-            distances[:, i+1] = np.linalg.norm(m1 - row, axis=1)
+            distances[:, i] = np.linalg.norm(m1 - row, axis=1)
         return distances
 
     def _createMFile(self, matrix, name='matrix.txt'):
