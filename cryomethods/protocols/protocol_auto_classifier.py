@@ -576,7 +576,7 @@ class ProtAutoClassifier(ProtocolBase):
         print('while loop begins', matProj)
         count = 1
         while (error != 0) and (count <= 10):
-            print('Measure the distance to every center')
+            print('Measure the distance to every center', centers)
             distances = self._getDistance(matProj, centers)
             print('Distances: ', distances, '++++')
 
@@ -609,6 +609,7 @@ class ProtAutoClassifier(ProtocolBase):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
+            print('row m1: ', m1, 'row from m2: ', row)
             distances[:, i+1] = np.linalg.norm(m1 - row, axis=1)
         if neg == True:
             distances = -distances
