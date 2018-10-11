@@ -561,7 +561,9 @@ class ProtAutoClassifier(ProtocolBase):
         print('Data: ', n, 'features:', c)
 
         #n centers from projection matrix were used as initial centers
-        centers = matProj[random.sample(xrange(n), c).sort(), :]
+        volCenterId = random.sample(xrange(n), c).sort()
+        print("values of volCenterId: ", volCenterId)
+        centers = matProj[volCenterId, :]
 
         centers_old = np.zeros(centers.shape) # to store old centers
         centers_new = copy.deepcopy(centers) # Store new centers
