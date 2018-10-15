@@ -34,7 +34,8 @@ import pyworkflow.protocol.params as params
 from pyworkflow.utils.path import cleanPath, replaceBaseExt
 
 from cryomethods import Plugin
-from cryomethods.constants import (V2_0, ANGULAR_SAMPLING_LIST, MASK_FILL_ZERO)
+from cryomethods.constants import (V2_0, METHOD, ANGULAR_SAMPLING_LIST,
+                                   MASK_FILL_ZERO)
 import cryomethods.convert as conv
 
 
@@ -135,6 +136,10 @@ class ProtocolBase(em.EMProtocol):
                                'unsupervised manner from a single reference by '
                                'division of the data into random subsets during '
                                'the first iteration.')
+            form.addParam('classMethod', params.EnumParam, default=0,
+                          choices=METHOD,
+                          label='method to split classes:',
+                          help='')
 
         group = form.addGroup('Reference 3D map')
 

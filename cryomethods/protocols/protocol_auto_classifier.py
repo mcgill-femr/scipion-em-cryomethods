@@ -140,8 +140,7 @@ class ProtAutoClassifier(ProtocolBase):
 
         self._initialize()
         fDeps = self._insertLevelSteps()
-        self._insertFunctionStep('createOutputStep',
-                                 prerequisites=fDeps, wait=True)
+        self._insertFunctionStep('createOutputStep', wait=True)
 
     def _insertLevelSteps(self):
         deps = []
@@ -253,15 +252,17 @@ class ProtAutoClassifier(ProtocolBase):
         self._mergeMetaDatas()
         self._getAverageVol()
         self._alignVolumes()
-        matrixProj = self._estimatePCA()
-        if matrixProj.shape[1] >= 2:
-            self._clusteringData(matrixProj)
-        else:
-            print('there is only ONE class')
         print('Finishing evaluation step')
 
     def createOutputStep(self):
         partSet = self.inputParticles.get()
+        matrixProj = self._estimatePCA()
+        self._clusteringData(matrixProj)
+        # if matrixProj.shape[1] >= 2:
+        #     pass
+        # else:
+        #     print('there is only ONE class')
+
         classes3D = self._createSetOfClasses3D(partSet)
         self._fillClassesFromIter(classes3D)
 
@@ -547,10 +548,15 @@ class ProtAutoClassifier(ProtocolBase):
         return matProj
 
     def _clusteringData(self, matProj):
-        if True:
+        method = self.classMethod.get()
+        if method == 'kmeans':
             self._doKmeans(matProj)
+        elif method == 'aff. prop':
+            self._doAffProp(matProj)
+        elif method == 'sklearn.kmeans':
+            self._doSklearnKmeans(matProj)
         else:
-            self._doAfinePropagation(matProj)
+            self._doSklearnAffProp(matProj)
 
     def _doKmeans(self, matProj):
         #K-means method to split the classes:
@@ -561,7 +567,8 @@ class ProtAutoClassifier(ProtocolBase):
         print('Data: ', n, 'features:', c)
 
         #n centers from projection matrix were used as initial centers
-        volCenterId = random.sample(xrange(n), c).sort()
+        volCenterId = random.sample(xrange(n), c)
+        volCenterId.sort()
         print("values of volCenterId: ", volCenterId)
         centers = matProj[volCenterId, :]
 
@@ -596,23 +603,31 @@ class ProtAutoClassifier(ProtocolBase):
             print('error: ', error, 'count: ', count)
         print('clusters: ', clusters)
 
-    def _doAfinePropagation(self, matProj):
+    def _doAffProp(self, matProj):
         #affinity propagation method to split the classes:
         # Number of training data
         n = matProj.shape[0]
         # Number of features in the data
         c = matProj.shape[1]
         print('Data: ', n, 'features:', c)
-
         sMatrix = self._getDistance(matProj, matProj, neg=True)
 
+    def _doSklearnKmeans(self, matProj):
+        pass
+
+    def _doSklearnAffProp(self, matProj):
+        from sklearn.cluster import AffinityPropagation
+        ap = AffinityPropagation(preference=-50).fit(matProj)
+        cluster_centers_indices = ap.cluster_centers_indices_
+        labels = ap.labels_
+        print('center, labels: ', cluster_centers_indices, labels)
 
     def _getDistance(self, m1, m2, neg=False):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
             print('row m1: ', m1, 'row from m2: ', row)
-            distances[:, i+1] = np.linalg.norm(m1 - row, axis=1)
+            distances[:, i] = np.linalg.norm(m1 - row, axis=1)
         if neg == True:
             distances = -distances
         return distances

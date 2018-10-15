@@ -39,6 +39,10 @@ CHANGE_LABELS = [md.RLN_OPTIMISER_CHANGES_OPTIMAL_ORIENTS,
                  md.RLN_OPTIMISER_CHANGES_OPTIMAL_OFFSETS,
                  md.RLN_OPTIMISER_CHANGES_OPTIMAL_CLASSES]
 
+
+#methods Constants
+METHOD = ['kmeans', 'aff. prop', 'sklearn.kmeans', 'sklearn.aff.prop']
+
 #Viewer Constants
 ITER_LAST = 0
 ITER_SELECTION = 1
