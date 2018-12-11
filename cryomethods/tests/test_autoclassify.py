@@ -1,3 +1,4 @@
+
 # **************************************************************************
 # *
 # * Authors:     Josue Gomez Blanco (josue.gomez-blanco@mcgill.ca)
@@ -90,12 +91,12 @@ class TestAutoClasifier(TestBase):
         cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
         cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
 
-    def testInitialVolumeSelector(self):
+    def testAutoClassify(self):
         def _runAutoClassifier(doGpu=False, label=''):
             print label
             autoClassifierProt = self.newProtocol(ProtAutoClassifier,
                                                   numberOfIterations=10,
-                                                  level=2,
+                                                  resolToStop=27,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
             autoClassifierProt.setObjLabel(label)
@@ -110,9 +111,7 @@ class TestAutoClasifier(TestBase):
 
         def _checkAsserts(relionProt):
             self.assertIsNotNone(relionProt.outputVolumes, "There was a "
-                                                           "problem with "
-                                                           "Initial Volume "
-                                                           "Selector")
+                                                           "problem")
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
         _checkAsserts(volSelGpu)

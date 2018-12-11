@@ -24,12 +24,13 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+import os
 import re
 import copy
+import random
 import numpy as np
 from glob import glob
 from collections import Counter
-import random
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -51,8 +52,7 @@ class ProtAutoClassifier(ProtocolBase):
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
-        self._level = 1
-        self._rLev = 1
+
 
     def _initialize(self):
         """ This function is mean to be called after the
@@ -71,11 +71,16 @@ class ProtAutoClassifier(ProtocolBase):
         myDict = {
             'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
             'outputData': self.levDir + 'output_data.star',
-            'map': self.levDir + 'map_rLev-%(rLev)03d.mrc',
+            'map': self.levDir + 'map_id-%(id)s.mrc',
             'avgMap': self.levDir + 'map_average.mrc',
             'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
             'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
+            'rawFinalModel': self._getExtraPath('raw_final_model.star'),
+            'rawFinalData': self._getExtraPath('raw_final_data.star'),
+            'finalModel': self._getExtraPath('final_model.star'),
+            'finalData': self._getExtraPath('final_data.star'),
+            'finalAvgMap': self._getExtraPath('map_average.mrc'),
             # 'optimiser': self.extraIter + 'optimiser.star',
             # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
             # 'movie_particles': self._getPath('movie_particles.star'),
@@ -135,12 +140,20 @@ class ProtAutoClassifier(ProtocolBase):
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
+        self._level = 1
+        self._rLev = 1
         self._evalIdsList = []
         self._doneList = []
+        self.stopDict = {}
+        self._mapsDict = {}
+        self._clsIdDict = {}
+        print(' _insertAllSteps which level: ', self._level)
 
         self._initialize()
-        fDeps = self._insertLevelSteps()
-        self._insertFunctionStep('createOutputStep', wait=True)
+        deps = self._insertLevelSteps()
+        self._insertFunctionStep('mergeClassesStep', wait=True,
+                                 prerequisites=deps)
+        self._insertFunctionStep('createOutputStep')
 
     def _insertLevelSteps(self):
         deps = []
@@ -151,37 +164,40 @@ class ProtAutoClassifier(ProtocolBase):
                                  self.copyAlignment,
                                  prerequisites=deps)
 
-        for rLev in range(1, levelRuns + 1):
+        for rLev in levelRuns:
+            clsDepList = []
             self._rLev = rLev  # Just to generate the proper input star file.
-            self._insertClassifyStep()
-            self._setNewEvalIds(rLev)
-        evStep = self._insertEvaluationStep()
+            classDep = self._insertClassifyStep()
+            clsDepList.append(classDep)
+            self._setNewEvalIds()
+
+        evStep = self._insertEvaluationStep(clsDepList)
         deps.append(evStep)
         return deps
 
-    def _insertEvaluationStep(self):
-        evalDep = self._insertFunctionStep('evaluationStep')
+    def _insertEvaluationStep(self, deps):
+        evalDep = self._insertFunctionStep('evaluationStep', prerequisites=deps)
         return evalDep
 
     def _stepsCheck(self):
-        print('Just beginning _stepCheck')
-        self.finished = False
-        if self._level == self.level.get():  # condition to stop the cycle
-            self.finished = True
-        outputStep = self._getFirstJoinStep()
-        if self.finished:  # Unlock createOutputStep if finished all jobs
-            if outputStep and outputStep.isWaiting():
-                outputStep.setStatus(cons.STATUS_NEW)
-                print('outputStep After setStatus')
-        else:
-            print('Not finished, cheking if previous step finished',
-                  self._evalIdsList, self._doneList)
-            if Counter(self._evalIdsList) == Counter(self._doneList):
-                print('_evalIdsList == _doneList')
+        print('_stepsCheck???')
+        if Counter(self._evalIdsList) == Counter(self._doneList):
+            print ('pass trough here: '
+                   'Counter(self._evalIdsList) == Counter(self._doneList)')
+
+            mergeStep = self._getFirstJoinStep()
+            if self._condToStop():
+                print('_condToStop ???')
+                # Unlock mergeClassesStep if finished all jobs
+                if mergeStep and mergeStep.isWaiting():
+                    self._level += 1
+                    mergeStep.setStatus(cons.STATUS_NEW)
+
+            else:
                 self._level += 1
                 fDeps = self._insertLevelSteps()
-                if outputStep is not None:
-                    outputStep.addPrerequisites(*fDeps)
+                if mergeStep is not None:
+                    mergeStep.addPrerequisites(*fDeps)
                 self.updateSteps()
 
     # -------------------------- STEPS functions -------------------------------
@@ -219,12 +235,9 @@ class ProtAutoClassifier(ProtocolBase):
 
             self._convertVol(em.ImageHandler(), self.inputVolumes.get())
         else:
-            noOfLevRuns = self._getLevRuns(self._level)
             lastCls = None
-
             prevStar = self._getFileName('outputData', lev=self._level - 1)
             mdData = md.MetaData(prevStar)
-            print('how many run levels? %d' % noOfLevRuns)
 
             for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
                 clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
@@ -249,19 +262,103 @@ class ProtAutoClassifier(ProtocolBase):
     def evaluationStep(self):
         Plugin.setEnviron()
         print('Starting evaluation step')
+        print('which level: ', self._level)
+        self._copyLevelMaps()
+        self._evalStop()
         self._mergeMetaDatas()
         self._getAverageVol()
         self._alignVolumes()
         print('Finishing evaluation step')
 
+    def mergeClassesStep(self):
+        levelRuns = []
+        makePath(self._getLevelPath(self._level))
+        matrixProj = self._estimatePCA()
+
+        labels = self._clusteringData(matrixProj)
+        # mapIds = self._getFinalMapIds()
+
+        lastCls = None
+        prevStar = self._getFileName('rawFinalData')
+        mdData = md.MetaData(prevStar)
+
+        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            newClass = labels[clsPart-1] + 1
+            row.setValue(md.RLN_PARTICLE_CLASS, newClass)
+
+            if newClass != lastCls:
+                levelRuns.append(newClass)
+                makePath(self._getRunPath(self._level, newClass))
+
+                if lastCls is not None:
+                    print("writing %s" % fn)
+                    mdInput.write(fn)
+                lastCls = newClass
+                mdInput = md.MetaData()
+                fn = self._getFileName('input_star', lev=self._level,
+                                       rLev=newClass)
+            objId = mdInput.addObject()
+            row.writeToMd(mdInput, objId)
+        print("writing %s and ending the loop" % fn)
+        mdInput.write(fn)
+
+        iters = self.numberOfIterations.get()
+        claseId = 0
+
+        for rLev in levelRuns:
+            args = {}
+            self._rLev = rLev
+            self._setNormalArgs(args)
+            self._setComputeArgs(args)
+            args['--K'] = 1
+
+            params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+            params += ' --j %d' % self.numberOfThreads.get()
+            self.runJob(self._getProgram(), params)
+
+            modelFn = self._getFileName('model', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            modelMd = md.MetaData('model_classes@' + modelFn)
+            for row in md.iterRows(modelMd):
+                claseId += 1
+                fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+                mapId = self._getRunLevId(rLev=claseId)
+                newFn = self._getMapById(mapId)
+                print(('copy from %s to %s' % (fn, newFn)))
+                copyFile(fn, newFn)
+                self._mapsDict[fn] = mapId
+
+            #-----metadata to save all final models-------
+            finalModel = self._getFileName('finalModel')
+            finalMd = self._getMetadata(finalModel)
+
+            for row in md.iterRows(modelMd):
+                refLabel = md.RLN_MLMODEL_REF_IMAGE
+                fn = row.getValue(refLabel)
+                mapId = self._mapsDict[fn]
+                newMap = self._getMapById(mapId)
+                row.setValue(refLabel, newMap)
+                row.writeToMd(modelMd, row.getObjId())
+                row.addToMd(finalMd)
+
+            finalMd.write('model_classes@' + finalModel)
+
+            #----metadata to save all final particles-----
+            finalData = self._getFileName('finalData')
+            finalMd = self._getMetadata(finalData)
+
+            imgStar = self._getFileName('data', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            mdData = md.MetaData(imgStar)
+            for row in md.iterRows(mdData):
+                row.setValue(md.RLN_PARTICLE_CLASS, rLev)
+                row.addToMd(finalMd)
+
+            finalMd.write(finalData)
+
     def createOutputStep(self):
         partSet = self.inputParticles.get()
-        matrixProj = self._estimatePCA()
-        self._clusteringData(matrixProj)
-        # if matrixProj.shape[1] >= 2:
-        #     pass
-        # else:
-        #     print('there is only ONE class')
 
         classes3D = self._createSetOfClasses3D(partSet)
         self._fillClassesFromIter(classes3D)
@@ -301,22 +398,17 @@ class ProtAutoClassifier(ProtocolBase):
         return "%s, %s" % (self._getInputParticles().getObjId(),
                            self.inputVolumes.get().getObjId())
 
-    def _setNewEvalIds(self, levelRuns):
-        self._evalIdsList.append(self._getRunLevId(self._level, levelRuns))
+    def _setNewEvalIds(self):
+        self._evalIdsList.append(self._getRunLevId())
 
-    def _getRunLevId(self, level, levelRuns):
-        return "%s.%s" % (level, levelRuns)
-
-    def _getFirstJoinStepName(self):
-        # This function will be used for streaming, to check which is
-        # the first function that need to wait for all micrographs
-        # to have completed, this can be overwritten in subclasses
-        # (eg in Xmipp 'sortPSDStep')
-        return 'createOutputStep'
+    def _getRunLevId(self, level=None, rLev=None):
+        lev = self._level if level is None else level
+        rLevel = self._rLev if rLev is None else rLev
+        return "%02d.%03d" % (lev, rLevel)
 
     def _getFirstJoinStep(self):
         for s in self._steps:
-            if s.funcName == self._getFirstJoinStepName():
+            if s.funcName == 'mergeClassesStep':
                 return s
         return None
 
@@ -335,13 +427,26 @@ class ProtAutoClassifier(ProtocolBase):
         return getattr(attr, False)
 
     def _getLevRuns(self, level):
-        clsNumber = self.numberOfClasses.get()
-        return clsNumber ** (level - 1)
+        if level == 1:
+            return [1]
+        else:
+            l = level - 1
+            mapsIds = [k for k,v in self.stopDict.items() if v is False]
+            mapsLevelIds = [k for k in mapsIds if k.split('.')[0] == '%02d' % l]
+            rLevList = [int(k.split('.')[-1]) for k,v in self.stopDict.items()
+                        if v is False and k.split('.')[0] == '%02d' % l]
+
+            print "level",  l, "self.stopDict",  self.stopDict
+            print "mapsIds", mapsIds, "mapsLevelIds", mapsLevelIds
+            print "rLevList", rLevList
+
+            return rLevList
 
     def _getRefArg(self):
         if self._level == 1:
             return self._convertVolFn(self.inputVolumes.get())
-        return self._getFileName('map', lev=self._level - 1, rLev=self._rLev)
+        mapId = self._getRunLevId(level=self._level - 1)
+        return self._getMapById(mapId)
 
     def _convertVolFn(self, inputVol):
         """ Return a new name if the inputFn is not .mrc """
@@ -359,90 +464,156 @@ class ProtAutoClassifier(ProtocolBase):
 
         return outputFn
 
-    def _mergeDataStar(self, outStar, mdInput, iter, rLev):
-        imgStar = self._getFileName('data', iter=iter,
+    def _getMapById(self, mapId):
+        level = int(mapId.split('.')[0])
+        return self._getFileName('map', lev=level, id=mapId)
+
+    def _copyLevelMaps(self):
+        noOfLevRuns = self._getLevRuns(self._level)
+        print('_copyLevelMaps, noOfLevRuns: ', noOfLevRuns)
+        iters = self.numberOfIterations.get()
+        claseId = 0
+        for rLev in noOfLevRuns:
+            modelFn = self._getFileName('model', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            modelMd = md.MetaData('model_classes@' + modelFn)
+            for row in md.iterRows(modelMd):
+                claseId += 1
+                fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+
+                mapId = self._getRunLevId(rLev=claseId)
+                newFn = self._getMapById(mapId)
+                print(('copy from %s to %s' % (fn, newFn)))
+                copyFile(fn, newFn)
+                self._mapsDict[fn] = mapId
+
+    def _condToStop(self):
+        outModel = self._getFileName('outputModel', lev=self._level)
+        return False if os.path.exists(outModel) else True
+
+    def _evalStop(self):
+        noOfLevRuns = self._getLevRuns(self._level)
+        iters = self.numberOfIterations.get()
+        self._newClass = 0
+        outStar = self._getFileName('outputData', lev=self._level)
+        mdInput = md.MetaData()
+
+        print("dataModel's loop to evaluate stop condition")
+        for rLev in noOfLevRuns:
+            modelFn = self._getFileName('model', iter=iters,
+                                        lev=self._level, rLev=rLev)
+            modelMd = md.MetaData('model_classes@' + modelFn)
+
+            for row in md.iterRows(modelMd):
+                fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+                mapId = self._mapsDict[fn]
+                ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
+                if ssnr >= self.resolToStop.get():
+                    self.stopDict[mapId] = True
+                    if not bool(self._clsIdDict):
+                        self._clsIdDict[mapId] = 1
+                    else:
+                        classId = sorted(self._clsIdDict.values())[-1] + 1
+                        self._clsIdDict[mapId] = classId
+                else:
+                    self.stopDict[mapId] = False
+
+    def _mergeMetaDatas(self):
+        noOfLevRuns = self._getLevRuns(self._level)
+        iters = self.numberOfIterations.get()
+
+        print("entering in the loop to merge dataModel")
+        for rLev in noOfLevRuns:
+            rLevId = self._getRunLevId(rLev=rLev)
+            self._lastCls = None
+
+            self._mergeModelStar(rLev)
+            self._mergeDataStar(rLev)
+
+            self._doneList.append(rLevId)
+        print("finished _mergeMetaDatas function")
+
+    def _mergeModelStar(self, rLev):
+        iters = self._getnumberOfIters()
+
+        #metadata to save all models that continues
+        outModel = self._getFileName('outputModel', lev=self._level)
+        outMd = self._getMetadata(outModel)
+
+        #metadata to save all final models
+        finalModel = self._getFileName('rawFinalModel')
+        finalMd = self._getMetadata(finalModel)
+        print "final MD has at beggining: ", finalMd, "\n*******************\n"
+
+        #read model metadata
+        modelFn = self._getFileName('model', iter=iters,
+                                    lev=self._level, rLev=rLev)
+        modelMd = md.MetaData('model_classes@' + modelFn)
+
+        for row in md.iterRows(modelMd):
+            refLabel = md.RLN_MLMODEL_REF_IMAGE
+            fn = row.getValue(refLabel)
+            mapId = self._mapsDict[fn]
+            newMap = self._getMapById(mapId)
+            row.setValue(refLabel, newMap)
+            row.writeToMd(modelMd, row.getObjId())
+            if self.stopDict[mapId]:
+                print "this MapId %s is finished" % mapId
+                row.addToMd(finalMd)
+            else:
+                print "this MapId %s is not finished" % mapId
+                row.addToMd(outMd)
+
+        if outMd.size() != 0:
+            outMd.write(outModel)
+
+        if finalMd.size() != 0:
+            print "final MD has: ", finalMd
+            finalMd.write('model_classes@' + finalModel)
+
+    def _mergeDataStar(self, rLev):
+        iters = self._getnumberOfIters()
+
+        #metadata to save all particles that continues
+        outData = self._getFileName('outputData', lev=self._level)
+        outMd = self._getMetadata(outData)
+
+        #metadata to save all final particles
+        finalData = self._getFileName('rawFinalData')
+        finalMd = self._getMetadata(finalData)
+
+        imgStar = self._getFileName('data', iter=iters,
                                     lev=self._level, rLev=rLev)
         mdData = md.MetaData(imgStar)
 
-        print("reading %s and begin the loop" % imgStar)
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            if clsPart != self._lastCls:
-                self._newClass += 1
-                self._clsDict['%s.%s' % (rLev, clsPart)] = self._newClass
-                self._lastCls = clsPart
-                # write symlink to new Maps
-                relionFn = self._getFileName('relionMap', lev=self._level,
-                                             iter=self._getnumberOfIters(),
-                                             ref3d=clsPart, rLev=rLev)
-                newFn = self._getFileName('map', lev=self._level,
-                                          rLev=self._newClass)
-                print(('link from %s to %s' % (relionFn, newFn)))
-                copyFile(relionFn, newFn)
+            rMap = self._getFileName('relionMap', lev=self._level,
+                                     iter=iters,
+                                     ref3d=clsPart, rLev=rLev)
+            mapId = self._mapsDict[rMap]
+            if self.stopDict[mapId]:
+                classId = self._clsIdDict[mapId]
+                row.setValue(md.RLN_PARTICLE_CLASS, classId)
+                row.addToMd(finalMd)
+            else:
+                classId = int(mapId.split('.')[1])
+                row.setValue(md.RLN_PARTICLE_CLASS, classId)
+                row.addToMd(outMd)
 
-            row.setValue(md.RLN_PARTICLE_CLASS, self._newClass)
-            row.addToMd(mdInput)
-        print("writing %s and ending the loop" % outStar)
+        if finalMd.size() != 0:
+            finalMd.write(finalData)
 
-    def _mergeModelStar(self, outMd, mdInput, rLev):
-        modelStar = md.MetaData('model_classes@' + mdInput)
+        if outMd.size() != 0:
+            outMd.write(outData)
 
-        for classNumber, row in enumerate(md.iterRows(modelStar)):
-            # objId = self._clsDict['%s.%s' % (rLev, classNumber+1)]
-            row.addToMd(outMd)
+    def _getMetadata(self, file):
+        return md.MetaData(file) if os.path.exists(file) else md.MetaData()
 
-    def _loadClassesInfo(self):
-        """ Read some information about the produced Relion 3D classes
-        from the *model.star file.
-        """
-        self._classesInfo = {}  # store classes info, indexed by class id
-        mdModel = self._getFileName('outputModel', lev=self._level)
+    def _getAverageVol(self, listVol=[]):
+        listVol = self._getPathMaps() if not bool(listVol) else listVol
 
-        modelStar = md.MetaData('model_classes@' + mdModel)
-
-        for classNumber, row in enumerate(md.iterRows(modelStar)):
-            index, fn = relionToLocation(row.getValue('rlnReferenceImage'))
-            # Store info indexed by id, we need to store the row.clone() since
-            # the same reference is used for iteration
-            self._classesInfo[classNumber + 1] = (index, fn, row.clone())
-
-    def _fillClassesFromIter(self, clsSet):
-        """ Create the SetOfClasses3D from a given iteration. """
-        self._loadClassesInfo()
-        dataStar = self._getFileName('outputData', lev=self._level)
-        clsSet.classifyItems(updateItemCallback=self._updateParticle,
-                             updateClassCallback=self._updateClass,
-                             itemDataIterator=md.iterRows(dataStar,
-                                                          sortByLabel=md.RLN_IMAGE_ID))
-
-    def _updateParticle(self, item, row):
-        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
-
-        item._rlnLogLikeliContribution = em.Float(
-            row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
-            row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
-
-    def _updateClass(self, item):
-        classId = item.getObjId()
-        if classId in self._classesInfo:
-            index, fn, row = self._classesInfo[classId]
-            fn += ":mrc"
-            item.setAlignmentProj()
-            item.getRepresentative().setLocation(index, fn)
-            item._rlnclassDistribution = em.Float(
-                row.getValue('rlnClassDistribution'))
-            item._rlnAccuracyRotations = em.Float(
-                row.getValue('rlnAccuracyRotations'))
-            item._rlnAccuracyTranslations = em.Float(
-                row.getValue('rlnAccuracyTranslations'))
-
-    def _getAverageVol(self):
-        listVol = self._getFilePathVolumes()
-
-        print('creating average map')
+        print('creating average map: ', listVol)
         avgVol = self._getFileName('avgMap', lev=self._level)
 
         print('alignining each volume vs. reference')
@@ -457,9 +628,14 @@ class ProtAutoClassifier(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
+    def _getPathMaps(self, filename="*.mrc"):
+        filesPath = self._getLevelPath(self._level, filename)
+        return sorted(glob(filesPath))
+
     def _alignVolumes(self):
+        # Align all volumes inside a level
         Plugin.setEnviron()
-        listVol = self._getFilePathVolumes()
+        listVol = self._getPathMaps()
         print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
         npAvgVol = loadMrc(avgVol, writable=False)
@@ -481,19 +657,17 @@ class ProtAutoClassifier(ProtocolBase):
             print('saving rot volume %s' % vol)
             saveMrc(npVol.astype(dType), vol)
 
-    def _getFilePathVolumes(self):
-        filesPath = self._getLevelPath(self._level, "*.mrc")
-        return sorted(glob(filesPath))
-
     def _estimatePCA(self):
-        avgVol = self._getFileName('avgMap', lev=self._level)
-        npAvgVol = loadMrc(avgVol, False)
         listNpVol = []
         m = []
+
+        listVol = self._getFinalMaps()
+        self._getAverageVol(listVol)
+
+        avgVol = self._getFileName('avgMap', lev=self._level)
+        npAvgVol = loadMrc(avgVol, False)
         dType = npAvgVol.dtype
 
-        filePaths = self._getLevelPath(self._level, "map_rLev-???.mrc")
-        listVol = sorted(glob(filePaths))
 
         for vol in listVol:
             volNp = loadMrc(vol, False)
@@ -547,16 +721,23 @@ class ProtAutoClassifier(ProtocolBase):
         self._createMFile(matProj, projFile)
         return matProj
 
+    def _getFinalMaps(self):
+        return [self._getMapById(k) for k in self._getFinalMapIds()]
+
+    def _getFinalMapIds(self):
+        return [k for k, v in self.stopDict.items() if v is True]
+
     def _clusteringData(self, matProj):
         method = self.classMethod.get()
-        if method == 'kmeans':
-            self._doKmeans(matProj)
-        elif method == 'aff. prop':
-            self._doAffProp(matProj)
-        elif method == 'sklearn.kmeans':
-            self._doSklearnKmeans(matProj)
+        print("clustering: method, ", method)
+        if method == 0:
+            return self._doKmeans(matProj)
+        elif method == 1:
+            return self._doAffProp(matProj)
+        elif method == 2:
+            return self._doSklearnKmeans(matProj)
         else:
-            self._doSklearnAffProp(matProj)
+            return self._doSklearnAffProp(matProj)
 
     def _doKmeans(self, matProj):
         #K-means method to split the classes:
@@ -569,7 +750,7 @@ class ProtAutoClassifier(ProtocolBase):
         #n centers from projection matrix were used as initial centers
         volCenterId = random.sample(xrange(n), c)
         volCenterId.sort()
-        print("values of volCenterId: ", volCenterId)
+        # print("values of volCenterId: ", volCenterId)
         centers = matProj[volCenterId, :]
 
         centers_old = np.zeros(centers.shape) # to store old centers
@@ -579,54 +760,56 @@ class ProtAutoClassifier(ProtocolBase):
         distances = np.zeros((n,c))
 
         error = np.linalg.norm(centers_new - centers_old)
-        print('first error: ', error)
+        # print('first error: ', error)
         # When, after an update, the estimate of that center stays
         #  the same, exit loop
-        print('while loop begins', matProj)
+        # print('while loop begins', matProj)
         count = 1
         while (error != 0) and (count <= 10):
-            print('Measure the distance to every center', centers)
+            # print('Measure the distance to every center', centers)
             distances = self._getDistance(matProj, centers)
-            print('Distances: ', distances, '++++')
+            # print('Distances: ', distances, '++++')
 
-            print('Assign all training data to closest center')
+            # print('Assign all training data to closest center')
             clusters = np.argmin(distances, axis = 1)
-            print('clusters: ', clusters)
+            # print('clusters: ', clusters)
 
             centers_old = copy.deepcopy(centers_new)
-            print('Calculate mean for every cluster and update the center')
+            # print('Calculate mean for every cluster and update the center')
             for i in range(c):
                 centers_new[i] = np.mean(matProj[clusters == i], axis=0)
-            print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
+            # print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
             error = np.linalg.norm(centers_new - centers_old)
             count += 1
-            print('error: ', error, 'count: ', count)
-        print('clusters: ', clusters)
+            # print('error: ', error, 'count: ', count)
+        return clusters
 
     def _doAffProp(self, matProj):
         #affinity propagation method to split the classes:
         # Number of training data
-        n = matProj.shape[0]
-        # Number of features in the data
-        c = matProj.shape[1]
-        print('Data: ', n, 'features:', c)
-        sMatrix = self._getDistance(matProj, matProj, neg=True)
+        print('Affinity propagation not implemented yet')
+        pass
+        # n = matProj.shape[0]
+        # # Number of features in the data
+        # c = matProj.shape[1]
+        # print('Data: ', n, 'features:', c)
+        # sMatrix = self._getDistance(matProj, matProj, neg=True)
 
     def _doSklearnKmeans(self, matProj):
-        pass
+        from sklearn.cluster import KMeans
+        print('projections: ', matProj.shape[1])
+        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
+        return kmeans.labels_
 
     def _doSklearnAffProp(self, matProj):
         from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(preference=-50).fit(matProj)
-        cluster_centers_indices = ap.cluster_centers_indices_
-        labels = ap.labels_
-        print('center, labels: ', cluster_centers_indices, labels)
+        ap = AffinityPropagation(damping=0.9).fit(matProj)
+        return ap.labels_
 
     def _getDistance(self, m1, m2, neg=False):
         #estimatation of the distance bt row vectors
         distances = np.zeros(( m1.shape[0], m1.shape[1]))
         for i, row in enumerate(m2):
-            print('row m1: ', m1, 'row from m2: ', row)
             distances[:, i] = np.linalg.norm(m1 - row, axis=1)
         if neg == True:
             distances = -distances
@@ -639,29 +822,67 @@ class ProtAutoClassifier(ProtocolBase):
             f.write(s)
         f.close()
 
-    def _mergeMetaDatas(self):
-        noOfLevRuns = self._getLevRuns(self._level)
-        iters = self.numberOfIterations.get()
-        self._newClass = 0
-        self._clsDict = {}
-        outModel = self._getFileName('outputModel', lev=self._level)
-        outStar = self._getFileName('outputData', lev=self._level)
-        mdInput = md.MetaData()
-        outMd = md.MetaData()
+    def _loadClassesInfo(self):
+        """ Read some information about the produced Relion 3D classes
+        from the *model.star file.
+        """
+        self._classesInfo = {}  # store classes info, indexed by class id
 
-        print("entering in the loop to merge dataModel")
-        for rLev in range(1, noOfLevRuns + 1):
-            rLevId = self._getRunLevId(self._level, rLev)
-            self._lastCls = None
+        # this is for the level
+        # mdModel = self._getFileName('outputModel', lev=self._level)
 
-            mdModel = self._getFileName('model', iter=iters,
-                                        lev=self._level, rLev=rLev)
-            print('Filename model star: %s' % mdModel)
-            self._mergeDataStar(outStar, mdInput, iters, rLev)
-            self._mergeModelStar(outMd, mdModel, rLev)
+        #this file is the final file model
+        mdModel = self._getFileName('finalModel')
+        modelStar = md.MetaData('model_classes@' + mdModel)
 
-            self._doneList.append(rLevId)
+        for classNumber, row in enumerate(md.iterRows(modelStar)):
+            index, fn = relionToLocation(row.getValue('rlnReferenceImage'))
+            # Store info indexed by id, we need to store the row.clone() since
+            # the same reference is used for iteration
+            self._classesInfo[classNumber + 1] = (index, fn, row.clone())
 
-        outMd.write('model_classes@' + outModel)
-        mdInput.write(outStar)
-        print("finished _mergeMetaDatas function")
+    def _fillClassesFromIter(self, clsSet):
+        """ Create the SetOfClasses3D from a given iteration. """
+        self._loadClassesInfo()
+        dataStar = self._getFileName('finalData')
+        clsSet.classifyItems(updateItemCallback=self._updateParticle,
+                             updateClassCallback=self._updateClass,
+                             itemDataIterator=md.iterRows(dataStar,
+                                                          sortByLabel=md.RLN_IMAGE_ID))
+
+    def _updateParticle(self, item, row):
+        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
+        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
+
+        item._rlnLogLikeliContribution = em.Float(
+            row.getValue('rlnLogLikeliContribution'))
+        item._rlnMaxValueProbDistribution = em.Float(
+            row.getValue('rlnMaxValueProbDistribution'))
+        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+
+    def _updateClass(self, item):
+        classId = item.getObjId()
+        if classId in self._classesInfo:
+            index, fn, row = self._classesInfo[classId]
+            fn += ":mrc"
+            item.setAlignmentProj()
+            item.getRepresentative().setLocation(index, fn)
+            item._rlnclassDistribution = em.Float(
+                row.getValue('rlnClassDistribution'))
+            item._rlnAccuracyRotations = em.Float(
+                row.getValue('rlnAccuracyRotations'))
+            item._rlnAccuracyTranslations = em.Float(
+                row.getValue('rlnAccuracyTranslations'))
+
+    # --------------- tree -----------------------------------------------------
+    def _getChilds(self, depDict):
+        "returns a list of every child"
+        keys = depDict.keys()
+        values = depDict.values()
+        valuesList = list(itertools.chain(*values))
+        return list(set(valuesList) - set(keys))
+
+    def getParent(self, depDict, child):
+        "returns the parent of a child"
+        pass
+

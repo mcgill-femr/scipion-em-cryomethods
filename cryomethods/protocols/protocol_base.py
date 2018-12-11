@@ -129,6 +129,10 @@ class ProtocolBase(em.EMProtocol):
                            'spherical mask of the reference structures if no '
                            'user-provided mask is specified.')
         if not self.IS_VOLSELECTOR:
+            form.addParam('resolToStop', params.FloatParam, default=10,
+                          label='Resolution to stop',
+                          help='Resolution to not go further')
+
             form.addParam('numberOfClasses', params.IntParam, default=2,
                           label='Number of classes:',
                           help='The number of classes (K) for a multi-reference '
@@ -137,8 +141,7 @@ class ProtocolBase(em.EMProtocol):
                                'division of the data into random subsets during '
                                'the first iteration.')
             form.addParam('classMethod', params.EnumParam, default=0,
-                          choices=METHOD,
-                          label='method to split classes:',
+                          choices=METHOD, label='method to split classes:',
                           help='')
 
         group = form.addGroup('Reference 3D map')
@@ -270,13 +273,6 @@ class ProtocolBase(em.EMProtocol):
 
     def _defineOptimizationParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection(label='Optimisation')
-        if self.IS_AUTOCLASSIFY:
-            form.addParam('level', params.IntParam, default=4,
-                          expertLevel=expertLev,
-                          label='Number of levels',
-                          help='Number of levels to be performed. A level is '
-                               'defined as all the classification runs for '
-                               'every class from the previous level.')
         form.addParam('numberOfIterations', params.IntParam, default=25,
                       expertLevel=expertLev,
                       label='Number of iterations',
@@ -608,7 +604,7 @@ class ProtocolBase(em.EMProtocol):
         self._setComputeArgs(args)
 
         params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
-        self._insertFunctionStep('runClassifyStep', params)
+        return self._insertFunctionStep('runClassifyStep', params)
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
