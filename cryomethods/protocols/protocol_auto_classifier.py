@@ -495,20 +495,23 @@ class ProtAutoClassifier(ProtocolBase):
         noOfLevRuns = self._getLevRuns(self._level)
         iters = self.numberOfIterations.get()
         self._newClass = 0
-        outStar = self._getFileName('outputData', lev=self._level)
-        mdInput = md.MetaData()
 
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
+            partSize = md.getSize(self._getFileName('input_star',
+                                  lev=self._level, rLev=rLev))
 
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
                 ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
-                if ssnr >= self.resolToStop.get():
+                classSize = row.getValue('rlnClassDistribution') * partSize
+                ptcStop = self.numberOfClasses.get() * self.minPartsToStop.get()
+                print("Particles per classes: ", ptcStop, classSize)
+                if ssnr >= self.resolToStop.get() or classSize < ptcStop:
                     self.stopDict[mapId] = True
                     if not bool(self._clsIdDict):
                         self._clsIdDict[mapId] = 1

@@ -96,6 +96,7 @@ class TestAutoClasifier(TestBase):
             print label
             autoClassifierProt = self.newProtocol(ProtAutoClassifier,
                                                   numberOfIterations=10,
+                                                  minPartsToStop=1000,
                                                   resolToStop=27,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)

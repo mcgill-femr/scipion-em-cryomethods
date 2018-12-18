@@ -132,7 +132,10 @@ class ProtocolBase(em.EMProtocol):
             form.addParam('resolToStop', params.FloatParam, default=10,
                           label='Resolution to stop',
                           help='Resolution to not go further')
-
+            form.addParam('minPartsToStop', params.FloatParam, default=5000,
+                          label='min particles to stop',
+                          help='Minimum number of particles per class that is '
+                               'needed to do another classification step')
             form.addParam('numberOfClasses', params.IntParam, default=2,
                           label='Number of classes:',
                           help='The number of classes (K) for a multi-reference '
