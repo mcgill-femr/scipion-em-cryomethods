@@ -144,6 +144,7 @@ class ProtAutoClassifier(ProtocolBase):
         self._rLev = 1
         self._evalIdsList = []
         self._doneList = []
+        self._constStop = []
         self.stopDict = {}
         self._mapsDict = {}
         self._clsIdDict = {}
@@ -276,7 +277,6 @@ class ProtAutoClassifier(ProtocolBase):
         matrixProj = self._estimatePCA()
 
         labels = self._clusteringData(matrixProj)
-        # mapIds = self._getFinalMapIds()
 
         lastCls = None
         prevStar = self._getFileName('rawFinalData')
@@ -303,15 +303,19 @@ class ProtAutoClassifier(ProtocolBase):
         print("writing %s and ending the loop" % fn)
         mdInput.write(fn)
 
+        mapIds = self._getFinalMapIds()
         iters = self.numberOfIterations.get()
         claseId = 0
 
         for rLev in levelRuns:
             args = {}
-            self._rLev = rLev
+
             self._setNormalArgs(args)
             self._setComputeArgs(args)
+
             args['--K'] = 1
+            mapId = mapIds[rLev-1]
+            args['--ref'] = self._getRefArg(mapId)
 
             params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
             params += ' --j %d' % self.numberOfThreads.get()
@@ -442,10 +446,11 @@ class ProtAutoClassifier(ProtocolBase):
 
             return rLevList
 
-    def _getRefArg(self):
+    def _getRefArg(self, mapId=None):
         if self._level == 1:
             return self._convertVolFn(self.inputVolumes.get())
-        mapId = self._getRunLevId(level=self._level - 1)
+        if mapId is None:
+            mapId = self._getRunLevId(level=self._level - 1)
         return self._getMapById(mapId)
 
     def _convertVolFn(self, inputVol):
@@ -494,8 +499,7 @@ class ProtAutoClassifier(ProtocolBase):
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
         iters = self.numberOfIterations.get()
-        self._newClass = 0
-
+        
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
             modelFn = self._getFileName('model', iter=iters,
@@ -503,15 +507,21 @@ class ProtAutoClassifier(ProtocolBase):
             modelMd = md.MetaData('model_classes@' + modelFn)
             partSize = md.getSize(self._getFileName('input_star',
                                   lev=self._level, rLev=rLev))
-
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
                 ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                ptcStop = self.numberOfClasses.get() * self.minPartsToStop.get()
-                print("Particles per classes: ", ptcStop, classSize)
-                if ssnr >= self.resolToStop.get() or classSize < ptcStop:
+                const = ssnr*np.log10(classSize)
+                print ("values to evaluate: ", const, fn)
+
+                if self._level < 3:
+                    self._constStop.append(const)\
+
+                avgConst = np.mean(self._constStop) if self._level >= 3 else 0
+                ptcStop = self.minPartsToStop.get()
+
+                if const < avgConst or classSize < ptcStop:
                     self.stopDict[mapId] = True
                     if not bool(self._clsIdDict):
                         self._clsIdDict[mapId] = 1
@@ -850,8 +860,7 @@ class ProtAutoClassifier(ProtocolBase):
         dataStar = self._getFileName('finalData')
         clsSet.classifyItems(updateItemCallback=self._updateParticle,
                              updateClassCallback=self._updateClass,
-                             itemDataIterator=md.iterRows(dataStar,
-                                                          sortByLabel=md.RLN_IMAGE_ID))
+                             itemDataIterator=md.iterRows(dataStar))
 
     def _updateParticle(self, item, row):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))

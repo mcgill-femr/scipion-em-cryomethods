@@ -118,9 +118,9 @@ class TestAlignVolumes(TestBase):
     def testClustering(self):
         from itertools import izip
         Plugin.setEnviron()
-        volList = sorted(glob('/home/josuegbl/PROCESSING/TESLA/projects/'
-                              '44S_VolSelector/Runs/002709_ProtAutoClassifier/'
-                              'extra/lev_03/map_rLev-0??.mrc'))
+        volList = sorted(glob('/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/Runs'
+                              '/002624_ProtAutoClassifier/extra/lev_03/'
+                              'map_id-03.0??.mrc'))
         self._getAverageVol(volList)
 
         # for i in range(4):
@@ -128,8 +128,38 @@ class TestAlignVolumes(TestBase):
         groupDict = {}
         prot = ProtAutoClassifier(classMethod=3)
         print("Mehod: ", prot.classMethod.get())
-        matrix = self._estimatePCA(volList)
-        # matrix, _ = self._mrcToNp(volList)
+        # matrix = self._estimatePCA(volList)
+        matrix, _ = self._mrcToNp(volList)
+        labels = prot._clusteringData(matrix)
+        if labels is not None:
+            f = open('method_%s.txt' % 3, 'w')
+            for vol, label in izip (volList, labels):
+                dictNames[vol] = label
+
+            for key, value in sorted(dictNames.iteritems()):
+                groupDict.setdefault(value, []).append(key)
+
+            for key, value in groupDict.iteritems():
+                line = '%s %s\n' % (key, value)
+                f.write(line)
+            f.close()
+
+            print(labels)
+
+    def testAffinityProp(self):
+        from itertools import izip
+        Plugin.setEnviron()
+        volList = sorted(glob('/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/Runs'
+                              '/002624_ProtAutoClassifier/extra/lev_03/'
+                              'map_id-03.0??.mrc'))
+        self._getAverageVol(volList)
+
+        # for i in range(4):
+        dictNames = {}
+        groupDict = {}
+        prot = ProtAutoClassifier(classMethod=3)
+        print("Mehod: ", prot.classMethod.get())
+        matrix, _ = self._mrcToNp(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
             f = open('method_%s.txt' % 3, 'w')
@@ -177,7 +207,7 @@ class TestAlignVolumes(TestBase):
 
         covMatrix = np.cov(listDiffVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) *0.97
+        cuttOffMatrix = sum(s) * 0.95
         sCut = 0
 
         for i in s:
