@@ -276,15 +276,16 @@ class ProtocolBase(em.EMProtocol):
 
     def _defineOptimizationParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection(label='Optimisation')
-        form.addParam('numberOfIterations', params.IntParam, default=25,
-                      expertLevel=expertLev,
-                      label='Number of iterations',
-                      help='Number of iterations to be performed. Note '
-                           'that the current implementation does NOT '
-                           'comprise a convergence criterium. Therefore, '
-                           'the calculations will need to be stopped '
-                           'by the user if further iterations do not yield '
-                           'improvements in resolution or classes.')
+        if self.IS_VOLSELECTOR:
+            form.addParam('numberOfIterations', params.IntParam, default=25,
+                          expertLevel=expertLev,
+                          label='Number of iterations',
+                          help='Number of iterations to be performed. Note '
+                               'that the current implementation does NOT '
+                               'comprise a convergence criterium. Therefore, '
+                               'the calculations will need to be stopped '
+                               'by the user if further iterations do not yield '
+                               'improvements in resolution or classes.')
         form.addParam('regularisationParamT', params.IntParam, default=4,
                       expertLevel=expertLev,
                       label='Regularisation parameter T',
@@ -606,7 +607,7 @@ class ProtocolBase(em.EMProtocol):
         self._setNormalArgs(args)
         self._setComputeArgs(args)
 
-        params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+        params = self._getParams(args)
         return self._insertFunctionStep('runClassifyStep', params)
 
     # -------------------------- STEPS functions -------------------------------
@@ -650,7 +651,6 @@ class ProtocolBase(em.EMProtocol):
 
     def runClassifyStep(self, params):
         """ Execute the relion steps with the give params. """
-        params += ' --j %d' % self.numberOfThreads.get()
         self.runJob(self._getProgram(), params)
 
     def createOutputStep(self):
@@ -725,7 +725,7 @@ class ProtocolBase(em.EMProtocol):
         if maskDiameter <= 0:
             maskDiameter = pixelSize * self._getNewDim()
 
-        self._defineInputOutput(args)
+        self._defineInput(args)
         args.update({'--particle_diameter': maskDiameter,
                      '--angpix': pixelSize,
                      })
@@ -767,14 +767,14 @@ class ProtocolBase(em.EMProtocol):
 
     def _setBasicArgs(self, args):
         """ Return a dictionary with basic arguments. """
+        self._defineOutput(args)
         args.update({'--flatten_solvent': '',
                      '--norm': '',
                      '--scale': '',
-                     '--oversampling': self.oversampling.get()
+                     '--oversampling': self.oversampling.get(),
+                     '--tau2_fudge': self.regularisationParamT.get()
                      })
-
-        args['--tau2_fudge'] = self.regularisationParamT.get()
-        args['--iter'] = self._getnumberOfIters()
+        args['--iter'] = self._getnumberOfIters() if self.IS_VOLSELECTOR else 7
 
         if not self.IS_VOLSELECTOR and Plugin.getActiveRelionVersion() != V2_0:
             self._setSubsetArgs(args)
@@ -826,6 +826,10 @@ class ProtocolBase(em.EMProtocol):
 
         if self.doGpu:
             args['--gpu'] = self.gpusToUse.get()
+        args['--j'] = self.numberOfThreads.get()
+
+    def _getParams(self, args):
+        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
 
     def _getScratchDir(self):
         """ Returns the scratch dir value without spaces.
@@ -847,6 +851,7 @@ class ProtocolBase(em.EMProtocol):
         """ Return the list of iteration files, give the iterTemplate. """
         result = None
         files = sorted(glob(self._iterTemplate))
+        print("files to know Iters: ", files)
         if files:
             f = files[index]
             s = self._iterRegex.search(f)
@@ -1058,6 +1063,8 @@ class ProtocolBase(em.EMProtocol):
 
         mdParts.write(imgStar)
 
-    def _defineInputOutput(self, args):
+    def _defineInput(self, args):
         args['--i'] = self._getFileName('input_star')
+
+    def _defineOutput(self, args):
         args['--o'] = self._getExtraPath('relion')

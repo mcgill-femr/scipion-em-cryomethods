@@ -81,7 +81,7 @@ class ProtAutoClassifier(ProtocolBase):
             'finalModel': self._getExtraPath('final_model.star'),
             'finalData': self._getExtraPath('final_data.star'),
             'finalAvgMap': self._getExtraPath('map_average.mrc'),
-            # 'optimiser': self.extraIter + 'optimiser.star',
+            'optimiser': self.rLevIter + 'optimiser.star',
             # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
             # 'movie_particles': self._getPath('movie_particles.star'),
             # 'dataFinal': self._getExtraPath("relion_data.star"),
@@ -111,10 +111,13 @@ class ProtAutoClassifier(ProtocolBase):
 
         self._updateFilenamesDict(myDict)
 
-    def _createIterTemplates(self):
+    def _createIterTemplates(self, rLev=None):
         """ Setup the regex on how to find iterations. """
+        rLev = self._rLev if rLev is None else rLev
+        print("level rLev in _createIterTemplates:", self._level, rLev)
+
         self._iterTemplate = self._getFileName('data', lev=self._level,
-                                               rLev=self._rLev,
+                                               rLev=rLev,
                                                iter=0).replace('000', '???')
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
@@ -148,7 +151,6 @@ class ProtAutoClassifier(ProtocolBase):
         self.stopDict = {}
         self._mapsDict = {}
         self._clsIdDict = {}
-        print(' _insertAllSteps which level: ', self._level)
 
         self._initialize()
         deps = self._insertLevelSteps()
@@ -175,6 +177,17 @@ class ProtAutoClassifier(ProtocolBase):
         evStep = self._insertEvaluationStep(clsDepList)
         deps.append(evStep)
         return deps
+
+    def _insertClassifyStep(self):
+        """ Prepare the command line arguments before calling Relion. """
+        # Join in a single line all key, value pairs of the args dict
+        normalArgs = {}
+        basicArgs = {}
+        self._setNormalArgs(normalArgs)
+        self._setBasicArgs(basicArgs)
+
+        return self._insertFunctionStep('runClassifyStep', normalArgs,
+                                        basicArgs, self._rLev)
 
     def _insertEvaluationStep(self, deps):
         evalDep = self._insertFunctionStep('evaluationStep', prerequisites=deps)
@@ -260,6 +273,28 @@ class ProtAutoClassifier(ProtocolBase):
             print("writing %s and ending the loop" % fn)
             mdInput.write(fn)
 
+    def runClassifyStep(self, normalArgs, basicArgs, rLev):
+        self._createIterTemplates(rLev)  # initialize files to know iterations
+        self._setComputeArgs(normalArgs)
+        params = self._getParams(normalArgs)
+        self._runClassifyStep(params)
+
+        for i in range(8, 75, 1):
+            basicArgs['--iter'] = i
+            self._setContinueArgs(basicArgs, rLev)
+            self._setComputeArgs(basicArgs)
+            paramsCont = self._getParams(basicArgs)
+
+            stop = self._stopRunCondition(rLev, i)
+            if not stop:
+                self._runClassifyStep(paramsCont)
+            else:
+                break
+
+    def _runClassifyStep(self, params):
+        """ Execute the relion steps with the give params. """
+        self.runJob(self._getProgram(), params)
+
     def evaluationStep(self):
         Plugin.setEnviron()
         print('Starting evaluation step')
@@ -304,21 +339,22 @@ class ProtAutoClassifier(ProtocolBase):
         mdInput.write(fn)
 
         mapIds = self._getFinalMapIds()
-        iters = self.numberOfIterations.get()
         claseId = 0
 
         for rLev in levelRuns:
+            self._rLev = rLev
+            iters = 15
             args = {}
 
             self._setNormalArgs(args)
             self._setComputeArgs(args)
 
             args['--K'] = 1
+            args['--iter'] = iters
             mapId = mapIds[rLev-1]
             args['--ref'] = self._getRefArg(mapId)
 
-            params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
-            params += ' --j %d' % self.numberOfThreads.get()
+            params = self._getParams(args)
             self.runJob(self._getProgram(), params)
 
             modelFn = self._getFileName('model', iter=iters,
@@ -398,6 +434,11 @@ class ProtAutoClassifier(ProtocolBase):
         else:
             args['--skip_align'] = ''
 
+    def _setContinueArgs(self, args, rLev):
+        continueIter = self._lastIter(rLev)
+        args['--continue'] = self._getFileName('optimiser', lev=self._level,
+                                               rLev=rLev, iter=continueIter)
+
     def _getResetDeps(self):
         return "%s, %s" % (self._getInputParticles().getObjId(),
                            self.inputVolumes.get().getObjId())
@@ -422,9 +463,11 @@ class ProtAutoClassifier(ProtocolBase):
     def _getRunPath(self, level, runLevel, *paths):
         return self._getLevelPath(level, 'rLev_%02d' % runLevel, *paths)
 
-    def _defineInputOutput(self, args):
+    def _defineInput(self, args):
         args['--i'] = self._getFileName('input_star', lev=self._level,
                                         rLev=self._rLev)
+
+    def _defineOutput(self, args):
         args['--o'] = self._getRunPath(self._level, self._rLev, 'relion')
 
     def _getBoolAttr(self, attr=''):
@@ -476,9 +519,11 @@ class ProtAutoClassifier(ProtocolBase):
     def _copyLevelMaps(self):
         noOfLevRuns = self._getLevRuns(self._level)
         print('_copyLevelMaps, noOfLevRuns: ', noOfLevRuns)
-        iters = self.numberOfIterations.get()
         claseId = 0
         for rLev in noOfLevRuns:
+            iters = self._lastIter(rLev)
+            print ("last iteration  _copyLevelMaps:", iters)
+
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
@@ -496,17 +541,37 @@ class ProtAutoClassifier(ProtocolBase):
         outModel = self._getFileName('outputModel', lev=self._level)
         return False if os.path.exists(outModel) else True
 
+    def _stopRunCondition(self, rLev, iter):
+        x = np.array([])
+        y = np.array([])
+
+        for i in range(iter-6, iter, 1):
+            print("iteration: ", i)
+            x = np.append(x, i)
+            modelFn = self._getFileName('model', iter=i,
+                                        lev=self._level, rLev=rLev)
+            print('filename: ', modelFn)
+            modelMd = md.RowMetaData('model_general@' + modelFn)
+            y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
+            print('values to stimate the slope: ', x, y, modelFn)
+
+        slope = np.polyfit(x, y, 1)[0]
+        print("Slope: ", slope)
+        return True if slope <= 0.01 and slope >= -0.01 else False
+
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
-        iters = self.numberOfIterations.get()
-        
+
+
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
+            iters = self._lastIter(rLev)
+            print ("last iteration _evalStop:", iters)
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
             partSize = md.getSize(self._getFileName('input_star',
-                                  lev=self._level, rLev=rLev))
+                                                    lev=self._level, rLev=rLev))
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
@@ -516,7 +581,7 @@ class ProtAutoClassifier(ProtocolBase):
                 print ("values to evaluate: ", const, fn)
 
                 if self._level < 3:
-                    self._constStop.append(const)\
+                    self._constStop.append(const)
 
                 avgConst = np.mean(self._constStop) if self._level >= 3 else 0
                 ptcStop = self.minPartsToStop.get()
@@ -533,7 +598,6 @@ class ProtAutoClassifier(ProtocolBase):
 
     def _mergeMetaDatas(self):
         noOfLevRuns = self._getLevRuns(self._level)
-        iters = self.numberOfIterations.get()
 
         print("entering in the loop to merge dataModel")
         for rLev in noOfLevRuns:
@@ -547,7 +611,9 @@ class ProtAutoClassifier(ProtocolBase):
         print("finished _mergeMetaDatas function")
 
     def _mergeModelStar(self, rLev):
-        iters = self._getnumberOfIters()
+        iters = self._lastIter(rLev)
+        print ("last iteration: _mergeModelStar ", iters)
+
 
         #metadata to save all models that continues
         outModel = self._getFileName('outputModel', lev=self._level)
@@ -585,7 +651,8 @@ class ProtAutoClassifier(ProtocolBase):
             finalMd.write('model_classes@' + finalModel)
 
     def _mergeDataStar(self, rLev):
-        iters = self._getnumberOfIters()
+        iters = self._lastIter(rLev)
+        print ("last iteration _mergeDataStar:", iters)
 
         #metadata to save all particles that continues
         outData = self._getFileName('outputData', lev=self._level)
@@ -739,6 +806,11 @@ class ProtAutoClassifier(ProtocolBase):
 
     def _getFinalMapIds(self):
         return [k for k, v in self.stopDict.items() if v is True]
+
+    def _lastIter(self, rLev=None):
+        self._createIterTemplates(rLev)
+        return self._getIterNumber(-1)
+
 
     def _clusteringData(self, matProj):
         method = self.classMethod.get()
