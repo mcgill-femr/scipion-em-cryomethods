@@ -55,6 +55,7 @@ CHIMERADATAVIEW = 0
 # Relion Supported versions:
 V2_0 = '2.0'
 V2_1 = '2.1'
+V3_0 = '3.0'
 
 # Packages constants
 RELION_HOME = 'RELION_HOME'

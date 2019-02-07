@@ -36,8 +36,6 @@ from pyworkflow.utils.path import (createLink, copyFile, replaceBaseExt,
                                    getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
-from cryomethods import Plugin
-from cryomethods.constants import CRYOMETHODS_HOME
 
 
 def loadMrc(fn, writable=True):

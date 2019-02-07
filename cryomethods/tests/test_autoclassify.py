@@ -1,4 +1,3 @@
-
 # **************************************************************************
 # *
 # * Authors:     Josue Gomez Blanco (josue.gomez-blanco@mcgill.ca)
@@ -96,6 +95,7 @@ class TestAutoClasifier(TestBase):
             print label
             autoClassifierProt = self.newProtocol(ProtAutoClassifier,
                                                   numberOfIterations=10,
+                                                  resolToStop=27.0,
                                                   minPartsToStop=1000,
                                                   classMethod=3,
                                                   resolToStop=27,
