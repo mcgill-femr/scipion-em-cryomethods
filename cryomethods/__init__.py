@@ -153,69 +153,41 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        relion_commands = [('./INSTALL.sh -j %d' % env.getProcessors(),
-                            ['relion_build.log',
-                             'bin/relion_refine'])]
-
-        env.addPackage('relion', version='1.4',
-                       tar='relion-1.4.tgz',
-                       commands=relion_commands)
-
-        env.addPackage('relion', version='1.4f',
-                       tar='relion-1.4_float.tgz',
-                       commands=relion_commands)
-
-        # Define FFTW3 path variables
-        relion_vars = {'FFTW_LIB': env.getLibFolder(),
-                       'FFTW_INCLUDE': env.getIncludeFolder()}
-
-        relion2_commands = [('cmake -DGUI=OFF -DCMAKE_INSTALL_PREFIX=./ .', []),
-                            ('make -j %d' % env.getProcessors(),
-                             ['bin/relion_refine'])]
-
-        env.addPackage('relion', version='2.0',
-                       tar='relion-2.0.4.tgz',
-                       commands=relion2_commands,
-                       updateCuda=True,
-                       vars=relion_vars)
-
-        env.addPackage('relion', version='2.1',
-                       tar='relion-2.1.tgz',
-                       commands=relion2_commands,
-                       updateCuda=True,
-                       vars=relion_vars,
-                       default=True)
-
+        commands = ['git clone https://github.com/mcgill-femr/cryomethods.git',
+                    'python compyle.py']
+        env.addPackage('cryomethods', version='0.1',
+                       # tar='relion-1.4_float.tgz',
+                       commands=commands)
         ## PIP PACKAGES ##
-        def tryAddPipModule(moduleName, *args, **kwargs):
-            """ To try to add certain pipModule.
-                If it fails due to it is already add by other plugin or Scipion,
-                  just returns its name to use it as a dependency.
-                Raise the exception if unknown error is gotten.
-            """
-            try:
-                return env.addPipModule(moduleName, *args, **kwargs)._name
-            except Exception as e:
-                if "Duplicated target '%s'" % moduleName == str(e):
-                    return moduleName
-                else:
-                    raise Exception(e)
-
-        joblib = tryAddPipModule('joblib', '0.11', target='joblib*')
-
-        ## --- DEEP LEARNING TOOLKIT --- ##
-        scipy = tryAddPipModule('scipy', '0.14.0', default=False,
-                                deps=['lapack', 'matplotlib'])
-        cython = tryAddPipModule('cython', '0.22', target='Cython-0.22*',
-                                 default=False)
-        scikit_learn = tryAddPipModule('scikit-learn', '0.19.1',
-                                       target='scikit_learn*',
-                                       default=False, deps=[scipy, cython])
-        unittest2 = tryAddPipModule('unittest2', '0.5.1', target='unittest2*',
-                                    default=False)
-        h5py = tryAddPipModule('h5py', '2.8.0rc1', target='h5py*',
-                               default=False, deps=[unittest2])
-        cv2 = tryAddPipModule('opencv-python', "3.4.2.17",
-                              target="cv2", default=False)
+        # def addPipModule(moduleName, *args, **kwargs):
+        #     """ To try to add certain pipModule.
+        #         If it fails due to it is already add by other plugin or Scipion,
+        #           just returns its name to use it as a dependency.
+        #         Raise the exception if unknown error is gotten.
+        #     """
+        #     try:
+        #         return env.addPipModule(moduleName, *args, **kwargs)._name
+        #     except Exception as e:
+        #         if "Duplicated target '%s'" % moduleName == str(e):
+        #             return moduleName
+        #         else:
+        #             raise Exception(e)
+        #
+        # joblib = addPipModule('joblib', '0.11', target='joblib*')
+        #
+        # ## --- DEEP LEARNING TOOLKIT --- ##
+        # scipy = addPipModule('scipy', '0.14.0', default=False,
+        #                         deps=['lapack', 'matplotlib'])
+        # cython = addPipModule('cython', '0.22', target='Cython-0.22*',
+        #                          default=False)
+        # scikit_learn = addPipModule('scikit-learn', '0.20.0',
+        #                                target='scikit_learn*',
+        #                                default=False, deps=[scipy, cython])
+        # unittest2 = addPipModule('unittest2', '0.5.1', target='unittest2*',
+        #                             default=False)
+        # h5py = addPipModule('h5py', '2.8.0rc1', target='h5py*',
+        #                        default=False, deps=[unittest2])
+        # cv2 = addPipModule('opencv-python', "3.4.2.17",
+        #                       target="cv2", default=False)
 
 pyworkflow.em.Domain.registerPlugin(__name__)
