@@ -153,8 +153,8 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        commands = ['git clone https://github.com/mcgill-femr/cryomethods.git',
-                    'python compyle.py']
+        commands = [('git clone https://github.com/mcgill-femr/cryomethods.git',
+                    'python compyle.py')]
         env.addPackage('cryomethods', version='0.1',
                        # tar='relion-1.4_float.tgz',
                        commands=commands)
