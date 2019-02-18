@@ -144,7 +144,7 @@ class Plugin(pyworkflow.em.Plugin):
     @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V2_0, V2_1]
+        return [V2_0, V2_1, V3_0]
 
     @classmethod
     def getSupportedVersions(cls):
@@ -153,10 +153,11 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        commands = ['git clone https://github.com/mcgill-femr/cryomethods.git',
-                    'python compyle.py']
+        commands = [('python compyle.py')]
+        url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1-alpha.tar.gz'
         env.addPackage('cryomethods', version='0.1',
-                       # tar='relion-1.4_float.tgz',
+                       url=url,
+                       default=True,
                        commands=commands)
         ## PIP PACKAGES ##
         # def addPipModule(moduleName, *args, **kwargs):
