@@ -45,7 +45,7 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def _defineVariables(cls):
-        cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
+        cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1-alpha')
         cls._defineEmVar(RELION_HOME, 'relion-2.1')
 
 
@@ -62,10 +62,10 @@ class Plugin(pyworkflow.em.Plugin):
         libPath = [cls.getHome('alignLib/frm/swig'),
                    cls.getHome('alignLib/SpharmonicKit27')]
 
-        for lPath in libPath:
-            if not lPath in os.environ['LD_LIBRARY_PATH']:
-               environ.update({'LD_LIBRARY_PATH': lPath},
-                              position=pwutils.Environ.BEGIN)
+        # for lPath in libPath:
+        #     if not lPath in os.environ['LD_LIBRARY_PATH']:
+        #        environ.update({'LD_LIBRARY_PATH': lPath},
+        #                       position=pwutils.Environ.BEGIN)
 
         for pPath in pythonPath:
             if not pPath in os.environ['PYTHONPATH']:
@@ -153,12 +153,15 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        commands = [('python compyle.py')]
+        libSphPath = cls.getHome('alignLib/SpharmonicKit27/libsphkit.so')
+        libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
+        commands = ('python alignLib/compile.py ; ln -sf %s ../../lib/ '
+                    '; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
+        target = libFrmPath
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1-alpha.tar.gz'
-        env.addPackage('cryomethods', version='0.1',
+        env.addPackage('cryomethods', version='0.1-alpha',
                        url=url,
-                       default=True,
-                       commands=commands)
+                       commands=[(commands, target)])
         ## PIP PACKAGES ##
         # def addPipModule(moduleName, *args, **kwargs):
         #     """ To try to add certain pipModule.
