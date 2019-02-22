@@ -45,7 +45,7 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def _defineVariables(cls):
-        cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1-alpha')
+        cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
         cls._defineEmVar(RELION_HOME, 'relion-2.1')
 
 
