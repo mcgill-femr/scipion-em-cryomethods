@@ -158,8 +158,8 @@ class Plugin(pyworkflow.em.Plugin):
         commands = ('python alignLib/compile.py ; ln -sf %s ../../lib/ '
                     '; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
         target = libFrmPath
-        url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1-alpha.tar.gz'
-        env.addPackage('cryomethods', version='0.1-alpha',
+        url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
+        env.addPackage('cryomethods', version='0.1',
                        url=url,
                        commands=[(commands, target)])
         ## PIP PACKAGES ##
