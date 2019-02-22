@@ -163,30 +163,30 @@ class Plugin(pyworkflow.em.Plugin):
                        url=url,
                        commands=[(commands, target)])
         ## PIP PACKAGES ##
-        # def addPipModule(moduleName, *args, **kwargs):
-        #     """ To try to add certain pipModule.
-        #         If it fails due to it is already add by other plugin or Scipion,
-        #           just returns its name to use it as a dependency.
-        #         Raise the exception if unknown error is gotten.
-        #     """
-        #     try:
-        #         return env.addPipModule(moduleName, *args, **kwargs)._name
-        #     except Exception as e:
-        #         if "Duplicated target '%s'" % moduleName == str(e):
-        #             return moduleName
-        #         else:
-        #             raise Exception(e)
+        def addPipModule(moduleName, *args, **kwargs):
+            """ To try to add certain pipModule.
+                If it fails due to it is already add by other plugin or Scipion,
+                  just returns its name to use it as a dependency.
+                Raise the exception if unknown error is gotten.
+            """
+            try:
+                return env.addPipModule(moduleName, *args, **kwargs)._name
+            except Exception as e:
+                if "Duplicated target '%s'" % moduleName == str(e):
+                    return moduleName
+                else:
+                    raise Exception(e)
         #
         # joblib = addPipModule('joblib', '0.11', target='joblib*')
         #
         # ## --- DEEP LEARNING TOOLKIT --- ##
-        # scipy = addPipModule('scipy', '0.14.0', default=False,
-        #                         deps=['lapack', 'matplotlib'])
-        # cython = addPipModule('cython', '0.22', target='Cython-0.22*',
-        #                          default=False)
-        # scikit_learn = addPipModule('scikit-learn', '0.20.0',
-        #                                target='scikit_learn*',
-        #                                default=False, deps=[scipy, cython])
+        scipy = addPipModule('scipy', '0.14.0', default=False,
+                                deps=['lapack', 'matplotlib'])
+        cython = addPipModule('cython', '0.22', target='Cython-0.22*',
+                                 default=False)
+        scikit_learn = addPipModule('scikit-learn', '0.20.0',
+                                       target='scikit_learn*',
+                                       default=True, deps=[scipy, cython])
         # unittest2 = addPipModule('unittest2', '0.5.1', target='unittest2*',
         #                             default=False)
         # h5py = addPipModule('h5py', '2.8.0rc1', target='h5py*',
