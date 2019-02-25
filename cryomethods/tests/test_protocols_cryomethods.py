@@ -101,7 +101,6 @@ class TestAutoClasifier(TestBase):
                                                   resolToStop=27.0,
                                                   minPartsToStop=1000,
                                                   classMethod=3,
-                                                  resolToStop=27,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
             autoClassifierProt.setObjLabel(label)
