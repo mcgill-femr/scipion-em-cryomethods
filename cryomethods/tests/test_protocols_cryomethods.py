@@ -24,9 +24,12 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+from pyworkflow.utils import Environ
 from pyworkflow.tests import *
+
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
 from cryomethods.protocols import ProtAutoClassifier
+from cryomethods.protocols import ProtInitialVolumeSelector
 
 
 class TestBase(BaseTest):
@@ -117,3 +120,45 @@ class TestAutoClasifier(TestBase):
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
         _checkAsserts(volSelGpu)
+
+
+class TestVolumeSelector(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        cls.protImportVol = cls.runImportVolumes(cls.volumes, 7.08)
+
+    def testInitialVolumeSelector(self):
+        def _runVolumeSelector(doGpu=False, label=''):
+            print label
+            volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
+                                               targetResol=28.32,
+                                               numberOfIterations=15,
+                                               numberOfMpi=3, numberOfThreads=1)
+
+            volSelectorProt.setObjLabel(label)
+            volSelectorProt.inputParticles.set(self.protImport.outputParticles)
+            volSelectorProt.inputVolumes.set(self.protImportVol.outputVolumes)
+
+            volSelectorProt.doGpu.set(doGpu)
+
+            self.launchProtocol(volSelectorProt)
+            return volSelectorProt
+
+        def _checkAsserts(relionProt):
+            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+                                                           "problem with "
+                                                           "Initial Volume "
+                                                           "Selector")
+
+        volSelNoGPU = _runVolumeSelector(False, "Volume Selector No GPU")
+        _checkAsserts(volSelNoGPU)
+
+        environ = Environ(os.environ)
+        cudaPath = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
+
+        if cudaPath is not None and os.path.exists(cudaPath):
+            volSelGpu = _runVolumeSelector(True, "Run Volume Selector GPU")
+            _checkAsserts(volSelGpu)
