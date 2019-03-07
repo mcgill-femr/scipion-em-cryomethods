@@ -29,9 +29,9 @@ import os
 from os.path import exists
 
 import pyworkflow.em as em
-import pyworkflow.em.showj as showj
+import pyworkflow.em.viewers.showj as showj
 import pyworkflow.em.metadata as md
-from pyworkflow.em.plotter import EmPlotter
+from pyworkflow.em.viewers.plotter import EmPlotter
 import pyworkflow.protocol.params as params
 from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
