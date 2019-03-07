@@ -83,6 +83,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)
+        self._defineReferenceParams(form)
         self._defineCTFParams(form)
         self._defineOptimizationParams(form)
         self._defineSamplingParams(form)

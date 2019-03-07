@@ -36,7 +36,7 @@ import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import makePath, copyFile, replaceBaseExt
+from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
@@ -127,6 +127,7 @@ class ProtAutoClassifier(ProtocolBase):
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)
+        self._defineReferenceParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineCTFParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
         form.addParam('doImageAlignment', params.BooleanParam, default=True,
@@ -279,7 +280,7 @@ class ProtAutoClassifier(ProtocolBase):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(8, 75, 1):
+        for i in range(7, 75, 1):
             basicArgs['--iter'] = i
             self._setContinueArgs(basicArgs, rLev)
             self._setComputeArgs(basicArgs)
@@ -555,9 +556,9 @@ class ProtAutoClassifier(ProtocolBase):
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
             print('values to stimate the slope: ', x, y, modelFn)
 
-        slope = np.polyfit(x, y, 1)[0]
+        slope = abs(np.polyfit(x, y, 1)[0])
         print("Slope: ", slope)
-        return True if slope <= 0.01 and slope >= -0.01 else False
+        return True if slope <= 0.01 else False
 
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
@@ -572,10 +573,12 @@ class ProtAutoClassifier(ProtocolBase):
             modelMd = md.MetaData('model_classes@' + modelFn)
             partSize = md.getSize(self._getFileName('input_star',
                                                     lev=self._level, rLev=rLev))
+
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
+                # ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
+                ssnr = row.getValue('rlnEstimatedResolution')
                 classSize = row.getValue('rlnClassDistribution') * partSize
                 const = ssnr*np.log10(classSize)
                 print ("values to evaluate: ", const, fn)
@@ -811,74 +814,12 @@ class ProtAutoClassifier(ProtocolBase):
         self._createIterTemplates(rLev)
         return self._getIterNumber(-1)
 
-
     def _clusteringData(self, matProj):
         method = self.classMethod.get()
-        print("clustering: method, ", method)
         if method == 0:
-            return self._doKmeans(matProj)
-        elif method == 1:
-            return self._doAffProp(matProj)
-        elif method == 2:
             return self._doSklearnKmeans(matProj)
         else:
             return self._doSklearnAffProp(matProj)
-
-    def _doKmeans(self, matProj):
-        #K-means method to split the classes:
-        # Number of training data
-        n = matProj.shape[0]
-        # Number of features in the data
-        c = matProj.shape[1]
-        print('Data: ', n, 'features:', c)
-
-        #n centers from projection matrix were used as initial centers
-        volCenterId = random.sample(xrange(n), c)
-        volCenterId.sort()
-        # print("values of volCenterId: ", volCenterId)
-        centers = matProj[volCenterId, :]
-
-        centers_old = np.zeros(centers.shape) # to store old centers
-        centers_new = copy.deepcopy(centers) # Store new centers
-
-        clusters = np.zeros(n)
-        distances = np.zeros((n,c))
-
-        error = np.linalg.norm(centers_new - centers_old)
-        # print('first error: ', error)
-        # When, after an update, the estimate of that center stays
-        #  the same, exit loop
-        # print('while loop begins', matProj)
-        count = 1
-        while (error != 0) and (count <= 10):
-            # print('Measure the distance to every center', centers)
-            distances = self._getDistance(matProj, centers)
-            # print('Distances: ', distances, '++++')
-
-            # print('Assign all training data to closest center')
-            clusters = np.argmin(distances, axis = 1)
-            # print('clusters: ', clusters)
-
-            centers_old = copy.deepcopy(centers_new)
-            # print('Calculate mean for every cluster and update the center')
-            for i in range(c):
-                centers_new[i] = np.mean(matProj[clusters == i], axis=0)
-            # print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
-            error = np.linalg.norm(centers_new - centers_old)
-            count += 1
-            # print('error: ', error, 'count: ', count)
-        return clusters
-
-    def _doAffProp(self, matProj):
-        #affinity propagation method to split the classes:
-        # Number of training data
-        print('Affinity propagation not implemented yet')
-        pass
-        # n = matProj.shape[0]
-        # # Number of features in the data
-        # c = matProj.shape[1]
-        # print('Data: ', n, 'features:', c)
-        # sMatrix = self._getDistance(matProj, matProj, neg=True)
 
     def _doSklearnKmeans(self, matProj):
         from sklearn.cluster import KMeans
@@ -957,16 +898,4 @@ class ProtAutoClassifier(ProtocolBase):
                 row.getValue('rlnAccuracyRotations'))
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
-
-    # --------------- tree -----------------------------------------------------
-    def _getChilds(self, depDict):
-        "returns a list of every child"
-        keys = depDict.keys()
-        values = depDict.values()
-        valuesList = list(itertools.chain(*values))
-        return list(set(valuesList) - set(keys))
-
-    def getParent(self, depDict, child):
-        "returns the parent of a child"
-        pass
 
