@@ -31,7 +31,7 @@ import os, sys
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_HOME, CRYOMETHODS_HOME, V2_0, V2_1, V3_0
+from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
@@ -40,13 +40,13 @@ _references = []
 
 class Plugin(pyworkflow.em.Plugin):
     _homeVar = CRYOMETHODS_HOME
-    _pathVars = [CRYOMETHODS_HOME]
+    _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME]
     _supportedVersions = []
 
     @classmethod
     def _defineVariables(cls):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
-        cls._defineEmVar(RELION_HOME, 'relion-2.1')
+        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
 
 
     @classmethod
@@ -76,8 +76,10 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def __getRelionHome(cls, *paths):
-        """ Return the binary home path and possible some subfolders. """
-        return os.path.join(os.environ[RELION_HOME], *paths)
+        """ Return a path from the "home" of the package
+         if the _homeVar is defined in the plugin. """
+        home = cls.getVar(RELION_CRYOMETHODS_HOME)
+        return os.path.join(home, *paths) if home else ''
 
 
     @classmethod
@@ -137,14 +139,9 @@ class Plugin(pyworkflow.em.Plugin):
         return ''
 
     @classmethod
-    def isVersion2Relion(cls):
-        return cls.getActiveRelionVersion().startswith("2.")
-
-
-    @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V2_0, V2_1, V3_0]
+        return [V3_0]
 
     @classmethod
     def getSupportedVersions(cls):
