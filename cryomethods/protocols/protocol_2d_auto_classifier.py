@@ -48,7 +48,7 @@ from .protocol_base import ProtocolBase
 
 
 class Prot2DAutoClassifier(ProtocolBase):
-    _label = 'auto classifier'
+    _label = 'auto 2D classifier'
     IS_2D = True
     IS_AUTOCLASSIFY = True
 

@@ -428,7 +428,7 @@ class VolumeSelectorViewer(ProtocolViewer):
 
 
     def createView(self, filename, viewParams={}):
-        return em.ObjectView(self._project, self.protocol.strId(),
+        return em.viewers.ObjectView(self._project, self.protocol.strId(),
                              filename, viewParams=viewParams)
 
     def _getRange(self, var, label):
