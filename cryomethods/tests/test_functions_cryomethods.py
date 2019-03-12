@@ -31,7 +31,7 @@ import numpy as np
 from pyworkflow.utils import basename
 from pyworkflow.tests import *
 from cryomethods import Plugin
-from cryomethods.protocols import ProtAutoClassifier
+from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
 
 
@@ -126,7 +126,7 @@ class TestAlignVolumes(TestBase):
         # for i in range(4):
         dictNames = {}
         groupDict = {}
-        prot = ProtAutoClassifier(classMethod=3)
+        prot = Prot3DAutoClassifier(classMethod=3)
         print("Mehod: ", prot.classMethod.get())
         # matrix = self._estimatePCA(volList)
         matrix, _ = self._mrcToNp(volList)
@@ -157,7 +157,7 @@ class TestAlignVolumes(TestBase):
         # for i in range(4):
         dictNames = {}
         groupDict = {}
-        prot = ProtAutoClassifier(classMethod=3)
+        prot = Prot3DAutoClassifier(classMethod=3)
         print("Mehod: ", prot.classMethod.get())
         matrix, _ = self._mrcToNp(volList)
         labels = prot._clusteringData(matrix)

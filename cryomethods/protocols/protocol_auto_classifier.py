@@ -46,9 +46,11 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 from .protocol_base import ProtocolBase
 
 
-class ProtAutoClassifier(ProtocolBase):
-    _label = 'auto classifier'
+class Prot3DAutoClassifier(ProtocolBase):
+    _label = '3D auto classifier'
+    IS_2D = False
     IS_AUTOCLASSIFY = True
+
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)

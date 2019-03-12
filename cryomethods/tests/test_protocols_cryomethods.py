@@ -28,7 +28,7 @@ from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-from cryomethods.protocols import ProtAutoClassifier
+from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
 
 
@@ -96,7 +96,7 @@ class TestAutoClasifier(TestBase):
     def testAutoClassify(self):
         def _runAutoClassifier(doGpu=False, label=''):
             print label
-            autoClassifierProt = self.newProtocol(ProtAutoClassifier,
+            autoClassifierProt = self.newProtocol(Prot3DAutoClassifier,
                                                   numberOfIterations=10,
                                                   resolToStop=27.0,
                                                   minPartsToStop=1000,
