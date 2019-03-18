@@ -34,10 +34,10 @@ from collections import Counter
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
+from pyworkflow.em.convert import ImageHandler
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt,
-                              copyPattern, cleanPattern)
+from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
@@ -48,7 +48,7 @@ from .protocol_base import ProtocolBase
 
 
 class Prot2DAutoClassifier(ProtocolBase):
-    _label = 'auto 2D classifier'
+    _label = '2D auto classifier'
     IS_2D = True
     IS_AUTOCLASSIFY = True
 
@@ -73,9 +73,10 @@ class Prot2DAutoClassifier(ProtocolBase):
         myDict = {
             'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
             'outputData': self.levDir + 'output_data.star',
-            'map': self.levDir + 'map_id-%(id)s.mrc',
+            'image': self.levDir + 'image_id-%(id)s.mrc',
             'avgMap': self.levDir + 'map_average.mrc',
-            'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+            'relionImage': '%(clsImg)06d@' + self.rLevDir +
+                           'relion_it%(iter)03d_classes.mrcs',
             'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
             'rawFinalModel': self._getExtraPath('raw_final_model.star'),
@@ -249,7 +250,6 @@ class Prot2DAutoClassifier(ProtocolBase):
             if self.doCtfManualGroups:
                 self._splitInCTFGroups(imgStar)
 
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
@@ -305,7 +305,7 @@ class Prot2DAutoClassifier(ProtocolBase):
         self._evalStop()
         self._mergeMetaDatas()
         self._getAverageVol()
-        self._alignVolumes()
+        # self._alignVolumes()
         print('Finishing evaluation step')
 
     def mergeClassesStep(self):
@@ -354,7 +354,6 @@ class Prot2DAutoClassifier(ProtocolBase):
             args['--K'] = 1
             args['--iter'] = iters
             mapId = mapIds[rLev-1]
-            args['--ref'] = self._getRefArg(mapId)
 
             params = self._getParams(args)
             self.runJob(self._getProgram(), params)
@@ -426,13 +425,13 @@ class Prot2DAutoClassifier(ProtocolBase):
     # -------------------------- UTILS functions -------------------------------
     def _setSamplingArgs(self, args):
         """ Set sampling related params. """
+        # Sampling stuff
         if self.doImageAlignment:
-            args['--healpix_order'] = self.angularSamplingDeg.get()
             args['--offset_range'] = self.offsetSearchRangePix.get()
-            args['--offset_step'] = (self.offsetSearchStepPix.get() *
-                                     self._getSamplingFactor())
-            if self.localAngularSearch:
-                args['--sigma_ang'] = self.localAngularSearchRange.get() / 3.
+            args['--offset_step']  = (self.offsetSearchStepPix.get() *
+                                      self._getSamplingFactor())
+            args['--psi_step'] = (self.inplaneAngularSamplingDeg.get() *
+                                  self._getSamplingFactor())
         else:
             args['--skip_align'] = ''
 
@@ -442,8 +441,7 @@ class Prot2DAutoClassifier(ProtocolBase):
                                                rLev=rLev, iter=continueIter)
 
     def _getResetDeps(self):
-        return "%s, %s" % (self._getInputParticles().getObjId(),
-                           self.inputVolumes.get().getObjId())
+        return "%s" % (self._getInputParticles().getObjId())
 
     def _setNewEvalIds(self):
         self._evalIdsList.append(self._getRunLevId())
@@ -491,12 +489,12 @@ class Prot2DAutoClassifier(ProtocolBase):
 
             return rLevList
 
-    def _getRefArg(self, mapId=None):
-        if self._level == 1:
-            return self._convertVolFn(self.inputVolumes.get())
-        if mapId is None:
-            mapId = self._getRunLevId(level=self._level - 1)
-        return self._getMapById(mapId)
+    # def _getRefArg(self, mapId=None):
+    #     if self._level == 1:
+    #         return self._convertVolFn(self.inputVolumes.get())
+    #     if mapId is None:
+    #         mapId = self._getRunLevId(level=self._level - 1)
+    #     return self._getMapById(mapId)
 
     def _convertVolFn(self, inputVol):
         """ Return a new name if the inputFn is not .mrc """
@@ -516,9 +514,10 @@ class Prot2DAutoClassifier(ProtocolBase):
 
     def _getMapById(self, mapId):
         level = int(mapId.split('.')[0])
-        return self._getFileName('map', lev=level, id=mapId)
+        return self._getFileName('image', lev=level, id=mapId)
 
     def _copyLevelMaps(self):
+        print('--------COPYLEVELMAPS-----------')
         noOfLevRuns = self._getLevRuns(self._level)
         print('_copyLevelMaps, noOfLevRuns: ', noOfLevRuns)
         claseId = 0
@@ -536,7 +535,8 @@ class Prot2DAutoClassifier(ProtocolBase):
                 mapId = self._getRunLevId(rLev=claseId)
                 newFn = self._getMapById(mapId)
                 print(('copy from %s to %s' % (fn, newFn)))
-                copyFile(fn, newFn)
+                ih = ImageHandler()
+                ih.convert(fn, newFn)
                 self._mapsDict[fn] = mapId
 
     def _condToStop(self):
@@ -562,23 +562,21 @@ class Prot2DAutoClassifier(ProtocolBase):
         y = np.array([])
 
         for i in range(iter-6, iter, 1):
-            print("iteration: ", i)
             x = np.append(x, i)
             modelFn = self._getFileName('model', iter=i,
                                         lev=self._level, rLev=rLev)
-            print('filename: ', modelFn)
             modelMd = md.RowMetaData('model_general@' + modelFn)
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
-            print('values to stimate the slope: ', x, y, modelFn)
+            print('values to stimate the slope: ', x, y)
 
         slope = np.polyfit(x, y, 1)[0]
         print("Slope: ", slope)
         return True if slope <= 0.01 and slope >= -0.01 else False
 
     def _evalStop(self):
+        print('--------_evalStop-----------')
+
         noOfLevRuns = self._getLevRuns(self._level)
-
-
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -591,7 +589,7 @@ class Prot2DAutoClassifier(ProtocolBase):
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                ssnr = row.getValue('rlnCurrentResolution')
+                ssnr = row.getValue('rlnEstimatedResolution')
                 print('SSNR: ', ssnr)
                 classSize = row.getValue('rlnClassDistribution') * partSize
                 const = ssnr*np.log10(classSize)
@@ -614,6 +612,7 @@ class Prot2DAutoClassifier(ProtocolBase):
                     self.stopDict[mapId] = False
 
     def _mergeMetaDatas(self):
+        print('--------MERGEMETADATAS-----------')
         noOfLevRuns = self._getLevRuns(self._level)
 
         print("entering in the loop to merge dataModel")
@@ -685,9 +684,9 @@ class Prot2DAutoClassifier(ProtocolBase):
 
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = self._getFileName('relionMap', lev=self._level,
+            rMap = self._getFileName('relionImage', lev=self._level,
                                      iter=iters,
-                                     ref3d=clsPart, rLev=rLev)
+                                     clsImg=clsPart, rLev=rLev)
             mapId = self._mapsDict[rMap]
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]
@@ -707,7 +706,13 @@ class Prot2DAutoClassifier(ProtocolBase):
     def _getMetadata(self, file):
         return md.MetaData(file) if os.path.exists(file) else md.MetaData()
 
+    def _getPathMaps(self, filename="*.mrc"):
+        filesPath = self._getLevelPath(self._level, filename)
+        return sorted(glob(filesPath))
+
     def _getAverageVol(self, listVol=[]):
+        print('--------GETAVERAGEVOL-----------')
+
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
         print('creating average map: ', listVol)
@@ -725,11 +730,9 @@ class Prot2DAutoClassifier(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _getPathMaps(self, filename="*.mrc"):
-        filesPath = self._getLevelPath(self._level, filename)
-        return sorted(glob(filesPath))
-
     def _alignVolumes(self):
+        print('--------_alignVolumes-----------')
+
         # Align all volumes inside a level
         Plugin.setEnviron()
         listVol = self._getPathMaps()
