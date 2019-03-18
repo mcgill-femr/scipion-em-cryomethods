@@ -133,9 +133,9 @@ class ProtocolBase(em.EMProtocol):
             group = form.addGroup('Volume Selector')
 
             group.addParam('subsetSize', params.IntParam, default=1000,
-                          label='Subset size',
-                          help='Number of individual particles that will be '
-                               'use to obtain the best initial volume')
+                           label='Subset size',
+                           help='Number of individual particles that will be '
+                                'use to obtain the best initial volume')
             group.addParam('targetResol', params.FloatParam, default=10,
                            label='Target Resolution (A)',
                            help='In order to save time, you could rescale both '
@@ -145,23 +145,23 @@ class ProtocolBase(em.EMProtocol):
         else:
             group = form.addGroup('Auto classify')
             group.addParam('resolToStop', params.FloatParam, default=10,
-                          label='Resolution to stop',
-                          help='Resolution to not go further')
+                           label='Resolution to stop',
+                           help='Resolution to not go further')
             group.addParam('minPartsToStop', params.FloatParam, default=5000,
-                          label='min particles to stop',
-                          help='Minimum number of particles per class that is '
-                               'needed to do another classification step')
+                           label='min particles to stop',
+                           help='Minimum number of particles per class that is '
+                                'needed to do another classification step')
             group.addParam('numberOfClasses', params.IntParam, default=2,
-                          label='Number of classes:',
-                          help='The number of classes (K) for a multi-reference '
-                               'refinement. These classes will be made in an '
-                               'unsupervised manner from a single reference by '
-                               'division of the data into random subsets during '
-                               'the first iteration.')
+                           label='Number of classes:',
+                           help='The number of classes (K) for a multi-reference '
+                                'refinement. These classes will be made in an '
+                                'unsupervised manner from a single reference by '
+                                'division of the data into random subsets during '
+                                'the first iteration.')
             group.addParam('classMethod', params.EnumParam,
                            default=1, choices=METHOD,
                            label='Method to determine the classes:',
-                          help='')
+                           help='')
 
             form.addParam('copyAlignment', params.BooleanParam, default=False,
                           label='Consider previous alignment?',
@@ -183,20 +183,21 @@ class ProtocolBase(em.EMProtocol):
                           help='If set to Yes, then random subset value '
                                'of input particles will be put into the'
                                'star file that is generated.')
-    def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
-        form = form.addSection('Reference 3D map')
 
+    def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
+        form.addSection('Reference 3D map')
         referenceClass = 'SetOfVolumes'
         referenceLabel = 'Input volumes'
+
         if not self.IS_VOLSELECTOR:
             referenceClass += ', Volume'
             referenceLabel = 'Input volume(s)'
 
         form.addParam('inputVolumes', params.PointerParam,
-                       pointerClass=referenceClass,
-                       important=True,
-                       label=referenceLabel,
-                       help='Initial reference 3D map(s)')
+                      pointerClass=referenceClass,
+                      important=True,
+                      label=referenceLabel,
+                      help='Initial reference 3D map(s)')
         form.addParam('referenceMask', params.PointerParam,
                       pointerClass='VolumeMask', expertLevel=expertLev,
                       label='Reference mask (optional)', allowsNull=True,
@@ -241,59 +242,59 @@ class ProtocolBase(em.EMProtocol):
                            'when the mask contains only a relatively '
                            'small volume inside the box.')
         form.addParam('isMapAbsoluteGreyScale', params.BooleanParam,
-                       default=False,
-                       label="Is initial 3D map on absolute greyscale?",
-                       help='The probabilities are based on squared '
-                            'differences, so that the absolute grey scale is '
-                            'important. \n'
-                            'Probabilities are calculated based on a Gaussian '
-                            'noise model, which contains a squared difference '
-                            'term between the reference and the experimental '
-                            'image. This has a consequence that the reference '
-                            'needs to be on the same absolute intensity '
-                            'grey-scale as the experimental images. RELION and '
-                            'XMIPP reconstruct maps at their absolute '
-                            'intensity grey-scale. Other packages may perform '
-                            'internal normalisations of the reference density, '
-                            'which will result in incorrect grey-scales. '
-                            'Therefore: if the map was reconstructed in RELION '
-                            'or in XMIPP, set this option to Yes, otherwise '
-                            'set it to No. If set to No, RELION will use a ('
-                            'grey-scale invariant) cross-correlation criterion '
-                            'in the first iteration, and prior to the second '
-                            'iteration the map will be filtered again using '
-                            'the initial low-pass filter. This procedure is '
-                            'relatively quick and typically does not '
-                            'negatively affect the outcome of the subsequent '
-                            'MAP refinement. Therefore, if in doubt it is '
-                            'recommended to set this option to No.')
+                      default=False,
+                      label="Is initial 3D map on absolute greyscale?",
+                      help='The probabilities are based on squared '
+                           'differences, so that the absolute grey scale is '
+                           'important. \n'
+                           'Probabilities are calculated based on a Gaussian '
+                           'noise model, which contains a squared difference '
+                           'term between the reference and the experimental '
+                           'image. This has a consequence that the reference '
+                           'needs to be on the same absolute intensity '
+                           'grey-scale as the experimental images. RELION and '
+                           'XMIPP reconstruct maps at their absolute '
+                           'intensity grey-scale. Other packages may perform '
+                           'internal normalisations of the reference density, '
+                           'which will result in incorrect grey-scales. '
+                           'Therefore: if the map was reconstructed in RELION '
+                           'or in XMIPP, set this option to Yes, otherwise '
+                           'set it to No. If set to No, RELION will use a ('
+                           'grey-scale invariant) cross-correlation criterion '
+                           'in the first iteration, and prior to the second '
+                           'iteration the map will be filtered again using '
+                           'the initial low-pass filter. This procedure is '
+                           'relatively quick and typically does not '
+                           'negatively affect the outcome of the subsequent '
+                           'MAP refinement. Therefore, if in doubt it is '
+                           'recommended to set this option to No.')
         form.addParam('symmetryGroup', params.StringParam, default='c1',
-                       label="Symmetry",
-                       help='If the molecule is asymmetric, set Symmetry '
-                            'group to C1. Note their are multiple '
-                            'possibilities for icosahedral symmetry:\n'
-                            '* I1: No-Crowther 222 (standard in Heymann,'
-                            'Chagoyen  & Belnap, JSB, 151 (2005) 196-207)\n'
-                            '* I2: Crowther 222                          \n'
-                            '* I3: 52-setting (as used in SPIDER?)       \n'
-                            '* I4: A different 52 setting                \n'
-                            'The command *relion_refine --sym D2 '
-                            '--print_symmetry_ops* prints a list of all '
-                            'symmetry operators for symmetry group D2. RELION '
-                            'uses MIPP\'s libraries for symmetry operations. '
-                            'Therefore, look at the XMIPP Wiki for more '
-                            'details:\n'
-                            'http://xmipp.cnb.csic.es/twiki/bin/view/Xmipp'
-                            '/WebHome?topic=Symmetry')
+                      label="Symmetry",
+                      help='If the molecule is asymmetric, set Symmetry '
+                           'group to C1. Note their are multiple '
+                           'possibilities for icosahedral symmetry:\n'
+                           '* I1: No-Crowther 222 (standard in Heymann,'
+                           'Chagoyen  & Belnap, JSB, 151 (2005) 196-207)\n'
+                           '* I2: Crowther 222                          \n'
+                           '* I3: 52-setting (as used in SPIDER?)       \n'
+                           '* I4: A different 52 setting                \n'
+                           'The command *relion_refine --sym D2 '
+                           '--print_symmetry_ops* prints a list of all '
+                           'symmetry operators for symmetry group D2. RELION '
+                           'uses MIPP\'s libraries for symmetry operations. '
+                           'Therefore, look at the XMIPP Wiki for more '
+                           'details:\n'
+                           'http://xmipp.cnb.csic.es/twiki/bin/view/Xmipp'
+                           '/WebHome?topic=Symmetry')
         form.addParam('initialLowPassFilterA', params.FloatParam,
-                       default=25 if self.IS_VOLSELECTOR else 40,
-                       label='Initial low-pass filter (A)',
-                       help='It is recommended to strongly low-pass filter '
-                            'your initial reference map. If it has not yet '
-                            'been low-pass filtered, it may be done '
-                            'internally using this option. If set to 0, '
-                            'no low-pass filter will be applied to the '
-                            'initial reference(s).')
+                      default=25 if self.IS_VOLSELECTOR else 40,
+                      label='Initial low-pass filter (A)',
+                      help='It is recommended to strongly low-pass filter '
+                           'your initial reference map. If it has not yet '
+                           'been low-pass filtered, it may be done '
+                           'internally using this option. If set to 0, '
+                           'no low-pass filter will be applied to the '
+                           'initial reference(s).')
 
     def _defineCTFParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('CTF')
@@ -345,8 +346,8 @@ class ProtocolBase(em.EMProtocol):
                       label='defocus range for group creation (in Angstroms)',
                       condition='doCtfManualGroups', expertLevel=expertLev,
                       help='Particles will be grouped by defocus.'
-                      'This parameter is the bin for an histogram.'
-                      'All particles assigned to a bin form a group')
+                           'This parameter is the bin for an histogram.'
+                           'All particles assigned to a bin form a group')
         form.addParam('numParticles', params.FloatParam, default=200,
                       label='minimum size for defocus group',
                       condition='doCtfManualGroups', expertLevel=expertLev,
@@ -446,16 +447,32 @@ class ProtocolBase(em.EMProtocol):
     def _defineSamplingParams(self, form,
                               expertLev=em.LEVEL_ADVANCED, cond='True'):
         form.addSection('Sampling')
-        form.addParam('angularSamplingDeg', params.EnumParam, default=1,
-                      choices=ANGULAR_SAMPLING_LIST,
-                      expertLevel=expertLev, condition=cond,
-                      label='Angular sampling interval (deg)',
-                      help='There are only a few discrete angular samplings'
-                           ' possible because we use the HealPix library to'
-                           ' generate the sampling of the first two Euler '
-                           'angles on the sphere. The samplings are '
-                           'approximate numbers and vary slightly over '
-                           'the sphere.')
+        if self.IS_3D:
+            form.addParam('angularSamplingDeg', params.EnumParam, default=1,
+                          choices=ANGULAR_SAMPLING_LIST,
+                          expertLevel=expertLev, condition=cond,
+                          label='Angular sampling interval (deg)',
+                          help='There are only a few discrete angular samplings'
+                               ' possible because we use the HealPix library to'
+                               ' generate the sampling of the first two Euler '
+                               'angles on the sphere. The samplings are '
+                               'approximate numbers and vary slightly over '
+                               'the sphere.')
+        else:
+            form.addParam('inplaneAngularSamplingDeg', params.FloatParam,
+                          default=5,
+                          label='In-plane angular sampling (deg)',
+                          condition="doImageAlignment",
+                          help='The sampling rate for the in-plane rotation '
+                               'angle (psi) in degrees.\n'
+                               'Using fine values will slow down the program. '
+                               'Recommended value for\n'
+                               'most 2D refinements: 5 degrees. \n\n'
+                               'If auto-sampling is used, this will be the '
+                               'value for the first \niteration(s) only, and '
+                               'the sampling rate will be increased \n'
+                               'automatically after that.')
+
         form.addParam('offsetSearchRangePix', params.FloatParam,
                       default=5, expertLevel=expertLev, condition=cond,
                       label='Offset search range (pix)',
@@ -770,12 +787,11 @@ class ProtocolBase(em.EMProtocol):
         if self.limitResolEStep > 0:
             args['--strict_highres_exp'] = self.limitResolEStep.get()
 
-        if not self.isMapAbsoluteGreyScale:
-            args['--firstiter_cc'] = ''
-        args['--ini_high'] = self.initialLowPassFilterA.get()
-        args['--sym'] = self.symmetryGroup.get()
-
         if self.IS_3D:
+            if not self.isMapAbsoluteGreyScale:
+                args['--firstiter_cc'] = ''
+            args['--ini_high'] = self.initialLowPassFilterA.get()
+            args['--sym'] = self.symmetryGroup.get()
             args['--pad'] = 1 if self.skipPadding else 2
 
         refArg = self._getRefArg()
@@ -820,30 +836,34 @@ class ProtocolBase(em.EMProtocol):
             args['--write_subsets'] = 1
             args['--subset_size'] = self.subsetSize.get()
             args['--max_subsets'] = self.subsetUpdates.get()
+            if self._useFastSubsets():
+                args['--fast_subsets'] = ''
 
     def _setSamplingArgs(self, args):
         """Should be overwritten in subclasses"""
         pass
 
     def _setMaskArgs(self, args):
-        if self.referenceMask.hasValue():
-            mask = conv.convertMask(self.referenceMask.get(),
-                                    self._getTmpPath())
-            args['--solvent_mask'] = mask
+        if self.IS_3D:
+            if self.referenceMask.hasValue():
+                mask = conv.convertMask(self.referenceMask.get(),
+                                        self._getTmpPath())
+                args['--solvent_mask'] = mask
 
-        if self.solventMask.hasValue():
-            solventMask = conv.convertMask(self.solventMask.get(),
-                                           self._getTmpPath())
-            args['--solvent_mask2'] = solventMask
+            if self.solventMask.hasValue():
+                solventMask = conv.convertMask(self.solventMask.get(),
+                                               self._getTmpPath())
+                args['--solvent_mask2'] = solventMask
 
-        if (self.referenceMask.hasValue() and self.solventFscMask):
-            args['--solvent_correct_fsc'] = ''
+            if (self.referenceMask.hasValue() and self.solventFscMask):
+                args['--solvent_correct_fsc'] = ''
 
     def _getSamplingFactor(self):
         return 1 if self.oversampling == 0 else 2 * self.oversampling.get()
 
     def _setComputeArgs(self, args):
         args['--pool'] = self.pooledParticles.get()
+
         if not self.combineItersDisc:
             args['--dont_combine_weights_via_disc'] = ''
 
@@ -902,8 +922,8 @@ class ProtocolBase(em.EMProtocol):
         """ Add a new column in the image star to separate the particles
         into ctf groups """
         conv.splitInCTFGroups(imgStar,
-                         self.defocusRange.get(),
-                         self.numParticles.get())
+                              self.defocusRange.get(),
+                              self.numParticles.get())
 
     def _getnumberOfIters(self):
         return self.numberOfIterations.get()
@@ -954,12 +974,15 @@ class ProtocolBase(em.EMProtocol):
         The value will depend if in 2D and 3D or if input references will
         be used.
         It will return None if no --ref should be used. """
-        inputObj = self.inputVolumes.get()
-        if isinstance(inputObj, em.SetOfVolumes):
-            # input SetOfVolumes as references
-            return self._getRefStar()
-        else:
-            return None
+        if self.IS_3D:
+            inputObj = self.inputVolumes.get()
+            if isinstance(inputObj, em.SetOfVolumes):
+                # input SetOfVolumes as references
+                return self._getRefStar()
+        else:  # 2D
+            if self.referenceAverages.get():
+                return self._getRefStar()
+        return None  # No --ref should be used at this point
 
     def _convertVolFn(self, inputVol):
         """ Return a new name if the inputFn is not .mrc """
