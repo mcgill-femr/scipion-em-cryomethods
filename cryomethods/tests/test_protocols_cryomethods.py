@@ -28,7 +28,7 @@ from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
+from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
 
 
@@ -107,40 +107,6 @@ class Test3DAutoClasifier(TestBase):
             autoClassifierProt.inputParticles.set(
                 self.protImport.outputParticles)
             autoClassifierProt.inputVolumes.set(self.protImportVol.outputVolume)
-
-            autoClassifierProt.doGpu.set(doGpu)
-
-            self.launchProtocol(autoClassifierProt)
-            return autoClassifierProt
-
-        def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
-                                                           "problem")
-
-        volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
-        _checkAsserts(volSelGpu)
-
-
-class Test2DAutoClasifier(TestBase):
-    @classmethod
-    def setUpClass(cls):
-        setupTestProject(cls)
-        TestBase.setData()
-        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
-
-    def testAutoClassify(self):
-        def _runAutoClassifier(doGpu=False, label=''):
-            print label
-            autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
-                                                  numberOfIterations=10,
-                                                  resolToStop=27.0,
-                                                  minPartsToStop=200,
-                                                  classMethod=1,
-                                                  numberOfMpi=4,
-                                                  numberOfThreads=1)
-            autoClassifierProt.setObjLabel(label)
-            autoClassifierProt.inputParticles.set(
-                self.protImport.outputParticles)
 
             autoClassifierProt.doGpu.set(doGpu)
 
