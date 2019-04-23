@@ -31,7 +31,7 @@ import os, sys
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_HOME, CRYOMETHODS_HOME, V2_0, V2_1, V3_0
+from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
@@ -40,13 +40,13 @@ _references = []
 
 class Plugin(pyworkflow.em.Plugin):
     _homeVar = CRYOMETHODS_HOME
-    _pathVars = [CRYOMETHODS_HOME]
+    _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME]
     _supportedVersions = []
 
     @classmethod
     def _defineVariables(cls):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
-        cls._defineEmVar(RELION_HOME, 'relion-2.1')
+        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
 
 
     @classmethod
@@ -62,10 +62,10 @@ class Plugin(pyworkflow.em.Plugin):
         libPath = [cls.getHome('alignLib/frm/swig'),
                    cls.getHome('alignLib/SpharmonicKit27')]
 
-        for lPath in libPath:
-            if not lPath in os.environ['LD_LIBRARY_PATH']:
-               environ.update({'LD_LIBRARY_PATH': lPath},
-                              position=pwutils.Environ.BEGIN)
+        # for lPath in libPath:
+        #     if not lPath in os.environ['LD_LIBRARY_PATH']:
+        #        environ.update({'LD_LIBRARY_PATH': lPath},
+        #                       position=pwutils.Environ.BEGIN)
 
         for pPath in pythonPath:
             if not pPath in os.environ['PYTHONPATH']:
@@ -76,8 +76,10 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def __getRelionHome(cls, *paths):
-        """ Return the binary home path and possible some subfolders. """
-        return os.path.join(os.environ[RELION_HOME], *paths)
+        """ Return a path from the "home" of the package
+         if the _homeVar is defined in the plugin. """
+        home = cls.getVar(RELION_CRYOMETHODS_HOME)
+        return os.path.join(home, *paths) if home else ''
 
 
     @classmethod
@@ -130,21 +132,16 @@ class Plugin(pyworkflow.em.Plugin):
         """ Return the version of the Relion binaries that is currently active.
         In the current implementation it will be inferred from the RELION_HOME
         variable, so it should contain the version number in it. """
-        home = cls.__getHome()
+        home = cls.getHome()
         for v in cls.getSupportedVersions():
             if v in home:
                 return v
         return ''
 
     @classmethod
-    def isVersion2Relion(cls):
-        return cls.getActiveRelionVersion().startswith("2.")
-
-
-    @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V2_0, V2_1]
+        return [V3_0]
 
     @classmethod
     def getSupportedVersions(cls):
@@ -153,36 +150,40 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        commands = [('git clone https://github.com/mcgill-femr/cryomethods.git',
-                    'python compyle.py')]
+        libSphPath = cls.getHome('alignLib/SpharmonicKit27/libsphkit.so')
+        libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
+        commands = ('python alignLib/compile.py ; ln -sf %s ../../lib/ '
+                    '; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
+        target = libFrmPath
+        url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
-                       # tar='relion-1.4_float.tgz',
-                       commands=commands)
+                       url=url,
+                       commands=[(commands, target)])
         ## PIP PACKAGES ##
-        # def addPipModule(moduleName, *args, **kwargs):
-        #     """ To try to add certain pipModule.
-        #         If it fails due to it is already add by other plugin or Scipion,
-        #           just returns its name to use it as a dependency.
-        #         Raise the exception if unknown error is gotten.
-        #     """
-        #     try:
-        #         return env.addPipModule(moduleName, *args, **kwargs)._name
-        #     except Exception as e:
-        #         if "Duplicated target '%s'" % moduleName == str(e):
-        #             return moduleName
-        #         else:
-        #             raise Exception(e)
+        def addPipModule(moduleName, *args, **kwargs):
+            """ To try to add certain pipModule.
+                If it fails due to it is already add by other plugin or Scipion,
+                  just returns its name to use it as a dependency.
+                Raise the exception if unknown error is gotten.
+            """
+            try:
+                return env.addPipModule(moduleName, *args, **kwargs)._name
+            except Exception as e:
+                if "Duplicated target '%s'" % moduleName == str(e):
+                    return moduleName
+                else:
+                    raise Exception(e)
         #
         # joblib = addPipModule('joblib', '0.11', target='joblib*')
         #
         # ## --- DEEP LEARNING TOOLKIT --- ##
-        # scipy = addPipModule('scipy', '0.14.0', default=False,
-        #                         deps=['lapack', 'matplotlib'])
-        # cython = addPipModule('cython', '0.22', target='Cython-0.22*',
-        #                          default=False)
-        # scikit_learn = addPipModule('scikit-learn', '0.20.0',
-        #                                target='scikit_learn*',
-        #                                default=False, deps=[scipy, cython])
+        scipy = addPipModule('scipy', '0.14.0', default=False,
+                                deps=['lapack', 'matplotlib'])
+        cython = addPipModule('cython', '0.22', target='Cython-0.22*',
+                                 default=False)
+        scikit_learn = addPipModule('scikit-learn', '0.20.0',
+                                       target='scikit_learn*',
+                                       default=True, deps=[scipy, cython])
         # unittest2 = addPipModule('unittest2', '0.5.1', target='unittest2*',
         #                             default=False)
         # h5py = addPipModule('h5py', '2.8.0rc1', target='h5py*',

@@ -34,6 +34,7 @@ from collections import Counter
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
+from pyworkflow.em.convert import ImageHandler
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
@@ -46,11 +47,10 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 from .protocol_base import ProtocolBase
 
 
-class Prot3DAutoClassifier(ProtocolBase):
-    _label = '3D auto classifier'
-    IS_2D = False
+class Prot2DAutoClassifier(ProtocolBase):
+    _label = '2D auto classifier'
+    IS_2D = True
     IS_AUTOCLASSIFY = True
-
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -73,9 +73,10 @@ class Prot3DAutoClassifier(ProtocolBase):
         myDict = {
             'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
             'outputData': self.levDir + 'output_data.star',
-            'map': self.levDir + 'map_id-%(id)s.mrc',
+            'image': self.levDir + 'image_id-%(id)s.mrc',
             'avgMap': self.levDir + 'map_average.mrc',
-            'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+            'relionImage': '%(clsImg)06d@' + self.rLevDir +
+                           'relion_it%(iter)03d_classes.mrcs',
             'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
             'rawFinalModel': self._getExtraPath('raw_final_model.star'),
@@ -129,7 +130,6 @@ class Prot3DAutoClassifier(ProtocolBase):
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)
-        self._defineReferenceParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineCTFParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
         form.addParam('doImageAlignment', params.BooleanParam, default=True,
@@ -250,7 +250,6 @@ class Prot3DAutoClassifier(ProtocolBase):
             if self.doCtfManualGroups:
                 self._splitInCTFGroups(imgStar)
 
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
@@ -282,7 +281,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(7, 75, 1):
+        for i in range(6, 75, 1):
             basicArgs['--iter'] = i
             self._setContinueArgs(basicArgs, rLev)
             self._setComputeArgs(basicArgs)
@@ -306,7 +305,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         self._evalStop()
         self._mergeMetaDatas()
         self._getAverageVol()
-        self._alignVolumes()
+        # self._alignVolumes()
         print('Finishing evaluation step')
 
     def mergeClassesStep(self):
@@ -355,7 +354,6 @@ class Prot3DAutoClassifier(ProtocolBase):
             args['--K'] = 1
             args['--iter'] = iters
             mapId = mapIds[rLev-1]
-            args['--ref'] = self._getRefArg(mapId)
 
             params = self._getParams(args)
             self.runJob(self._getProgram(), params)
@@ -427,13 +425,13 @@ class Prot3DAutoClassifier(ProtocolBase):
     # -------------------------- UTILS functions -------------------------------
     def _setSamplingArgs(self, args):
         """ Set sampling related params. """
+        # Sampling stuff
         if self.doImageAlignment:
-            args['--healpix_order'] = self.angularSamplingDeg.get()
             args['--offset_range'] = self.offsetSearchRangePix.get()
-            args['--offset_step'] = (self.offsetSearchStepPix.get() *
-                                     self._getSamplingFactor())
-            if self.localAngularSearch:
-                args['--sigma_ang'] = self.localAngularSearchRange.get() / 3.
+            args['--offset_step']  = (self.offsetSearchStepPix.get() *
+                                      self._getSamplingFactor())
+            args['--psi_step'] = (self.inplaneAngularSamplingDeg.get() *
+                                  self._getSamplingFactor())
         else:
             args['--skip_align'] = ''
 
@@ -443,8 +441,7 @@ class Prot3DAutoClassifier(ProtocolBase):
                                                rLev=rLev, iter=continueIter)
 
     def _getResetDeps(self):
-        return "%s, %s" % (self._getInputParticles().getObjId(),
-                           self.inputVolumes.get().getObjId())
+        return "%s" % (self._getInputParticles().getObjId())
 
     def _setNewEvalIds(self):
         self._evalIdsList.append(self._getRunLevId())
@@ -492,12 +489,12 @@ class Prot3DAutoClassifier(ProtocolBase):
 
             return rLevList
 
-    def _getRefArg(self, mapId=None):
-        if self._level == 1:
-            return self._convertVolFn(self.inputVolumes.get())
-        if mapId is None:
-            mapId = self._getRunLevId(level=self._level - 1)
-        return self._getMapById(mapId)
+    # def _getRefArg(self, mapId=None):
+    #     if self._level == 1:
+    #         return self._convertVolFn(self.inputVolumes.get())
+    #     if mapId is None:
+    #         mapId = self._getRunLevId(level=self._level - 1)
+    #     return self._getMapById(mapId)
 
     def _convertVolFn(self, inputVol):
         """ Return a new name if the inputFn is not .mrc """
@@ -517,9 +514,10 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def _getMapById(self, mapId):
         level = int(mapId.split('.')[0])
-        return self._getFileName('map', lev=level, id=mapId)
+        return self._getFileName('image', lev=level, id=mapId)
 
     def _copyLevelMaps(self):
+        print('--------COPYLEVELMAPS-----------')
         noOfLevRuns = self._getLevRuns(self._level)
         print('_copyLevelMaps, noOfLevRuns: ', noOfLevRuns)
         claseId = 0
@@ -537,35 +535,48 @@ class Prot3DAutoClassifier(ProtocolBase):
                 mapId = self._getRunLevId(rLev=claseId)
                 newFn = self._getMapById(mapId)
                 print(('copy from %s to %s' % (fn, newFn)))
-                copyFile(fn, newFn)
+                ih = ImageHandler()
+                ih.convert(fn, newFn)
                 self._mapsDict[fn] = mapId
 
     def _condToStop(self):
         outModel = self._getFileName('outputModel', lev=self._level)
         return False if os.path.exists(outModel) else True
 
+    def _removeFromPath(self, fn):
+        f = open(fn,'r')
+        word = '/tmp'
+        lst = []
+        for line in f:
+            if word in line:
+                line = line.replace(word, '')
+            lst.append(line)
+        f.close()
+        f = open(fn, 'w')
+        for line in lst:
+            f.write(line)
+        f.close()
+
     def _stopRunCondition(self, rLev, iter):
         x = np.array([])
         y = np.array([])
 
         for i in range(iter-6, iter, 1):
-            print("iteration: ", i)
             x = np.append(x, i)
             modelFn = self._getFileName('model', iter=i,
                                         lev=self._level, rLev=rLev)
-            print('filename: ', modelFn)
             modelMd = md.RowMetaData('model_general@' + modelFn)
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
-            print('values to stimate the slope: ', x, y, modelFn)
+            print('values to stimate the slope: ', x, y)
 
-        slope = abs(np.polyfit(x, y, 1)[0])
+        slope = np.polyfit(x, y, 1)[0]
         print("Slope: ", slope)
-        return True if slope <= 0.01 else False
+        return True if slope <= 0.01 and slope >= -0.01 else False
 
     def _evalStop(self):
+        print('--------_evalStop-----------')
+
         noOfLevRuns = self._getLevRuns(self._level)
-
-
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -575,12 +586,11 @@ class Prot3DAutoClassifier(ProtocolBase):
             modelMd = md.MetaData('model_classes@' + modelFn)
             partSize = md.getSize(self._getFileName('input_star',
                                                     lev=self._level, rLev=rLev))
-
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                # ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
                 ssnr = row.getValue('rlnEstimatedResolution')
+                print('SSNR: ', ssnr)
                 classSize = row.getValue('rlnClassDistribution') * partSize
                 const = ssnr*np.log10(classSize)
                 print ("values to evaluate: ", const, fn)
@@ -602,6 +612,7 @@ class Prot3DAutoClassifier(ProtocolBase):
                     self.stopDict[mapId] = False
 
     def _mergeMetaDatas(self):
+        print('--------MERGEMETADATAS-----------')
         noOfLevRuns = self._getLevRuns(self._level)
 
         print("entering in the loop to merge dataModel")
@@ -673,9 +684,9 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = self._getFileName('relionMap', lev=self._level,
+            rMap = self._getFileName('relionImage', lev=self._level,
                                      iter=iters,
-                                     ref3d=clsPart, rLev=rLev)
+                                     clsImg=clsPart, rLev=rLev)
             mapId = self._mapsDict[rMap]
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]
@@ -695,7 +706,13 @@ class Prot3DAutoClassifier(ProtocolBase):
     def _getMetadata(self, file):
         return md.MetaData(file) if os.path.exists(file) else md.MetaData()
 
+    def _getPathMaps(self, filename="*.mrc"):
+        filesPath = self._getLevelPath(self._level, filename)
+        return sorted(glob(filesPath))
+
     def _getAverageVol(self, listVol=[]):
+        print('--------GETAVERAGEVOL-----------')
+
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
         print('creating average map: ', listVol)
@@ -713,11 +730,9 @@ class Prot3DAutoClassifier(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _getPathMaps(self, filename="*.mrc"):
-        filesPath = self._getLevelPath(self._level, filename)
-        return sorted(glob(filesPath))
-
     def _alignVolumes(self):
+        print('--------_alignVolumes-----------')
+
         # Align all volumes inside a level
         Plugin.setEnviron()
         listVol = self._getPathMaps()
@@ -816,12 +831,74 @@ class Prot3DAutoClassifier(ProtocolBase):
         self._createIterTemplates(rLev)
         return self._getIterNumber(-1)
 
+
     def _clusteringData(self, matProj):
         method = self.classMethod.get()
+        print("clustering: method, ", method)
         if method == 0:
+            return self._doKmeans(matProj)
+        elif method == 1:
+            return self._doAffProp(matProj)
+        elif method == 2:
             return self._doSklearnKmeans(matProj)
         else:
             return self._doSklearnAffProp(matProj)
+
+    def _doKmeans(self, matProj):
+        #K-means method to split the classes:
+        # Number of training data
+        n = matProj.shape[0]
+        # Number of features in the data
+        c = matProj.shape[1]
+        print('Data: ', n, 'features:', c)
+
+        #n centers from projection matrix were used as initial centers
+        volCenterId = random.sample(xrange(n), c)
+        volCenterId.sort()
+        # print("values of volCenterId: ", volCenterId)
+        centers = matProj[volCenterId, :]
+
+        centers_old = np.zeros(centers.shape) # to store old centers
+        centers_new = copy.deepcopy(centers) # Store new centers
+
+        clusters = np.zeros(n)
+        distances = np.zeros((n,c))
+
+        error = np.linalg.norm(centers_new - centers_old)
+        # print('first error: ', error)
+        # When, after an update, the estimate of that center stays
+        #  the same, exit loop
+        # print('while loop begins', matProj)
+        count = 1
+        while (error != 0) and (count <= 10):
+            # print('Measure the distance to every center', centers)
+            distances = self._getDistance(matProj, centers)
+            # print('Distances: ', distances, '++++')
+
+            # print('Assign all training data to closest center')
+            clusters = np.argmin(distances, axis = 1)
+            # print('clusters: ', clusters)
+
+            centers_old = copy.deepcopy(centers_new)
+            # print('Calculate mean for every cluster and update the center')
+            for i in range(c):
+                centers_new[i] = np.mean(matProj[clusters == i], axis=0)
+            # print("----Centers NEW: ", centers_new, 'MatrixProj: ', matProj)
+            error = np.linalg.norm(centers_new - centers_old)
+            count += 1
+            # print('error: ', error, 'count: ', count)
+        return clusters
+
+    def _doAffProp(self, matProj):
+        #affinity propagation method to split the classes:
+        # Number of training data
+        print('Affinity propagation not implemented yet')
+        pass
+        # n = matProj.shape[0]
+        # # Number of features in the data
+        # c = matProj.shape[1]
+        # print('Data: ', n, 'features:', c)
+        # sMatrix = self._getDistance(matProj, matProj, neg=True)
 
     def _doSklearnKmeans(self, matProj):
         from sklearn.cluster import KMeans

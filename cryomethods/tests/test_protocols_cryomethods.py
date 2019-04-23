@@ -24,9 +24,12 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+from pyworkflow.utils import Environ
 from pyworkflow.tests import *
+
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-from cryomethods.protocols import ProtAutoClassifier
+from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
+from cryomethods.protocols import ProtInitialVolumeSelector
 
 
 class TestBase(BaseTest):
@@ -82,7 +85,7 @@ class TestBase(BaseTest):
         return protImport
 
 
-class TestAutoClasifier(TestBase):
+class Test3DAutoClasifier(TestBase):
     @classmethod
     def setUpClass(cls):
         setupTestProject(cls)
@@ -93,11 +96,11 @@ class TestAutoClasifier(TestBase):
     def testAutoClassify(self):
         def _runAutoClassifier(doGpu=False, label=''):
             print label
-            autoClassifierProt = self.newProtocol(ProtAutoClassifier,
+            autoClassifierProt = self.newProtocol(Prot3DAutoClassifier,
                                                   numberOfIterations=10,
                                                   resolToStop=27.0,
                                                   minPartsToStop=1000,
-                                                  classMethod=3,
+                                                  classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
             autoClassifierProt.setObjLabel(label)
@@ -116,3 +119,79 @@ class TestAutoClasifier(TestBase):
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
         _checkAsserts(volSelGpu)
+
+
+class Test2DAutoClasifier(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+
+    def testAutoClassify(self):
+        def _runAutoClassifier(doGpu=False, label=''):
+            print label
+            autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
+                                                  numberOfIterations=10,
+                                                  resolToStop=27.0,
+                                                  minPartsToStop=200,
+                                                  classMethod=1,
+                                                  numberOfMpi=4,
+                                                  numberOfThreads=1)
+            autoClassifierProt.setObjLabel(label)
+            autoClassifierProt.inputParticles.set(
+                self.protImport.outputParticles)
+
+            autoClassifierProt.doGpu.set(doGpu)
+
+            self.launchProtocol(autoClassifierProt)
+            return autoClassifierProt
+
+        def _checkAsserts(relionProt):
+            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+                                                           "problem")
+
+        volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
+        _checkAsserts(volSelGpu)
+
+
+class TestVolumeSelector(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        cls.protImportVol = cls.runImportVolumes(cls.volumes, 7.08)
+
+    def testInitialVolumeSelector(self):
+        def _runVolumeSelector(doGpu=False, label=''):
+            print label
+            volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
+                                               targetResol=28.32,
+                                               numberOfIterations=15,
+                                               numberOfMpi=3, numberOfThreads=1)
+
+            volSelectorProt.setObjLabel(label)
+            volSelectorProt.inputParticles.set(self.protImport.outputParticles)
+            volSelectorProt.inputVolumes.set(self.protImportVol.outputVolumes)
+
+            volSelectorProt.doGpu.set(doGpu)
+
+            self.launchProtocol(volSelectorProt)
+            return volSelectorProt
+
+        def _checkAsserts(relionProt):
+            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+                                                           "problem with "
+                                                           "Initial Volume "
+                                                           "Selector")
+
+        volSelNoGPU = _runVolumeSelector(False, "Volume Selector No GPU")
+        _checkAsserts(volSelNoGPU)
+
+        environ = Environ(os.environ)
+        cudaPath = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
+
+        if cudaPath is not None and os.path.exists(cudaPath):
+            volSelGpu = _runVolumeSelector(True, "Run Volume Selector GPU")
+            _checkAsserts(volSelGpu)

@@ -39,9 +39,8 @@ CHANGE_LABELS = [md.RLN_OPTIMISER_CHANGES_OPTIMAL_ORIENTS,
                  md.RLN_OPTIMISER_CHANGES_OPTIMAL_OFFSETS,
                  md.RLN_OPTIMISER_CHANGES_OPTIMAL_CLASSES]
 
-
 #methods Constants
-METHOD = ['kmeans', 'aff. prop', 'sklearn.kmeans', 'sklearn.aff.prop']
+METHOD = ['kmeans', 'affinity propagation']
 
 #Viewer Constants
 ITER_LAST = 0
@@ -53,10 +52,8 @@ VOLUME_CHIMERA = 1
 CHIMERADATAVIEW = 0
 
 # Relion Supported versions:
-V2_0 = '2.0'
-V2_1 = '2.1'
 V3_0 = '3.0'
 
 # Packages constants
-RELION_HOME = 'RELION_HOME'
+RELION_CRYOMETHODS_HOME = 'RELION_CRYOMETHODS_HOME'
 CRYOMETHODS_HOME = 'CRYOMETHODS_HOME'
