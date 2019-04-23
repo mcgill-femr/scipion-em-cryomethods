@@ -90,11 +90,11 @@ setup(
 
     # This should be your name or the name of the organization which owns the
     # project.
-    author='Josue Gomez Blanco',  # Optional
+    author='Josue Gomez Blanco & Javier Vargas Balbuena',  # Optional
 
     # This should be a valid email address corresponding to the author listed
     # above.
-    author_email='josuegbl@gmail.com',  # Optional
+    author_email='josue.gomez-blanco@mcgill.ca',  # Optional
 
         # Classifiers help users find your project by categorizing it.
      #
