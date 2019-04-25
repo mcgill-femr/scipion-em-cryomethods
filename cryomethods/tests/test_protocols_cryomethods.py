@@ -169,6 +169,7 @@ class TestVolumeSelector(TestBase):
             volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
                                                targetResol=28.32,
                                                numberOfIterations=15,
+                                               numOfVols=2,
                                                numberOfMpi=3, numberOfThreads=1)
 
             volSelectorProt.setObjLabel(label)

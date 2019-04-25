@@ -24,8 +24,10 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+import re
+import numpy as np
 import pyworkflow.em as em
-
+import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
 from .protocol_base import ProtocolBase
 
@@ -47,9 +49,11 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
-        self.extraIter = self._getExtraPath('relion_it%(iter)03d_')
+        self.extraIter = self._getExtraPath('run_%(ruNum)02d/relion_it%(iter)03d_')
+        self.extraLast = self._getExtraPath('parSel2/relion_it%(iter)03d_')
         myDict = {
-            'input_star': self._getPath('input_particles.star'),
+            'final_particles': self._getExtraPath('Finput_particles.star'),
+            'input_star': self._getPath('input_particles_%(run)02d.star'),
             'data_scipion': self.extraIter + 'data_scipion.sqlite',
             'volumes_scipion': self.extraIter + 'volumes.sqlite',
             'data': self.extraIter + 'data.star',
@@ -63,7 +67,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
             'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
             'movie_particles': self._getPath('movie_particles.star'),
             'dataFinal': self._getExtraPath("relion_data.star"),
-            'modelFinal': self._getExtraPath("relion_model.star"),
+            'modelFinal': self.extraLast + 'model.star',
             'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
             'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
             'preprocess_parts_star': self._getPath("preprocess_particles.star"),
@@ -80,6 +84,15 @@ class ProtInitialVolumeSelector(ProtocolBase):
                                      'class%(ref3d)03d.mrc:mrc'
         self._updateFilenamesDict(myDict)
 
+    def _createTemplates(self, run):
+        """ Setup the regex on how to find iterations. """
+        self._iterTemplate = self._getFileName('data', ruNum=run, iter=0).replace('000',
+                                                                       '???')
+        # Iterations will be identify by _itXXX_ where XXX is the iteration
+        # number and is restricted to only 3 digits.
+        self._iterRegex = re.compile('_it(\d{3,3})_')
+        self._classRegex = re.compile('_class(\d{3,3}).')
+
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)
@@ -89,8 +102,48 @@ class ProtInitialVolumeSelector(ProtocolBase):
         self._defineSamplingParams(form)
         self._defineAdditionalParams(form)
 
+    # -------------------------- INSERT steps functions ------------------------
+    def _insertAllSteps(self):
+        self.volDict = {}
+        totalVolumes = float(self.inputVolumes.get().getSize())
+        selectedVols = float(self.numOfVols.get())
+
+        if selectedVols >= totalVolumes:
+            numOfRuns = 1
+        else:
+            p = selectedVols / totalVolumes
+            a = (1 - p)
+            b = np.log(a)
+            numOfRuns = int(-3 / b)
+
+        for x in range(numOfRuns):
+            self._createFilenameTemplates()
+            self._createTemplates(x)
+            self._createVolDict()
+            self._runNumber = x
+            self._insertFunctionStep('convertInputStep', self._getResetDeps(),
+                                     x)
+            self._insertClassifyStep()
+        self._insertFunctionStep('mergeVolumesStep', numOfRuns)
+        self._insertFunctionStep('randomParSel')
+
+        args = {}
+
+        self._setNormalArgs(args)
+        self._setComputeArgs(args)
+        self._insertFunctionStep('rerunClassifyStep', args)
+
+        # params += ' --j %d' % self.numberOfThreads.get()
+        # self.runJob(self._getProgram(), params)
+
+        # add a step for merging the volumes and select new particles
+
+        # classify once again
+
+        self._insertFunctionStep('createOutputStep')
+
     # -------------------------- STEPS functions -------------------------------
-    def convertInputStep(self, resetDeps):
+    def convertInputStep(self, resetDeps, x):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         Params:
@@ -98,10 +151,13 @@ class ProtInitialVolumeSelector(ProtocolBase):
             convert if either the input particles and/or input volumes are
             changed.
         """
+        import os
         self._imgFnList = []
         imgSet = self._getInputParticles()
-        imgStar = self._getFileName('input_star')
-
+        imgStar = self._getFileName('input_star', run=x)
+        os.makedirs(self._getExtraPath('run_%02d' % x))
+        # os.makedirs(self._getExtraPath('%svolMerge' %v)
+        # os.makedirs(self._getExtraPath('%svolMerge' % v)
         subset = em.SetOfParticles(filename=":memory:")
 
         newIndex = 1
@@ -109,17 +165,81 @@ class ProtInitialVolumeSelector(ProtocolBase):
             self._scaleImages(newIndex, img)
             newIndex += 1
             subset.append(img)
-            subsetSize = self.subsetSize.get()
+            subsetSize = self.subsetSize.get() * self.numOfVols.get()
             minSize = min(subsetSize, imgSet.getSize())
-            if subsetSize   > 0 and subset.getSize() == minSize:
+            if subsetSize > 0 and subset.getSize() == minSize:
                 break
         writeSetOfParticles(subset, imgStar, self._getExtraPath(),
                             alignType=em.ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
-        self._convertInput(subset)
+        # self._convertInput(subset)
         self._convertRef()
 
     def runClassifyStep(self, params):
+        """ Execute the relion steps with the give params. """
+        params += ' --j %d' % self.numberOfThreads.get()
+        self.runJob(self._getProgram(), params)
+
+    def mergeVolumesStep(self, numOfRuns):
+        mdOut = md.MetaData()
+        dictMd = {}
+        for run in range(numOfRuns):
+            it = self.numberOfIterations.get()
+            modelFile = self._getFileName('model', ruNum=run, iter=it)
+            mdIn = md.MetaData('model_classes@%s' % modelFile)
+            for row in md.iterRows(mdIn, md.RLN_MLMODEL_REF_IMAGE):
+                mV = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+                lV = row.getValue('rlnClassDistribution')
+                dictMd[lV] = mV
+
+        counter = 0
+
+        row = md.Row()
+        print "Dictionary: ", dictMd
+        for classDist, fn in sorted(dictMd.iteritems(), reverse=True):
+            print "aa+++++++", counter
+            row.setValue(md.RLN_MLMODEL_REF_IMAGE, fn)
+            row.setValue('rlnClassDistribution', classDist)
+
+            row.addToMd(mdOut)
+            counter += 1
+            if counter == self.numOfVols.get():
+                print "bb======", counter
+                break
+        print "MetaData: ", mdOut
+
+        mdOut.write(self._getExtraPath('allVolumes.star'))
+
+    def randomParSel(self):
+        import os
+        self._imgFnList = []
+        imgSet = self._getInputParticles()
+        imgStar = self._getFileName('final_particles')
+        os.makedirs(self._getExtraPath('parSel2'))
+        # os.makedirs(self._getExtraPath('%svolMerge' %v)
+        # os.makedirs(self._getExtraPath('%svolMerge' % v)
+        subset = em.SetOfParticles(filename=":memory:")
+
+        newIndex = 1
+        for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
+            self._scaleImages(newIndex, img)
+            newIndex += 1
+            subset.append(img)
+            subsetSize = self.subsetSize.get() * self.numOfVols.get()
+            minSize = min(subsetSize, imgSet.getSize())
+            if subsetSize > 0 and subset.getSize() == minSize:
+                break
+        writeSetOfParticles(subset, imgStar, self._getExtraPath(),
+                            alignType=em.ALIGN_NONE,
+                            postprocessImageRow=self._postprocessParticleRow)
+
+        def _getRefStar(self):
+            return self._getTmpPath("allVolumes.star")
+
+    def rerunClassifyStep(self, args):
+        args['--o'] = self._getExtraPath('parSel2/relion')
+
+        params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
         """ Execute the relion steps with the give params. """
         params += ' --j %d' % self.numberOfThreads.get()
         self.runJob(self._getProgram(), params)
@@ -169,3 +289,33 @@ class ProtInitialVolumeSelector(ProtocolBase):
         if s:
             result = int(s.group(1)) # group 1 is 2 digits class number
         return self.volDict[result]
+
+    def _defineInput(self, args):
+        args['--i'] = self._getFileName('input_star', run=self._runNumber)
+
+    def _defineOutput(self, args):
+        args['--o'] = self._getExtraPath('run_%02d/relion' % self._runNumber)
+
+    def _fillVolSetFromIter(self, volSet, it):
+        volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
+        modelStar = md.MetaData('model_classes@' +
+                                self._getFileName('modelFinal', iter=it))
+        for row in md.iterRows(modelStar):
+            fn = row.getValue('rlnReferenceImage')
+            fnMrc = fn + ":mrc"
+            itemId = self._getClassId(fn)
+            classDistrib = row.getValue('rlnClassDistribution')
+            accurracyRot = row.getValue('rlnAccuracyRotations')
+            accurracyTras = row.getValue('rlnAccuracyTranslations')
+            resol = row.getValue('rlnEstimatedResolution')
+
+            if classDistrib > 0:
+                vol = em.Volume()
+                self._invertScaleVol(fnMrc)
+                vol.setFileName(self._getOutputVolFn(fnMrc))
+                vol.setObjId(itemId)
+                vol._rlnClassDistribution = em.Float(classDistrib)
+                vol._rlnAccuracyRotations = em.Float(accurracyRot)
+                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
+                vol._rlnEstimatedResolution = em.Float(resol)
+                volSet.append(vol)

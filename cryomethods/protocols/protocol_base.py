@@ -198,6 +198,9 @@ class ProtocolBase(em.EMProtocol):
                       important=True,
                       label=referenceLabel,
                       help='Initial reference 3D map(s)')
+        form.addParam('numOfVols', params.IntParam,
+                      default=10,  label='Number of Volumes',
+                      help='Select Volumes to work with.')
         form.addParam('referenceMask', params.PointerParam,
                       pointerClass='VolumeMask', expertLevel=expertLev,
                       label='Reference mask (optional)', allowsNull=True,
@@ -653,7 +656,6 @@ class ProtocolBase(em.EMProtocol):
 
         self._setNormalArgs(args)
         self._setComputeArgs(args)
-
         params = self._getParams(args)
         return self._insertFunctionStep('runClassifyStep', params)
 
