@@ -64,13 +64,9 @@ class ProtocolBase(em.EMProtocol):
         self._createVolDict()
 
     def _createTemplates(self):
-        """ Setup the regex on how to find iterations. """
-        self._iterTemplate = self._getFileName('data', iter=0).replace('000',
-                                                                       '???')
-        # Iterations will be identify by _itXXX_ where XXX is the iteration
-        # number and is restricted to only 3 digits.
-        self._iterRegex = re.compile('_it(\d{3,3})_')
-        self._classRegex = re.compile('_class(\d{3,3}).')
+        """ Setup the regex on how to find iterations. Suold be implemented
+        in subclasses"""
+        pass
 
     def _createVolDict(self):
         self.volDict = {}
@@ -713,7 +709,7 @@ class ProtocolBase(em.EMProtocol):
     # --------------------------- INFO functions -------------------------------
     def _validate(self):
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion('RELION_CRYOMETHODS_HOME', errors)
 
         if self._getInputParticles().isOddX():
             errors.append("Relion only works with even values for the "

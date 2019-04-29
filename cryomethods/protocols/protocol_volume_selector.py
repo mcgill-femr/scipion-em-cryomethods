@@ -2,6 +2,7 @@
 # *
 # * Authors:     Josue Gomez Blanco (josue.gomez-blanco@mcgill.ca)
 # *              Javier Vargas Balbuena (javier.vargasbalbuena@mcgill.ca)
+# *              Satinder kaur (satinder.kaur@mail.mcgill.ca)
 # *
 # * Department of Anatomy and Cell Biology, McGill University
 # *
@@ -24,6 +25,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+import os
 import re
 import numpy as np
 import pyworkflow.em as em
@@ -36,8 +38,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
     """
     Protocol to obtain a better initial volume using as input a set of
     volumes and particles. The protocol uses a small subset (usually 1000/2000)
-    particles from the input set of particles to estimate a better and reliable
-    volume(s) to use as initial volume in an automatic way.
+    particles per classfrom the input set of particles to estimate a better and
+    reliable volume(s) to use as initial volume in an automatic way.
     """
 
     _label = 'volume selector'
@@ -84,10 +86,11 @@ class ProtInitialVolumeSelector(ProtocolBase):
                                      'class%(ref3d)03d.mrc:mrc'
         self._updateFilenamesDict(myDict)
 
-    def _createTemplates(self, run):
+    def _createTemplates(self, run=None):
+        run = self._rLev if run is None else run
         """ Setup the regex on how to find iterations. """
-        self._iterTemplate = self._getFileName('data', ruNum=run, iter=0).replace('000',
-                                                                       '???')
+        self._iterTemplate = self._getFileName('data', ruNum=run,
+                                               iter=0).replace('000', '???')
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
         self._iterRegex = re.compile('_it(\d{3,3})_')
@@ -105,45 +108,33 @@ class ProtInitialVolumeSelector(ProtocolBase):
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
         self.volDict = {}
-        totalVolumes = float(self.inputVolumes.get().getSize())
-        selectedVols = float(self.numOfVols.get())
+        totalVolumes = self.inputVolumes.get().getSize()
+        selectedVols = self.numOfVols.get()
 
-        if selectedVols >= totalVolumes:
-            numOfRuns = 1
-        else:
-            p = selectedVols / totalVolumes
-            a = (1 - p)
-            b = np.log(a)
-            numOfRuns = int(-3 / b)
+        b = np.log((1 - (float(selectedVols) / float(totalVolumes))))
+        numOfRuns = 1 if selectedVols >= totalVolumes else int(-3 / b)
 
-        for x in range(numOfRuns):
+        for run in range(numOfRuns):
             self._createFilenameTemplates()
-            self._createTemplates(x)
+            self._createTemplates(run)
             self._createVolDict()
-            self._runNumber = x
-            self._insertFunctionStep('convertInputStep', self._getResetDeps(),
-                                     x)
+            self._rLev = run
+            resetDeps = self._getResetDeps()
+            self._insertFunctionStep('convertInputStep', resetDeps, run)
             self._insertClassifyStep()
         self._insertFunctionStep('mergeVolumesStep', numOfRuns)
         self._insertFunctionStep('randomParSel')
+        self._insertLastSteps()
+        self._insertFunctionStep('createOutputStep')
 
+    def _insertLastSteps(self):
         args = {}
-
         self._setNormalArgs(args)
         self._setComputeArgs(args)
         self._insertFunctionStep('rerunClassifyStep', args)
 
-        # params += ' --j %d' % self.numberOfThreads.get()
-        # self.runJob(self._getProgram(), params)
-
-        # add a step for merging the volumes and select new particles
-
-        # classify once again
-
-        self._insertFunctionStep('createOutputStep')
-
     # -------------------------- STEPS functions -------------------------------
-    def convertInputStep(self, resetDeps, x):
+    def convertInputStep(self, resetDeps, run):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         Params:
@@ -151,13 +142,10 @@ class ProtInitialVolumeSelector(ProtocolBase):
             convert if either the input particles and/or input volumes are
             changed.
         """
-        import os
         self._imgFnList = []
         imgSet = self._getInputParticles()
-        imgStar = self._getFileName('input_star', run=x)
-        os.makedirs(self._getExtraPath('run_%02d' % x))
-        # os.makedirs(self._getExtraPath('%svolMerge' %v)
-        # os.makedirs(self._getExtraPath('%svolMerge' % v)
+        imgStar = self._getFileName('input_star', run=run)
+        os.makedirs(self._getExtraPath('run_%02d' % run))
         subset = em.SetOfParticles(filename=":memory:")
 
         newIndex = 1
@@ -172,7 +160,6 @@ class ProtInitialVolumeSelector(ProtocolBase):
         writeSetOfParticles(subset, imgStar, self._getExtraPath(),
                             alignType=em.ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
-        # self._convertInput(subset)
         self._convertRef()
 
     def runClassifyStep(self, params):
@@ -195,29 +182,22 @@ class ProtInitialVolumeSelector(ProtocolBase):
         counter = 0
 
         row = md.Row()
-        print "Dictionary: ", dictMd
         for classDist, fn in sorted(dictMd.iteritems(), reverse=True):
-            print "aa+++++++", counter
             row.setValue(md.RLN_MLMODEL_REF_IMAGE, fn)
             row.setValue('rlnClassDistribution', classDist)
 
             row.addToMd(mdOut)
             counter += 1
             if counter == self.numOfVols.get():
-                print "bb======", counter
                 break
-        print "MetaData: ", mdOut
 
         mdOut.write(self._getExtraPath('allVolumes.star'))
 
     def randomParSel(self):
-        import os
         self._imgFnList = []
         imgSet = self._getInputParticles()
         imgStar = self._getFileName('final_particles')
         os.makedirs(self._getExtraPath('parSel2'))
-        # os.makedirs(self._getExtraPath('%svolMerge' %v)
-        # os.makedirs(self._getExtraPath('%svolMerge' % v)
         subset = em.SetOfParticles(filename=":memory:")
 
         newIndex = 1
@@ -238,9 +218,9 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def rerunClassifyStep(self, args):
         args['--o'] = self._getExtraPath('parSel2/relion')
+        params = self._getParams(args)
 
-        params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
-        """ Execute the relion steps with the give params. """
+        # Execute the relion steps with the give params.
         params += ' --j %d' % self.numberOfThreads.get()
         self.runJob(self._getProgram(), params)
 
@@ -291,10 +271,10 @@ class ProtInitialVolumeSelector(ProtocolBase):
         return self.volDict[result]
 
     def _defineInput(self, args):
-        args['--i'] = self._getFileName('input_star', run=self._runNumber)
+        args['--i'] = self._getFileName('input_star', run=self._rLev)
 
     def _defineOutput(self, args):
-        args['--o'] = self._getExtraPath('run_%02d/relion' % self._runNumber)
+        args['--o'] = self._getExtraPath('run_%02d/relion' % self._rLev)
 
     def _fillVolSetFromIter(self, volSet, it):
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
