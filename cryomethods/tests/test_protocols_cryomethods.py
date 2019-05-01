@@ -165,7 +165,6 @@ class TestVolumeSelector(TestBase):
 
     def testInitialVolumeSelector(self):
         def _runVolumeSelector(doGpu=False, label=''):
-            print label
             volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
                                                targetResol=28.32,
                                                numberOfIterations=15,
@@ -177,22 +176,24 @@ class TestVolumeSelector(TestBase):
             volSelectorProt.inputVolumes.set(self.protImportVol.outputVolumes)
 
             volSelectorProt.doGpu.set(doGpu)
-
-            self.launchProtocol(volSelectorProt)
             return volSelectorProt
 
-        def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
-                                                           "problem with "
-                                                           "Initial Volume "
-                                                           "Selector")
-
-        volSelNoGPU = _runVolumeSelector(False, "Volume Selector No GPU")
-        _checkAsserts(volSelNoGPU)
+        def _checkAsserts(prot):
+            self.assertIsNotNone(prot.outputVolumes, "There was a problem with "
+                                                      "Initial Volume Selector")
 
         environ = Environ(os.environ)
         cudaPath = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
 
         if cudaPath is not None and os.path.exists(cudaPath):
             volSelGpu = _runVolumeSelector(True, "Run Volume Selector GPU")
+            self.launchProtocol(volSelGpu)
             _checkAsserts(volSelGpu)
+
+        else:
+            volSelNoGPU = _runVolumeSelector(False, "Volume Selector No GPU")
+            volSelNoGPU.numberOfMpi.set(4)
+            volSelNoGPU.numberOfThreads.set(2)
+            self.launchProtocol(volSelNoGPU)
+            _checkAsserts(volSelNoGPU)
+
