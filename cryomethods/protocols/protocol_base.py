@@ -779,8 +779,8 @@ class ProtocolBase(em.EMProtocol):
         if self.maskZero == MASK_FILL_ZERO:
             args['--zero_mask'] = ''
 
-        args['--K'] = self.inputVolumes.get().getSize() if \
-            self.IS_VOLSELECTOR else self.numberOfClasses.get()
+        args['--K'] = self.numOfVols.get() if self.IS_VOLSELECTOR \
+                      else self.numberOfClasses.get()
 
         if self.limitResolEStep > 0:
             args['--strict_highres_exp'] = self.limitResolEStep.get()
