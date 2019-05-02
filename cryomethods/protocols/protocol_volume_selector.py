@@ -299,3 +299,22 @@ class ProtInitialVolumeSelector(ProtocolBase):
                 vol._rlnAccuracyTranslations = em.Float(accurracyTras)
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
+
+    def _convertRef(self):
+        ih = em.ImageHandler()
+        inputObj = self.inputVolumes.get()
+        subset = em.SetOfVolumes(filename=":memory:")
+        refMd = md.MetaData()
+
+        for vol in inputObj.iterItems(orderBy='RANDOM()'):
+            subset.append(vol)
+            subsetSize = self.numOfVols.get()
+            minSize = min(subsetSize, inputObj.getSize())
+            if subset.getSize() <= minSize:
+                row = md.Row()
+                newVolFn = self._convertVol(ih, vol)
+                row.setValue(md.RLN_MLMODEL_REF_IMAGE, newVolFn)
+                row.addToMd(refMd)
+            else:
+                break
+        refMd.write(self._getRefStar())
