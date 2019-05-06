@@ -191,7 +191,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
             if counter == self.numOfVols.get():
                 break
 
-        mdOut.write(self._getExtraPath('allVolumes.star'))
+        mdOut.write(self._getRefStar())
 
     def randomParSel(self):
         self._imgFnList = []
@@ -213,8 +213,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
                             alignType=em.ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
 
-        def _getRefStar(self):
-            return self._getTmpPath("allVolumes.star")
+    def _getRefStar(self):
+        return self._getTmpPath("allVolumes.star")
 
     def rerunClassifyStep(self, args):
         args['--o'] = self._getExtraPath('parSel2/relion')
