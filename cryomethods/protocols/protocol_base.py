@@ -901,7 +901,6 @@ class ProtocolBase(em.EMProtocol):
         """ Return the list of iteration files, give the iterTemplate. """
         result = None
         files = sorted(glob(self._iterTemplate))
-        print("files to know Iters: ", files)
         if files:
             f = files[index]
             s = self._iterRegex.search(f)

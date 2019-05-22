@@ -169,27 +169,34 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def mergeVolumesStep(self, numOfRuns):
         mdOut = md.MetaData()
-        dictMd = {}
+        volFnList = []
+        clsDistList = []
+        accList = []
         for run in range(numOfRuns):
             it = self.numberOfIterations.get()
             modelFile = self._getFileName('model', ruNum=run, iter=it)
             mdIn = md.MetaData('model_classes@%s' % modelFile)
             for row in md.iterRows(mdIn, md.RLN_MLMODEL_REF_IMAGE):
-                mV = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-                lV = row.getValue('rlnClassDistribution')
-                dictMd[lV] = mV
+                volFn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+                clsDist = row.getValue('rlnClassDistribution')
+                accRot = row.getValue('rlnAccuracyRotations')
+                if accRot <= 90:
+                    volFnList.append(volFn)
+                    clsDistList.append(clsDist)
+                    accList.append(accRot)
 
-        counter = 0
+        self.std = np.std(accList)
+        score = self._estimateScore(accList, clsDistList)
+        tupleList = [(fn, s) for fn, s in zip(volFnList, score)]
+        nVols = self.numOfVols.get()
 
+        sortList = sorted(tupleList, reverse=True, key=lambda x: x[1])[0:nVols]
         row = md.Row()
-        for classDist, fn in sorted(dictMd.iteritems(), reverse=True):
-            row.setValue(md.RLN_MLMODEL_REF_IMAGE, fn)
-            row.setValue('rlnClassDistribution', classDist)
+        for val in sortList:
 
+            fn, score = val
+            row.setValue(md.RLN_MLMODEL_REF_IMAGE, fn)
             row.addToMd(mdOut)
-            counter += 1
-            if counter == self.numOfVols.get():
-                break
 
         mdOut.write(self._getRefStar())
 
@@ -280,24 +287,44 @@ class ProtInitialVolumeSelector(ProtocolBase):
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
         modelStar = md.MetaData('model_classes@' +
                                 self._getFileName('modelFinal', iter=it))
-        for row in md.iterRows(modelStar):
-            fn = row.getValue('rlnReferenceImage')
-            fnMrc = fn + ":mrc"
-            itemId = self._getClassId(fn)
-            classDistrib = row.getValue('rlnClassDistribution')
-            accurracyRot = row.getValue('rlnAccuracyRotations')
-            accurracyTras = row.getValue('rlnAccuracyTranslations')
-            resol = row.getValue('rlnEstimatedResolution')
+        idList = []
+        volFnList = []
+        clsDistList = []
+        accRotList = []
+        accTransList = []
+        resoList = []
 
-            if classDistrib > 0:
+        for row in md.iterRows(modelStar):
+            accurracyRot = row.getValue('rlnAccuracyRotations')
+            if accurracyRot <= 90:
+                fn = row.getValue('rlnReferenceImage')
+                fnMrc = fn + ":mrc"
+                itemId = self._getClassId(fn)
+                classDistrib = row.getValue('rlnClassDistribution')
+                accurracyTras = row.getValue('rlnAccuracyTranslations')
+                resol = row.getValue('rlnEstimatedResolution')
+
+                idList.append(itemId)
+                volFnList.append(fnMrc)
+                clsDistList.append(classDistrib)
+                accRotList.append(accurracyRot)
+                accTransList.append(accurracyTras)
+                resoList.append(resol)
+
+        score = self._estimateScore(accRotList, clsDistList, None, self.std)
+        threshold = 1/float(self.numOfVols.get())
+        score = [s if s >= threshold else None for s in score]
+
+        for i, s in enumerate(score):
+            if s is not None:
                 vol = em.Volume()
-                self._invertScaleVol(fnMrc)
-                vol.setFileName(self._getOutputVolFn(fnMrc))
-                vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Float(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
+                self._invertScaleVol(volFnList[i])
+                vol.setFileName(self._getOutputVolFn(volFnList[i]))
+                vol.setObjId(idList[i])
+                vol._rlnClassDistribution = em.Float(clsDistList[i])
+                vol._rlnAccuracyRotations = em.Float(accRotList[i])
+                vol._rlnAccuracyTranslations = em.Float(accTransList[i])
+                vol._rlnEstimatedResolution = em.Float(resoList[i])
                 volSet.append(vol)
 
     def _convertRef(self):
@@ -318,3 +345,16 @@ class ProtInitialVolumeSelector(ProtocolBase):
             else:
                 break
         refMd.write(self._getRefStar())
+
+    def _estimateScore(self, accList, distList, mean=None, std=None):
+        mean = np.min(accList) if mean is None else mean
+        std = np.std(accList) if std is None else std
+
+        gList = [self._gaussian(x, mean, std) for x in accList]
+        weigth = [g*d for g,d in zip(gList, distList)]
+        score = [s*len(gList)/sum(gList) for s in weigth]
+
+        return score
+
+    def _gaussian(self, x, mean, std, c=1):
+        return (np.exp(-(((x - mean) ** 2) / (c * (std ** 2)))))
