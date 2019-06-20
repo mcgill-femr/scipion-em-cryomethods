@@ -26,16 +26,14 @@
 # **************************************************************************
 import os
 import re
-import copy
-import random
 import numpy as np
+from scipy import stats
 from glob import glob
-from collections import Counter
+from collections import Counter, defaultdict
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
@@ -71,36 +69,37 @@ class Prot3DAutoClassifier(ProtocolBase):
         self.rLevIter = self.rLevDir + 'relion_it%(iter)03d_'
         # add to keys, data.star, optimiser.star and sampling.star
         myDict = {
-            'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
-            'outputData': self.levDir + 'output_data.star',
-            'map': self.levDir + 'map_id-%(id)s.mrc',
-            'avgMap': self.levDir + 'map_average.mrc',
-            'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
-            'outputModel': self.levDir + 'output_model.star',
-            'data': self.rLevIter + 'data.star',
-            'rawFinalModel': self._getExtraPath('raw_final_model.star'),
-            'rawFinalData': self._getExtraPath('raw_final_data.star'),
-            'finalModel': self._getExtraPath('final_model.star'),
-            'finalData': self._getExtraPath('final_data.star'),
-            'finalAvgMap': self._getExtraPath('map_average.mrc'),
-            'optimiser': self.rLevIter + 'optimiser.star',
-            # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
-            # 'movie_particles': self._getPath('movie_particles.star'),
-            # 'dataFinal': self._getExtraPath("relion_data.star"),
-            # 'modelFinal': self._getExtraPath("relion_model.star"),
-            # 'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
-            # 'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
-            # 'preprocess_parts_star': self._getPath("preprocess_particles.star"),
-            #
-            # 'data_scipion': self.extraIter + 'data_scipion.sqlite',
-            # 'volumes_scipion': self.extraIter + 'volumes.sqlite',
-            #
-            # 'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
-            'all_avgPmax_xmipp': self._getTmpPath(
-                'iterations_avgPmax_xmipp.xmd'),
-            'all_changes_xmipp': self._getTmpPath(
-                'iterations_changes_xmipp.xmd'),
-        }
+                'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
+                'outputData': self.levDir + 'output_data.star',
+                'map': self.levDir + 'map_id-%(id)s.mrc',
+                'avgMap': self.levDir + 'map_average.mrc',
+                'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+                'outputModel': self.levDir + 'output_model.star',
+                'model': self.rLevIter + 'model.star',
+                'data': self.rLevIter + 'data.star',
+                'rawFinalModel': self._getExtraPath('raw_final_model.star'),
+                'rawFinalData': self._getExtraPath('raw_final_data.star'),
+                'finalModel': self._getExtraPath('final_model.star'),
+                'finalData': self._getExtraPath('final_data.star'),
+                'finalAvgMap': self._getExtraPath('map_average.mrc'),
+                'optimiser': self.rLevIter + 'optimiser.star',
+                # 'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
+                # 'movie_particles': self._getPath('movie_particles.star'),
+                # 'dataFinal': self._getExtraPath("relion_data.star"),
+                # 'modelFinal': self._getExtraPath("relion_model.star"),
+                # 'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
+                # 'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
+                # 'preprocess_parts_star': self._getPath("preprocess_particles.star"),
+                #
+                # 'data_scipion': self.extraIter + 'data_scipion.sqlite',
+                # 'volumes_scipion': self.extraIter + 'volumes.sqlite',
+                #
+                # 'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
+                # 'all_avgPmax_xmipp': self._getTmpPath(
+                #     'iterations_avgPmax_xmipp.xmd'),
+                # 'all_changes_xmipp': self._getTmpPath(
+                #     'iterations_changes_xmipp.xmd'),
+                  }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
             key_xmipp = key + '_xmipp'
@@ -132,30 +131,24 @@ class Prot3DAutoClassifier(ProtocolBase):
         self._defineReferenceParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineCTFParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
-        form.addParam('doImageAlignment', params.BooleanParam, default=True,
-                      label='Perform image alignment?',
-                      help='If set to No, then rather than performing both '
-                           'alignment and classification, only classification '
-                           'will be performed. This allows the use of very '
-                           'focused masks.This requires that the optimal '
-                           'orientations of all particles are already '
-                           'calculated.')
         self._defineSamplingParams(form, expertLev=cons.LEVEL_NORMAL,
                                    cond='doImageAlignment')
         self._defineAdditionalParams(form)
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._level = 1
+        self._level = 0
         self._rLev = 1
         self._evalIdsList = []
         self._doneList = []
         self._constStop = []
         self.stopDict = {}
+        self.stopResLog = {}
         self._mapsDict = {}
         self._clsIdDict = {}
 
         self._initialize()
+
         deps = self._insertLevelSteps()
         self._insertFunctionStep('mergeClassesStep', wait=True,
                                  prerequisites=deps)
@@ -169,25 +162,41 @@ class Prot3DAutoClassifier(ProtocolBase):
                                  self._getResetDeps(),
                                  self.copyAlignment,
                                  prerequisites=deps)
+        if self._level == 0:
+            deps = self._instertLev0Step()
+        else:
+            for rLev in levelRuns:
+                clsDepList = []
+                self._rLev = rLev  # Just to generate the proper input star file.
+                classDep = self._insertClassifyStep()
+                clsDepList.append(classDep)
+                self._setNewEvalIds()
 
-        for rLev in levelRuns:
-            clsDepList = []
-            self._rLev = rLev  # Just to generate the proper input star file.
-            classDep = self._insertClassifyStep()
-            clsDepList.append(classDep)
-            self._setNewEvalIds()
-
-        evStep = self._insertEvaluationStep(clsDepList)
-        deps.append(evStep)
+            evStep = self._insertEvaluationStep(clsDepList)
+            deps.append(evStep)
         return deps
 
-    def _insertClassifyStep(self):
+    def _instertLev0Step(self):
+        self._insertClassifyStep(K=1)
+        self._insertFunctionStep('resLogStep')
+        for i in range(1, 3, 1):
+            self._insertFunctionStep('runContinueClasfStep', i)
+            self._insertFunctionStep('resLogStep')
+        dep = self._insertFunctionStep('addDoneListStep')
+        self._setNewEvalIds()
+        return [dep]
+
+    def _insertClassifyStep(self, **kwargs):
         """ Prepare the command line arguments before calling Relion. """
         # Join in a single line all key, value pairs of the args dict
         normalArgs = {}
         basicArgs = {}
         self._setNormalArgs(normalArgs)
         self._setBasicArgs(basicArgs)
+        if kwargs:
+            for key, value in kwargs.items():
+                newKey = '--%s' % key
+                normalArgs[newKey] = value
 
         return self._insertFunctionStep('runClassifyStep', normalArgs,
                                         basicArgs, self._rLev)
@@ -203,7 +212,7 @@ class Prot3DAutoClassifier(ProtocolBase):
                    'Counter(self._evalIdsList) == Counter(self._doneList)')
 
             mergeStep = self._getFirstJoinStep()
-            if self._condToStop():
+            if self._condToStop() and self._level > 0:
                 print('_condToStop ???')
                 # Unlock mergeClassesStep if finished all jobs
                 if mergeStep and mergeStep.isWaiting():
@@ -222,9 +231,10 @@ class Prot3DAutoClassifier(ProtocolBase):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
-        imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
 
-        if self._level == 1:
+        if self._level == 0:
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
+
             makePath(self._getRunPath(self._level, 1))
             imgSet = self._getInputParticles()
             self.info("Converting set from '%s' into '%s'" %
@@ -232,13 +242,11 @@ class Prot3DAutoClassifier(ProtocolBase):
 
             # Pass stack file as None to avoid write the images files
             # If copyAlignment is set to False pass alignType to ALIGN_NONE
-            alignType = imgSet.getAlignment() if copyAlignment \
-                else em.ALIGN_NONE
+            alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
 
             hasAlign = alignType != em.ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr(
-                'fillRandomSubset')
+            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
 
             writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
                                 alignType=alignType,
@@ -251,6 +259,13 @@ class Prot3DAutoClassifier(ProtocolBase):
                 self._splitInCTFGroups(imgStar)
 
             self._convertVol(em.ImageHandler(), self.inputVolumes.get())
+
+        elif self._level == 1:
+            makePath(self._getRunPath(self._level, 1))
+            imgStarLev0 = self._getFileName('input_star', lev=0, rLev=1)
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
+            copyFile(imgStarLev0, imgStar)
+
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
@@ -275,6 +290,49 @@ class Prot3DAutoClassifier(ProtocolBase):
                 row.writeToMd(mdInput, objId)
             print("writing %s and ending the loop" % fn)
             mdInput.write(fn)
+
+    def runContinueClasfStep(self, i):
+        args = {}
+
+        iters = self._lastIter(1)
+        imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
+
+        mdData = self._getMetadata(imgStar)
+        size = mdData.size()/2
+        mdAux1 = self._getMetadata()
+        mdAux2 = self._getMetadata()
+        mdAux1.randomize(mdData)
+        mdAux2.selectPart(mdAux1, 1, size)
+        mdAux2.write(imgStar)
+
+        self._setBasicArgs(args)
+        self._setContinueArgs(args, 1)
+        self._setComputeArgs(args)
+        args['--iter'] = iters+1
+        args['--skip_align'] = ''
+        del args['--healpix_order']
+        del args['--offset_range']
+        del args['--offset_step']
+        del args['--gpu']
+
+        paramsCont = self._getParams(args)
+
+        self._runClassifyStep(paramsCont)
+
+    def resLogStep(self):
+        iters = self._lastIter(1)
+        modelFn = self._getFileName('model', iter=iters,lev=self._level, rLev=1)
+        modelMd = self._getMetadata('model_classes@' + modelFn)
+        ssnr = modelMd.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF, 1)
+
+        imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
+        mdData = self._getMetadata(imgStar)
+        size = mdData.size()
+        self.stopResLog[size] = 1/ssnr
+
+    def addDoneListStep(self):
+        rLevId = self._getRunLevId(level=0, rLev=1)
+        self._doneList.append(rLevId)
 
     def runClassifyStep(self, normalArgs, basicArgs, rLev):
         self._createIterTemplates(rLev)  # initialize files to know iterations
@@ -311,12 +369,15 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def mergeClassesStep(self):
         levelRuns = []
+        listMd = []
+
         makePath(self._getLevelPath(self._level))
-        matrixProj = self._estimatePCA()
+        # matrix = self._estimatePCA()
+        listVol = self._getFinalMaps()
+        matrix, _ = self._mrcToNp(listVol)
 
-        labels = self._clusteringData(matrixProj)
-
-        lastCls = None
+        labels = self._clusteringData(matrix)
+        print("labels: ", labels)
         prevStar = self._getFileName('rawFinalData')
         mdData = md.MetaData(prevStar)
 
@@ -324,25 +385,32 @@ class Prot3DAutoClassifier(ProtocolBase):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
             newClass = labels[clsPart-1] + 1
             row.setValue(md.RLN_PARTICLE_CLASS, newClass)
+            listMd.append((newClass, row))
 
-            if newClass != lastCls:
-                levelRuns.append(newClass)
-                makePath(self._getRunPath(self._level, newClass))
+        res = defaultdict(list)
+        for k, v in listMd: res[k].append(v)
 
-                if lastCls is not None:
-                    print("writing %s" % fn)
-                    mdInput.write(fn)
-                lastCls = newClass
-                mdInput = md.MetaData()
-                fn = self._getFileName('input_star', lev=self._level,
-                                       rLev=newClass)
-            objId = mdInput.addObject()
-            row.writeToMd(mdInput, objId)
-        print("writing %s and ending the loop" % fn)
-        mdInput.write(fn)
+        for key, listMd in res.iteritems():
+            levelRuns.append(key)
+            makePath(self._getRunPath(self._level, key))
+            mdInput = md.MetaData()
+            fn = self._getFileName('input_star', lev=self._level, rLev=key)
+
+            for rowMd in listMd:
+                objId = mdInput.addObject()
+                rowMd.writeToMd(mdInput, objId)
+            mdInput.write(fn)
 
         mapIds = self._getFinalMapIds()
-        claseId = 0
+        print("final mapIds:", mapIds)
+
+        #-----metadata to save all final models-------
+        finalModel = self._getFileName('finalModel')
+        finalMd = self._getMetadata(finalModel)
+
+        #-----metadata to save all final particles-----
+        finalData = self._getFileName('finalData')
+        finalDataMd = self._getMetadata(finalData)
 
         for rLev in levelRuns:
             self._rLev = rLev
@@ -362,43 +430,30 @@ class Prot3DAutoClassifier(ProtocolBase):
 
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
-            modelMd = md.MetaData('model_classes@' + modelFn)
-            for row in md.iterRows(modelMd):
-                claseId += 1
-                fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-                mapId = self._getRunLevId(rLev=claseId)
-                newFn = self._getMapById(mapId)
-                print(('copy from %s to %s' % (fn, newFn)))
-                copyFile(fn, newFn)
-                self._mapsDict[fn] = mapId
+            modelMd = self._getMetadata('model_classes@' + modelFn)
 
-            #-----metadata to save all final models-------
-            finalModel = self._getFileName('finalModel')
-            finalMd = self._getMetadata(finalModel)
+            refLabel = md.RLN_MLMODEL_REF_IMAGE
+            imgRow = md.getFirstRow(modelMd)
+            fn = imgRow.getValue(refLabel)
 
-            for row in md.iterRows(modelMd):
-                refLabel = md.RLN_MLMODEL_REF_IMAGE
-                fn = row.getValue(refLabel)
-                mapId = self._mapsDict[fn]
-                newMap = self._getMapById(mapId)
-                row.setValue(refLabel, newMap)
-                row.writeToMd(modelMd, row.getObjId())
-                row.addToMd(finalMd)
+            mapId = self._getRunLevId(rLev=rLev)
+            newMap = self._getMapById(mapId)
+            imgRow.setValue(refLabel, newMap)
 
-            finalMd.write('model_classes@' + finalModel)
+            copyFile(fn, newMap)
+            self._mapsDict[fn] = mapId
 
-            #----metadata to save all final particles-----
-            finalData = self._getFileName('finalData')
-            finalMd = self._getMetadata(finalData)
+            imgRow.addToMd(finalMd)
 
-            imgStar = self._getFileName('data', iter=iters,
-                                        lev=self._level, rLev=rLev)
-            mdData = md.MetaData(imgStar)
-            for row in md.iterRows(mdData):
+            dataFn = self._getFileName('data', iter=iters,
+                                       lev=self._level, rLev=rLev)
+            dataMd = self._getMetadata(dataFn)
+            for row in md.iterRows(dataMd):
                 row.setValue(md.RLN_PARTICLE_CLASS, rLev)
-                row.addToMd(finalMd)
+                row.addToMd(finalDataMd)
 
-            finalMd.write(finalData)
+        finalDataMd.write(finalData)
+        finalMd.write('model_classes@' + finalModel)
 
     def createOutputStep(self):
         partSet = self.inputParticles.get()
@@ -493,7 +548,7 @@ class Prot3DAutoClassifier(ProtocolBase):
             return rLevList
 
     def _getRefArg(self, mapId=None):
-        if self._level == 1:
+        if self._level <= 1:
             return self._convertVolFn(self.inputVolumes.get())
         if mapId is None:
             mapId = self._getRunLevId(level=self._level - 1)
@@ -564,12 +619,14 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
-
-
         print("dataModel's loop to evaluate stop condition")
+
+        x = [np.log10(k) for k, v in self.stopResLog.items()]
+        y = [v for k, v in self.stopResLog.items()]
+        slope, intercept, _, _, _ = stats.linregress(x, y)
+
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
-            print ("last iteration _evalStop:", iters)
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
@@ -579,19 +636,19 @@ class Prot3DAutoClassifier(ProtocolBase):
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                # ssnr = row.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF)
-                ssnr = row.getValue('rlnEstimatedResolution')
+                ssnr = 1/row.getValue('rlnEstimatedResolution')
                 classSize = row.getValue('rlnClassDistribution') * partSize
                 const = ssnr*np.log10(classSize)
-                print ("values to evaluate: ", const, fn)
 
-                if self._level < 3:
-                    self._constStop.append(const)
+                expectedRes = slope*np.log10(classSize) + intercept
 
-                avgConst = np.mean(self._constStop) if self._level >= 3 else 0
                 ptcStop = self.minPartsToStop.get()
 
-                if const < avgConst or classSize < ptcStop:
+                print("Values: ssnr %0.4f, parts %d, expectedRes %0.4f, "
+                      "slope %0.4f, intercept %0.4f" %(ssnr, classSize,
+                      expectedRes, slope, intercept))
+
+                if ssnr < expectedRes or classSize < ptcStop:
                     self.stopDict[mapId] = True
                     if not bool(self._clsIdDict):
                         self._clsIdDict[mapId] = 1
@@ -692,16 +749,24 @@ class Prot3DAutoClassifier(ProtocolBase):
         if outMd.size() != 0:
             outMd.write(outData)
 
-    def _getMetadata(self, file):
-        return md.MetaData(file) if os.path.exists(file) else md.MetaData()
+    def _getMetadata(self, file='filepath'):
+        fList = file.split("@")
+        return md.MetaData(file) if os.path.exists(fList[-1]) else md.MetaData()
 
     def _getAverageVol(self, listVol=[]):
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
         print('creating average map: ', listVol)
-        avgVol = self._getFileName('avgMap', lev=self._level)
-
+        try:
+            avgVol = self._getFileName('avgMap', lev=self._level)
+        except:
+            avgVol = self._getPath('map_average.mrc')
+        npAvgVol, dType = self._doAverageMaps(listVol)
         print('alignining each volume vs. reference')
+        print('saving average volume')
+        saveMrc(npAvgVol.astype(dType), avgVol)
+
+    def _doAverageMaps(self, listVol):
         for vol in listVol:
             npVol = loadMrc(vol, False)
             if vol == listVol[0]:
@@ -710,8 +775,8 @@ class Prot3DAutoClassifier(ProtocolBase):
             npAvgVol += npVol
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
-        print('saving average volume')
-        saveMrc(npAvgVol.astype(dType), avgVol)
+        return npAvgVol, dType
+
 
     def _getPathMaps(self, filename="*.mrc"):
         filesPath = self._getLevelPath(self._level, filename)
@@ -742,55 +807,24 @@ class Prot3DAutoClassifier(ProtocolBase):
             print('saving rot volume %s' % vol)
             saveMrc(npVol.astype(dType), vol)
 
-    def _estimatePCA(self):
+    def _mrcToNp(self, volList):
         listNpVol = []
-        m = []
-
-        listVol = self._getFinalMaps()
-        self._getAverageVol(listVol)
-
-        avgVol = self._getFileName('avgMap', lev=self._level)
-        npAvgVol = loadMrc(avgVol, False)
-        dType = npAvgVol.dtype
-
-
-        for vol in listVol:
+        for vol in volList:
             volNp = loadMrc(vol, False)
             dim = volNp.shape[0]
             lenght = dim**3
-            # Now, not using diff volume to estimate PCA
-            # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
             listNpVol.append(volList)
+        return listNpVol, listNpVol[0].dtype
 
-        covMatrix = np.cov(listNpVol)
-        u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) *0.95
-        sCut = 0
+    def _estimatePCA(self):
+        listVol = self._getFinalMaps()
 
-        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
-        for i in s:
-            print('cuttOffMatrix: ', cuttOffMatrix)
-            if cuttOffMatrix > 0:
-                print("Pass, i = %s " %i)
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-        print('sCut: ', sCut)
+        volNp = loadMrc(listVol[0], False)
+        dim = volNp.shape[0]
+        dType = volNp.dtype
 
-        eigValsFile = self._getLevelPath(self._level, 'eigenvalues.txt')
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = self._getLevelPath(self._level, 'eigenvectors.txt')
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        print(' this is the matrix "vhDel": ', vhDel)
-
-        newBaseAxis = vhDel.T.dot(listNpVol)
+        matProj, newBaseAxis = self._doPCA(listVol)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
@@ -800,11 +834,39 @@ class Prot3DAutoClassifier(ProtocolBase):
             saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
             print('------------map %s stored------------------' % nameVol)
-        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
-
-        projFile = self._getLevelPath(self._level, 'projection_matrix.txt')
-        self._createMFile(matProj, projFile)
         return matProj
+
+    def _doPCA(self, listVol):
+        npAvgVol, _ = self._doAverageMaps(listVol)
+
+        listNpVol, _ = self._mrcToNp(listVol)
+
+        covMatrix = np.cov(listNpVol)
+        u, s, vh = np.linalg.svd(covMatrix)
+        cuttOffMatrix = sum(s) *0.95
+        sCut = 0
+
+        for i in s:
+            if cuttOffMatrix > 0:
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+
+        eigValsFile = 'eigenvalues.txt'
+        self._createMFile(s, eigValsFile)
+
+        eigVecsFile = 'eigenvectors.txt'
+        self._createMFile(vh, eigVecsFile)
+
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        self._createMFile(vhDel, 'matrix_vhDel.txt')
+
+        newBaseAxis = vhDel.T.dot(listNpVol)
+        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
+        projFile = 'projection_matrix.txt'
+        self._createMFile(matProj, projFile)
+        return matProj, newBaseAxis
 
     def _getFinalMaps(self):
         return [self._getMapById(k) for k in self._getFinalMapIds()]
@@ -832,16 +894,17 @@ class Prot3DAutoClassifier(ProtocolBase):
     def _doSklearnAffProp(self, matProj):
         from sklearn.cluster import AffinityPropagation
         ap = AffinityPropagation(damping=0.9).fit(matProj)
+        print("cluster_centers", ap.cluster_centers_)
         return ap.labels_
 
-    def _getDistance(self, m1, m2, neg=False):
-        #estimatation of the distance bt row vectors
-        distances = np.zeros(( m1.shape[0], m1.shape[1]))
-        for i, row in enumerate(m2):
-            distances[:, i] = np.linalg.norm(m1 - row, axis=1)
-        if neg == True:
-            distances = -distances
-        return distances
+    # def _getDistance(self, m1, m2, neg=False):
+    #     #estimatation of the distance bt row vectors
+    #     distances = np.zeros(( m1.shape[0], m1.shape[1]))
+    #     for i, row in enumerate(m2):
+    #         distances[:, i] = np.linalg.norm(m1 - row, axis=1)
+    #     if neg == True:
+    #         distances = -distances
+    #     return distances
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')
