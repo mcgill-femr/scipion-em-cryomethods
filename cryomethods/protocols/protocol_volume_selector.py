@@ -124,14 +124,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
             self._insertClassifyStep()
         self._insertFunctionStep('mergeVolumesStep', numOfRuns)
         self._insertFunctionStep('randomParSel')
-        self._insertLastSteps()
+        self._insertClassifyStep('rerunClassifyStep')
         self._insertFunctionStep('createOutputStep')
-
-    def _insertLastSteps(self):
-        args = {}
-        self._setNormalArgs(args)
-        self._setComputeArgs(args)
-        self._insertFunctionStep('rerunClassifyStep', args)
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, run):
