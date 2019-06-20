@@ -245,8 +245,8 @@ class Prot3DAutoClassifier(ProtocolBase):
             alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
 
             hasAlign = alignType != em.ALIGN_NONE
-            alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
+            alignToPrior = hasAlign and self.alignmentAsPriors.get()
+            fillRandomSubset = hasAlign and self.fillRandomSubset.get()
 
             writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
                                 alignType=alignType,
