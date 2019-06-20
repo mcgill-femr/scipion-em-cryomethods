@@ -30,6 +30,7 @@ import numpy as np
 
 from pyworkflow.utils import basename
 from pyworkflow.tests import *
+import pyworkflow.em.metadata as md
 from cryomethods import Plugin
 from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
@@ -46,8 +47,11 @@ class TestBase(BaseTest):
 class TestAlignVolumes(TestBase):
     @classmethod
     def setUpClass(cls):
+        projName = cls.__name__
+        Manager().deleteProject(projName)
         setupTestProject(cls)
         TestBase.setData()
+
 
     def testAlignVolumes(self):
         Plugin.setEnviron()
@@ -78,61 +82,26 @@ class TestAlignVolumes(TestBase):
 
     def testPCA(self):
         Plugin.setEnviron()
+        prot = Prot3DAutoClassifier(classMethod=1)
         volList = sorted(glob(self.volumes))
-        mList = []
-        for vol in volList:
-            volNp = loadMrc(vol)
-            lenght = volNp.shape[0]**3,
-            volList = volNp.reshape(lenght)
-            mList.append(volList)
-
-        covMatrix = np.cov(mList)
-        # print('Covariance : ', covMatrix)
-
-        eigValues, eigVectors = np.linalg.eig(covMatrix)
-
-        # Make a list of (eigenvalue, eigenvector) tuples
-        eigPairs = [(np.abs(eigValues[i]), eigVectors[:,i]) for i in range(len(eigValues))]
-
-        # Sort the (eigenvalue, eigenvector) tuples from high to low
-        eigPairs.sort(key=lambda x: x[0], reverse=True)
-
-        matrix_w = np.hstack((eigPairs[0][1].reshape(3,1), eigPairs[1][1].reshape(3,1)))
-        # print('Matrix W:\n', matrix_w)
-
-        transformed = matrix_w.T.dot(mList)
-
-        matProj = np.transpose(np.dot(transformed, np.transpose(mList)))
-
-        matDist = []
-        for list1 in matProj:
-            rows = []
-            for list2 in matProj:
-                v = 0
-                for i,j in izip(list1, list2):
-                    v += (i - j)**2
-                rows.append(v)
-            matDist.append(rows)
-        print(matDist)
+        matProj, _ = prot._doPCA(volList)
+        print(matProj)
 
     def testClustering(self):
         from itertools import izip
         Plugin.setEnviron()
-        volList = sorted(glob('/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/Runs'
-                              '/002624_ProtAutoClassifier/extra/lev_03/'
-                              'map_id-03.0??.mrc'))
+        volList = self._getVolList()
         self._getAverageVol(volList)
 
-        # for i in range(4):
         dictNames = {}
         groupDict = {}
-        prot = Prot3DAutoClassifier(classMethod=3)
+        prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         # matrix = self._estimatePCA(volList)
         matrix, _ = self._mrcToNp(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
-            f = open('method_%s.txt' % 3, 'w')
+            f = open('method_%s.txt' % 1, 'w')
             for vol, label in izip (volList, labels):
                 dictNames[vol] = label
 
@@ -149,20 +118,17 @@ class TestAlignVolumes(TestBase):
     def testAffinityProp(self):
         from itertools import izip
         Plugin.setEnviron()
-        volList = sorted(glob('/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/Runs'
-                              '/002624_ProtAutoClassifier/extra/lev_03/'
-                              'map_id-03.0??.mrc'))
-        self._getAverageVol(volList)
+        volList = self._getVolList()
 
-        # for i in range(4):
         dictNames = {}
         groupDict = {}
-        prot = Prot3DAutoClassifier(classMethod=3)
+        prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         matrix, _ = self._mrcToNp(volList)
+        # matrixProj, _ = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
-            f = open('method_%s.txt' % 3, 'w')
+            f = open('method_%s.txt' % 1, 'w')
             for vol, label in izip (volList, labels):
                 dictNames[vol] = label
 
@@ -175,6 +141,65 @@ class TestAlignVolumes(TestBase):
             f.close()
 
             print(labels)
+
+    def testHandlingMd(self):
+        from collections import defaultdict
+        starFn = '/home/josuegbl/raw_final_data.star'
+        fn = '/home/josuegbl/random_data.star'
+        # labels = np.array([0, 0, 0, 0, 0, 0, 0, 1, 0])
+        mdData = md.MetaData(starFn)
+        mdAux = md.MetaData()
+        mdFinal = md.MetaData()
+
+        mdAux.randomize(mdData)
+        mdFinal.selectPart(mdAux, 1, 100)
+        # listMd = []
+        #
+        # for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+        #     clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+        #     newClass = labels[clsPart-1] + 1
+        #     row.setValue(md.RLN_PARTICLE_CLASS, newClass)
+        #
+        #     listMd.append((row, newClass))
+        # res = defaultdict(list)
+        # for v, k in listMd: res[k].append(v)
+        #
+        # for key, listMd in res.iteritems():
+        #     mdInput = md.MetaData()
+        #     for rowMd in listMd:
+        #         objId = mdInput.addObject()
+        #         rowMd.writeToMd(mdInput, objId)
+
+        mdFinal.write(fn)
+
+
+        # print(mdInput)
+        # outMd.aggregate(mdInput, md.AGGR_MAX, md.RLN_PARTICLE_CLASS,
+        #                 md.RLN_IMAGE_NAME, md.RLN_IMAGE_NAME)
+        # outMd.aggregateSingleInt(mdInput, md.AGGR_MAX, md.RLN_PARTICLE_CLASS)
+        # outMd.aggregateMdGroupBy(mdInput, md.AGGR_COUNT,
+        #                          [md.RLN_PARTICLE_CLASS],
+        #                          md.RLN_PARTICLE_CLASS, md.MDL_WEIGHT)
+        # print(outMd)
+
+            # if newClass != lastCls:
+            #     # levelRuns.append(newClass)
+            #     # makePath(self._getRunPath(self._level, newClass))
+            #
+            #     # if lastCls is not None:
+            #     #     print("writing %s" % fn)
+            #     #     mdInput.write(fn)
+            #
+            #     fn = '/home/josuegbl/rawclass_final_data.star'
+            #     lastCls = newClass
+            #
+            #
+            # print("writing %s and ending the loop" % fn)
+            # mdInput.write(fn)
+
+        # mapIds = self._getFinalMapIds()
+        # claseId = 0
+
 
     def _getAverageVol(self, volList):
         print('creating average map')
@@ -191,55 +216,10 @@ class TestAlignVolumes(TestBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _estimatePCA(self, volList):
-        avgVol = ('average_map.mrc')
-        npAvgVol = loadMrc(avgVol, False)
-        listDiffVol = []
-        m = []
-        dType = npAvgVol.dtype
-        dim = npAvgVol.shape[0]
-
-        sortedList = sorted(volList)
-        listNpVol, _ = self._mrcToNp(sortedList)
-        for volNp in listNpVol:
-            diffVol = volNp - npAvgVol.reshape(dim**3)
-            listDiffVol.append(diffVol)
-
-        covMatrix = np.cov(listDiffVol)
-        u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) * 0.95
-        sCut = 0
-
-        for i in s:
-            if cuttOffMatrix > 0:
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-        print('sCut: ', sCut)
-
-        eigValsFile = 'eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        # print(' this is the matrix "vhDel": ', vhDel)
-
-        newBaseAxis = vhDel.T.dot(listNpVol)
-
-        for i, volNewBaseList in enumerate(newBaseAxis):
-            volBase = volNewBaseList.reshape((dim, dim, dim))
-            nameVol = 'volume_base_%02d.mrc' % (i+1)
-            saveMrc(volBase.astype(dType), nameVol)
-        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
-
-        projFile = 'projection_matrix.txt'
-        self._createMFile(matProj, projFile)
-        return matProj
+    def _getVolList(self):
+        f =open('/home/josuegbl/file.txt')
+        volList = f.read().splitlines()
+        return volList
 
     def _reconstructMap(self, matProj):
         from glob import glob

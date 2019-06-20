@@ -99,7 +99,7 @@ class Test3DAutoClasifier(TestBase):
             autoClassifierProt = self.newProtocol(Prot3DAutoClassifier,
                                                   numberOfIterations=10,
                                                   resolToStop=27.0,
-                                                  minPartsToStop=1000,
+                                                  minPartsToStop=2000,
                                                   classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
