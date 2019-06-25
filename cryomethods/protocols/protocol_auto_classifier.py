@@ -27,7 +27,7 @@
 import os
 import re
 import numpy as np
-from scipy import stats
+from scipy import stats, interpolate
 from glob import glob
 from collections import Counter, defaultdict
 
@@ -179,7 +179,7 @@ class Prot3DAutoClassifier(ProtocolBase):
     def _instertLev0Step(self):
         self._insertClassifyStep(K=1)
         self._insertFunctionStep('resLogStep')
-        for i in range(1, 3, 1):
+        for i in range(1, 5, 1):
             self._insertFunctionStep('runContinueClasfStep', i)
             self._insertFunctionStep('resLogStep')
         dep = self._insertFunctionStep('addDoneListStep')
@@ -322,13 +322,14 @@ class Prot3DAutoClassifier(ProtocolBase):
     def resLogStep(self):
         iters = self._lastIter(1)
         modelFn = self._getFileName('model', iter=iters,lev=self._level, rLev=1)
-        modelMd = self._getMetadata('model_classes@' + modelFn)
-        ssnr = modelMd.getValue(md.RLN_MLMODEL_ESTIM_RESOL_REF, 1)
+        modelMd = self._getMetadata('model_class_1@' + modelFn)
 
+        f = self._getFunc(modelMd)
         imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
         mdData = self._getMetadata(imgStar)
-        size = mdData.size()
-        self.stopResLog[size] = 1/ssnr
+        size = np.math.log10(mdData.size())
+        self.stopResLog[size] = f(1)
+        print("stopResLog: ", self.stopResLog)
 
     def addDoneListStep(self):
         rLevId = self._getRunLevId(level=0, rLev=1)
@@ -603,7 +604,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         x = np.array([])
         y = np.array([])
 
-        for i in range(iter-6, iter, 1):
+        for i in range(iter-5, iter, 1):
             print("iteration: ", i)
             x = np.append(x, i)
             modelFn = self._getFileName('model', iter=i,
@@ -613,7 +614,7 @@ class Prot3DAutoClassifier(ProtocolBase):
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
             print('values to stimate the slope: ', x, y, modelFn)
 
-        slope = abs(np.polyfit(x, y, 1)[0])
+        slope, _, _, _, _ = stats.linregress(x, y)
         print("Slope: ", slope)
         return True if slope <= 0.01 else False
 
@@ -621,7 +622,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         noOfLevRuns = self._getLevRuns(self._level)
         print("dataModel's loop to evaluate stop condition")
 
-        x = [np.log10(k) for k, v in self.stopResLog.items()]
+        x = [k for k, v in self.stopResLog.items()]
         y = [v for k, v in self.stopResLog.items()]
         slope, intercept, _, _, _ = stats.linregress(x, y)
 
@@ -636,19 +637,19 @@ class Prot3DAutoClassifier(ProtocolBase):
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                ssnr = 1/row.getValue('rlnEstimatedResolution')
+                suffixSsnr = 'model_class_%d@' % int(mapId.split('.')[-1])
+                ssnrMd = md.MetaData(suffixSsnr + modelFn)
+                f = self._getFunc(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                const = ssnr*np.log10(classSize)
-
-                expectedRes = slope*np.log10(classSize) + intercept
+                ExpectedVal = slope*np.math.log10(classSize) + intercept
 
                 ptcStop = self.minPartsToStop.get()
+                val = f(1)
+                print("Values: area %0.4f, parts %d, ExpectedVal %0.4f, "
+                      "slope %0.4f, intercept %0.4f" % (val, classSize,
+                      ExpectedVal, slope, intercept))
 
-                print("Values: ssnr %0.4f, parts %d, expectedRes %0.4f, "
-                      "slope %0.4f, intercept %0.4f" %(ssnr, classSize,
-                      expectedRes, slope, intercept))
-
-                if ssnr < expectedRes or classSize < ptcStop:
+                if val < ExpectedVal or classSize < ptcStop:
                     self.stopDict[mapId] = True
                     if not bool(self._clsIdDict):
                         self._clsIdDict[mapId] = 1
@@ -776,6 +777,18 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
         return npAvgVol, dType
+
+    def _getFunc(self, modelMd):
+        resolution = []
+        ssnr = []
+        for row in md.iterRows(modelMd):
+            resolution.append(row.getValue('rlnResolution'))
+            ssnr.append(row.getValue('rlnSsnrMap'))
+            if ssnr[-1] == 0.0:
+                break
+
+        f = interpolate.interp1d(ssnr, resolution)
+        return f
 
 
     def _getPathMaps(self, filename="*.mrc"):
