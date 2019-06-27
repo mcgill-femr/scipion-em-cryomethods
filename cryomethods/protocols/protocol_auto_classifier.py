@@ -107,8 +107,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         # add other keys that depends on prefixes
         for p in self.PREFIXES:
             myDict['%smodel' % p] = self.rLevIter + '%smodel.star' % p
-            myDict[
-                '%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
+            myDict['%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
 
         self._updateFilenamesDict(myDict)
 
@@ -624,7 +623,8 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         x = [k for k, v in self.stopResLog.items()]
         y = [v for k, v in self.stopResLog.items()]
-        slope, intercept, _, _, _ = stats.linregress(x, y)
+        slope, y0, _, _, err = stats.linregress(x, y)
+        print("EvalStop mx+n: m: %0.4f, n %0.4f,  err %0.4f" % (slope, y0, err))
 
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -633,21 +633,22 @@ class Prot3DAutoClassifier(ProtocolBase):
             modelMd = md.MetaData('model_classes@' + modelFn)
             partSize = md.getSize(self._getFileName('input_star',
                                                     lev=self._level, rLev=rLev))
-
+            clsId = 1
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                suffixSsnr = 'model_class_%d@' % int(mapId.split('.')[-1])
+                suffixSsnr = 'model_class_%d@' % clsId
                 ssnrMd = md.MetaData(suffixSsnr + modelFn)
                 f = self._getFunc(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                ExpectedVal = slope*np.math.log10(classSize) + intercept
+                ExpectedVal = slope*np.math.log10(classSize) + y0
 
                 ptcStop = self.minPartsToStop.get()
-                val = f(1)
-                print("Values: area %0.4f, parts %d, ExpectedVal %0.4f, "
-                      "slope %0.4f, intercept %0.4f" % (val, classSize,
-                      ExpectedVal, slope, intercept))
+                val = f(1) + (2*err)
+
+                clsId += 1
+                print("Values: Val SSnr=1: %0.4f, parts %d, ExpectedVal %0.4f, "
+                      % (val, classSize, ExpectedVal))
 
                 if val < ExpectedVal or classSize < ptcStop:
                     self.stopDict[mapId] = True
