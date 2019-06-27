@@ -160,9 +160,6 @@ class ProtocolBase(em.EMProtocol):
                                 'the initial references.')
         elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
-            group.addParam('resolToStop', params.FloatParam, default=10,
-                           label='Resolution to stop',
-                           help='Resolution to not go further')
             group.addParam('minPartsToStop', params.FloatParam, default=5000,
                            label='min particles to stop',
                            help='Minimum number of particles per class that is '
