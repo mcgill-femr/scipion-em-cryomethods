@@ -133,7 +133,6 @@ class Test2DAutoClasifier(TestBase):
             print label
             autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
                                                   numberOfIterations=10,
-                                                  resolToStop=27.0,
                                                   minPartsToStop=200,
                                                   classMethod=1,
                                                   numberOfMpi=4,
