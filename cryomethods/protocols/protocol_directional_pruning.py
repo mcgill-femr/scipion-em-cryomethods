@@ -33,7 +33,7 @@ from pyworkflow.protocol.params import (PointerParam, FloatParam, IntParam,
 from pyworkflow.em.data import Volume
 from pyworkflow.em.protocol import ProtAnalysis3D
 from pyworkflow.utils.path import moveFile, makePath, cleanPath, cleanPattern
-# from pyworkflow.em.packages.xmipp3.convert import xmippWriteSetOfParticles, xmippReadSetOfParticles
+import cryomethods.convertXmp as convXmp
 from pyworkflow.em.metadata.utils import getSize
 #
 import xmippLib
@@ -454,7 +454,8 @@ class ProtDirectionalPruning(ProtAnalysis3D):
         print(self._getPath('input_particles.xmd'))
         imgSet = self.inputParticles.get()
 
-        xmippWriteSetOfParticles(imgSet, self._getPath('input_particles.xmd'))
+        convXmp.writeSetOfParticles(imgSet, self._getPath(
+            'input_particles.xmd'))
 
         Xdim = self.inputParticles.get().getDimensions()[0]
         Ts = self.inputParticles.get().getSamplingRate()
@@ -719,7 +720,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
                 if getSize(fnBlock) > nop:
                     try:
-                        xmippReadSetOfParticles(fnBlock, relPart)
+                        convXmp.readSetOfParticles(fnBlock, relPart)
 
 
                         if self.copyAlignment.get():
@@ -882,7 +883,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
             imgSetOut = self._createSetOfParticles()
             imgSetOut.setSamplingRate(imgSetOut.getSamplingRate())
             imgSetOut.setAlignmentProj()
-            xmippReadSetOfParticles(fnDirectional,imgSetOut)
+            convXmp.readSetOfParticles(fnDirectional,imgSetOut)
             print(fnDirectional)
             self._defineOutputs(outputParticles=imgSetOut)
             self._defineSourceRelation(self.inputParticles,imgSetOut)
