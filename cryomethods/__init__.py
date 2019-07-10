@@ -133,12 +133,11 @@ class Plugin(pyworkflow.em.Plugin):
         """ Setup the environment variables needed to launch Relion. """
 
         binPath = cls.__getXmippHome('bin')
-        libPath = cls.__getXmippHome('lib') + ":" + cls.__getXmippHome('lib64')
+        libPath = cls.__getXmippHome('lib')
 
         if not binPath in environ['PATH']:
             environ.update({'PATH': binPath,
                             'LD_LIBRARY_PATH': libPath,
-                            'SCIPION_MPI_FLAGS': os.environ.get('RELION_MPI_FLAGS', ''),
                             }, position=pwutils.Environ.BEGIN)
 
         return environ
