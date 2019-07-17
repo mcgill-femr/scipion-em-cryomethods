@@ -31,6 +31,7 @@ from pyworkflow.em import ProtImportParticles, ProtImportVolumes , ProtSubSet
 from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
 from cryomethods.protocols import ProtDirectionalPruning
+from cryomethods.protocols import ProtClass3DRansac
 
 
 class TestBase(BaseTest):
@@ -249,6 +250,72 @@ class TestDirectionalPruning(TestBase):
                                       classMethod=2,
                                       numberOfIterations=5,
                                       regularisationParamT=2,
+                                      numberOfMpi=4
+                                      )
+
+        protSolid2.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid2.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid2)
+        self.checkOutput(protSolid2, 'outputParticles')
+class TestClass3DRansac(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
+
+    def test_solidAndSplit(self):
+        # Let's keep a smaller subset of particles to speed-up computations
+        protSubset = self.newProtocol(ProtSubSet,
+                                      objLabel='subset 1K',
+                                      chooseAtRandom=True,
+                                      nElements=1000)
+
+        protSubset.inputFullSet.set(self.protImport.outputParticles)
+        self.launchProtocol(protSubset)
+
+        # We use a coarse angular sampling of 20 to speed-up test
+        protSolid = self.newProtocol(ProtClass3DRansac,
+                                objLabel='directional classes 1',
+                                angularSampling=20,
+                                angularDistance=25,
+                                numClasses=2,
+                                directionalSamples=5,
+                                directionalTrials=10,
+                                numberOfMpi=4
+                                )
+
+        protSolid.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid)
+        self.checkOutput(protSolid, 'outputParticles')
+
+        protSolid1 = self.newProtocol(ProtClass3DRansac,
+                                objLabel='directional classes 1',
+                                classMethod=1,
+                                angularSampling=20,
+                                angularDistance=25,
+                                numClasses=2,
+                                directionalSamples=5,
+                                directionalTrials=10,
+                                numberOfMpi=4
+                                )
+
+        protSolid1.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid1.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid1)
+        self.checkOutput(protSolid1, 'outputParticles')
+
+        protSolid2 = self.newProtocol(ProtClass3DRansac,
+                                      objLabel='directional classes 1',
+                                      classMethod=2,
+                                      numberOfIterations=5,
+                                      regularisationParamT=2,
+                                      numClasses=2,
+                                      directionalSamples=5,
+                                      directionalTrials=10,
                                       numberOfMpi=4
                                       )
 

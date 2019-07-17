@@ -34,6 +34,7 @@ from pyworkflow.em.data import Volume
 from pyworkflow.em.protocol import ProtAnalysis3D
 from pyworkflow.utils.path import moveFile, makePath, cleanPath, cleanPattern
 import cryomethods.convertXmp as convXmp
+from cryomethods.convert import writeSetOfParticles, readSetOfParticles,splitInCTFGroups
 from pyworkflow.em.metadata.utils import getSize
 #
 import xmippLib
@@ -510,14 +511,14 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
 
     def classifyGroupsStep(self):
-        mdOut = xmipp.MetaData()
-        mdClasses = xmipp.MetaData()
-        mdClassesParticles=xmipp.MetaData()
-        mdData=xmipp.MetaData()
-        mdClassesClass=xmipp.MetaData()
-        mdBlocks=xmipp.MetaData()
-        mdCount=xmipp.MetaData()
-        mdClassCount=xmipp.MetaData()
+        mdOut = xmippLib.MetaData()
+        mdClasses = xmippLib.MetaData()
+        mdClassesParticles=xmippLib.MetaData()
+        mdData=xmippLib.MetaData()
+        mdClassesClass=xmippLib.MetaData()
+        mdBlocks=xmippLib.MetaData()
+        mdCount=xmippLib.MetaData()
+        mdClassCount=xmippLib.MetaData()
 
         fnClassParticles = self._getPath('input_particles.xmd')
         fnPrunedParticles = self._getPath('output_particles_pruned.xmd')
@@ -528,7 +529,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
         fnNeighbours = self._getExtraPath("neighbours.xmd")
         fnGallery = self._getExtraPath("gallery.stk")
         nop=self.noOfParticles.get()
-        for block in xmipp.getBlocksInMetaDataFile( fnNeighbours):
+        for block in xmippLib.getBlocksInMetaDataFile( fnNeighbours):
             imgNo = block.split("_")[1]
             fnDir = self._getExtraPath("direction_%s" % imgNo)
 
@@ -576,13 +577,13 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
 
                                     CC.append(
-                                        mdCount.getValue(xmipp.MDL_CLASS_COUNT,
+                                        mdCount.getValue(xmippLib.MDL_CLASS_COUNT,
                                                            i + 1))
 
                                     objId = mdOut.addObject()
-                                    mdOut.setValue(xmipp.MDL_REF, int(imgNo),
+                                    mdOut.setValue(xmippLib.MDL_REF, int(imgNo),
                                                    objId)
-                                    mdOut.setValue(xmipp.MDL_IMAGE,
+                                    mdOut.setValue(xmippLib.MDL_IMAGE,
                                                    "%d@%s" % (i + 1, fnOut),
                                                    objId)
 
@@ -594,10 +595,10 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
                                     itemIdInput.append(
                                         mdClassesParticles.getValue(
-                                            xmipp.MDL_ITEM_ID, objId))
+                                            xmippLib.MDL_ITEM_ID, objId))
 
                                 for indx, block in enumerate(
-                                        xmipp.getBlocksInMetaDataFile(
+                                        xmippLib.getBlocksInMetaDataFile(
                                                 fnClassCount)[2:]):
                                     if lowest[indx]:
 
@@ -606,11 +607,11 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                                         for objId in mdClassCount:
 
                                             itemIdPart = mdClassCount.getValue(
-                                                xmipp.MDL_ITEM_ID, objId)
+                                                xmippLib.MDL_ITEM_ID, objId)
                                             idx = itemIdInput.index(
                                                 itemIdPart) + 1
                                             mdClassesParticles.setValue(
-                                                xmipp.MDL_ENABLED, -1, idx)
+                                                xmippLib.MDL_ENABLED, -1, idx)
 
 
                         except:
@@ -662,15 +663,15 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
                             for i in range(self.directionalClasses.get()):
 
-                                WeightsArray.append(mdClasses.getValue(xmipp.MDL_WEIGHT, i+1))
+                                WeightsArray.append(mdClasses.getValue(xmippLib.MDL_WEIGHT, i+1))
                                 n= sum(WeightsArray)
                                 out=np.divide(WeightsArray, n)
                                 lowest= out < self.thresholdValue.get()
 
                                 objId = mdOut.addObject()
-                                mdOut.setValue(xmipp.MDL_REF, int(imgNo),
+                                mdOut.setValue(xmippLib.MDL_REF, int(imgNo),
                                                 objId)
-                                mdOut.setValue(xmipp.MDL_IMAGE,
+                                mdOut.setValue(xmippLib.MDL_IMAGE,
                                                 "%d@%s" % (i + 1, fnOrig), objId)
 
 
@@ -678,16 +679,16 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
 
                             for objId in mdClassesParticles:
-                                itemIdInput.append(mdClassesParticles.getValue(xmipp.MDL_ITEM_ID, objId))
+                                itemIdInput.append(mdClassesParticles.getValue(xmippLib.MDL_ITEM_ID, objId))
 
-                            for indx, block in enumerate(xmipp.getBlocksInMetaDataFile(fnClassClasses)[2:]):
+                            for indx, block in enumerate(xmippLib.getBlocksInMetaDataFile(fnClassClasses)[2:]):
                                 if lowest[indx]:
                                     fnBlock = '%s@%s'% (block, fnClassClasses)
                                     mdClassesClass.read(fnBlock)
                                     for objId in mdClassesClass:
-                                        itemIdPart = mdClassesClass.getValue(xmipp.MDL_ITEM_ID, objId)
+                                        itemIdPart = mdClassesClass.getValue(xmippLib.MDL_ITEM_ID, objId)
                                         idx= itemIdInput.index(itemIdPart)+1
-                                        mdClassesParticles.setValue(xmipp.MDL_ENABLED, -1, idx)
+                                        mdClassesParticles.setValue(xmippLib.MDL_ENABLED, -1, idx)
 
 
                     except:
@@ -704,7 +705,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
 
             else:
-                import pyworkflow.em.packages.cryomethods.convert as cryoConv
+
 
 
                 relPart=self._createSetOfParticles()
@@ -733,7 +734,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                                                                 True)
                         fillRandomSubset =  getattr(self, 'fillRandomSubset', False)
 
-                        cryoConv.writeSetOfParticles(relPart,fnRelion,self._getExtraPath(),
+                        writeSetOfParticles(relPart,fnRelion,self._getExtraPath(),
                                                      alignType=alignType,
                                                      postprocessImageRow=self._postprocessParticleRow,
                                                      fillRandomSubset=fillRandomSubset)
@@ -777,7 +778,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                         fnClass= (fnOut + model + 'classes.mrcs')
 
                         for objId in mdBlocks:
-                           ClsDist=mdBlocks.getValue(xmipp.RLN_MLMODEL_PDF_CLASS,objId)
+                           ClsDist=mdBlocks.getValue(xmippLib.RLN_MLMODEL_PDF_CLASS,objId)
 
                            Rcd.append(ClsDist)
                         w=[]
@@ -793,22 +794,22 @@ class ProtDirectionalPruning(ProtAnalysis3D):
 
                         for objId in mdClassesParticles:
                             itemIdInput.append(
-                                mdClassesParticles.getValue(xmipp.MDL_ITEM_ID,
+                                mdClassesParticles.getValue(xmippLib.MDL_ITEM_ID,
                                                             objId))
 
 
                         for x in w[:]:
 
                             for objId in mdData:
-                                ClsNr = mdData.getValue(xmipp.RLN_PARTICLE_CLASS, objId)
+                                ClsNr = mdData.getValue(xmippLib.RLN_PARTICLE_CLASS, objId)
 
                                 if x == ClsNr:
 
-                                    ImageId =mdData.getValue(xmipp.RLN_IMAGE_ID,objId)
+                                    ImageId =mdData.getValue(xmippLib.RLN_IMAGE_ID,objId)
 
                                     idx = itemIdInput.index(ImageId)+1
 
-                                    mdClassesParticles.setValue(xmipp.MDL_ENABLED, -1,
+                                    mdClassesParticles.setValue(xmippLib.MDL_ENABLED, -1,
                                                                    idx)
 
 
@@ -819,9 +820,9 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                         if exists(fnOut):
                             for i in range(self.directionalClasses.get()):
                                 objId = mdOut.addObject()
-                                mdOut.setValue(xmipp.MDL_REF, int(imgNo),
+                                mdOut.setValue(xmippLib.MDL_REF, int(imgNo),
                                                objId)
-                                mdOut.setValue(xmipp.MDL_IMAGE,
+                                mdOut.setValue(xmippLib.MDL_IMAGE,
                                                "%d@%s" % (i + 1, fnClass), objId)
                     except:
                         print("The classification failed,"
@@ -1024,7 +1025,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
     def _splitInCTFGroups(self, fnRelion):
         """ Add a new column in the image star to separate the particles
         into ctf groups """
-        from convert import splitInCTFGroups
+
         splitInCTFGroups(fnRelion,
                          self.defocusRange.get(),
                          self.numParticles.get())
@@ -1037,5 +1038,5 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                             itemDataIterator=md.iterRows(fnPrunedParticles,
                                                          sortByLabel=md.RLN_IMAGE_ID))
     def _callBack(self, newItem, row):
-        if row.getValue(xmipp.MDL_ENABLED) == -1:
+        if row.getValue(xmippLib.MDL_ENABLED) == -1:
             setattr(newItem, "_appendItem", False)
