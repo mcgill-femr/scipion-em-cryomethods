@@ -323,11 +323,11 @@ class Prot3DAutoClassifier(ProtocolBase):
         modelFn = self._getFileName('model', iter=iters,lev=self._level, rLev=1)
         modelMd = self._getMetadata('model_class_1@' + modelFn)
 
-        f = self._getFunc(modelMd)
+        area = self._getArea(modelMd)
         imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
         mdData = self._getMetadata(imgStar)
         size = np.math.log10(mdData.size())
-        self.stopResLog[size] = f(1)
+        self.stopResLog[size] = area
         print("stopResLog: ", self.stopResLog)
 
     def addDoneListStep(self):
@@ -623,8 +623,9 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         x = [k for k, v in self.stopResLog.items()]
         y = [v for k, v in self.stopResLog.items()]
-        slope, y0, _, _, err = stats.linregress(x, y)
-        print("EvalStop mx+n: m: %0.4f, n %0.4f,  err %0.4f" % (slope, y0, err))
+        f = np.polyfit(x, y, 2)
+        print ("polynomial values: ", f)
+        pol = np.poly1d(f)
 
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -639,16 +640,14 @@ class Prot3DAutoClassifier(ProtocolBase):
                 mapId = self._mapsDict[fn]
                 suffixSsnr = 'model_class_%d@' % clsId
                 ssnrMd = md.MetaData(suffixSsnr + modelFn)
-                f = self._getFunc(ssnrMd)
+                val = 1.05 * self._getArea(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                ExpectedVal = slope*np.math.log10(classSize) + y0
-
+                size = np.math.log10(classSize)
+                ExpectedVal = pol(size)
                 ptcStop = self.minPartsToStop.get()
-                val = f(1) + (2*err)
-
                 clsId += 1
-                print("Values: Val SSnr=1: %0.4f, parts %d, ExpectedVal %0.4f, "
-                      % (val, classSize, ExpectedVal))
+                print("ValuesStop: Val Area: %0.1f, ExpecVal %0.1f, parts %d"
+                      % (val, ExpectedVal, classSize))
 
                 if val < ExpectedVal or classSize < ptcStop:
                     self.stopDict[mapId] = True
@@ -779,17 +778,15 @@ class Prot3DAutoClassifier(ProtocolBase):
         npAvgVol = np.divide(npAvgVol, len(listVol))
         return npAvgVol, dType
 
-    def _getFunc(self, modelMd):
+    def _getArea(self, modelMd):
         resolution = []
         ssnr = []
         for row in md.iterRows(modelMd):
             resolution.append(row.getValue('rlnResolution'))
             ssnr.append(row.getValue('rlnSsnrMap'))
-            if ssnr[-1] == 0.0:
-                break
 
-        f = interpolate.interp1d(ssnr, resolution)
-        return f
+        area = np.trapz(ssnr, resolution)
+        return area
 
 
     def _getPathMaps(self, filename="*.mrc"):
