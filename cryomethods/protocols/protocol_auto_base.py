@@ -295,17 +295,17 @@ class ProtAutoBase(ProtocolBase):
             self._setComputeArgs(args)
 
             del args['--firstiter_cc']
-            if self.IS_2D:
-                args['--K'] = 1
-                args['--iter'] = iters
-            else:
-                del args['--iter']
-                del args['--K']
-                del args['--tau2_fudge']
-                args['--auto_local_healpix_order'] = args['--healpix_order'] + 2
-                args['--low_resol_join_halves'] = 40
-                args['--auto_refine'] = ''
-                args['--split_random_halves'] = ''
+            # if self.IS_2D:
+            args['--K'] = 1
+            args['--iter'] = iters
+            # else:
+            #     del args['--iter']
+            #     del args['--K']
+            #     del args['--tau2_fudge']
+            #     args['--auto_local_healpix_order'] = args['--healpix_order'] + 2
+            #     args['--low_resol_join_halves'] = 40
+            #     args['--auto_refine'] = ''
+            #     args['--split_random_halves'] = ''
 
             mapId = mapIds[rLev-1]
             if self.IS_3D:
