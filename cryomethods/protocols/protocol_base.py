@@ -160,7 +160,7 @@ class ProtocolBase(em.EMProtocol):
                                 'the initial references.')
         elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
-            group.addParam('minPartsToStop', params.FloatParam, default=5000,
+            group.addParam('minPartsToStop', params.IntParam, default=5000,
                            label='min particles to stop',
                            help='Minimum number of particles per class that is '
                                 'needed to do another classification step')
@@ -441,8 +441,7 @@ class ProtocolBase(em.EMProtocol):
                            'in the range of 7-12 Angstroms have proven '
                            'useful.')
 
-    def _defineSamplingParams(self, form,
-                              expertLev=em.LEVEL_ADVANCED, cond='True'):
+    def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Sampling')
         if self.IS_AUTOCLASSIFY:
             form.addParam('doImageAlignment', params.BooleanParam, default=True,
@@ -457,7 +456,7 @@ class ProtocolBase(em.EMProtocol):
         if self.IS_3D:
             form.addParam('angularSamplingDeg', params.EnumParam, default=1,
                           choices=ANGULAR_SAMPLING_LIST,
-                          expertLevel=expertLev, condition=cond,
+                          expertLevel=expertLev, condition='doImageAlignment',
                           label='Angular sampling interval (deg)',
                           help='There are only a few discrete angular samplings'
                                ' possible because we use the HealPix library to'
@@ -481,7 +480,8 @@ class ProtocolBase(em.EMProtocol):
                                'automatically after that.')
 
         form.addParam('offsetSearchRangePix', params.FloatParam,
-                      default=5, expertLevel=expertLev, condition=cond,
+                      default=5, expertLevel=expertLev,
+                      condition='doImageAlignment',
                       label='Offset search range (pix)',
                       help='Probabilities will be calculated only for '
                            'translations in a circle with this radius (in '
@@ -490,7 +490,8 @@ class ProtocolBase(em.EMProtocol):
                            'translation for each image in the previous '
                            'iteration.')
         form.addParam('offsetSearchStepPix', params.FloatParam,
-                      default=1.0, expertLevel=expertLev, condition=cond,
+                      default=1.0, expertLevel=expertLev,
+                      condition='doImageAlignment',
                       label='Offset search step (pix)',
                       help='Translations will be sampled with this step-size '
                            '(in pixels). Translational sampling is also done '
@@ -499,7 +500,8 @@ class ProtocolBase(em.EMProtocol):
                            'evaluated on a 2x coarser grid.')
         if self.IS_3D:
             form.addParam('localAngularSearch', params.BooleanParam,
-                          default=False, expertLevel=expertLev, condition=cond,
+                          default=False, expertLevel=expertLev,
+                          condition='doImageAlignment',
                           label='Perform local angular search?',
                           help='If set to Yes, then rather than performing '
                                'exhaustive angular searches, local searches '
@@ -510,7 +512,7 @@ class ProtocolBase(em.EMProtocol):
                                'below will be enforced.')
             form.addParam('localAngularSearchRange', params.FloatParam,
                           default=5.0, expertLevel=expertLev,
-                          condition=cond + ' and localAngularSearch',
+                          condition='doImageAlignment and localAngularSearch',
                           label='Local angular search range',
                           help='Local angular searches will be performed '
                                'within +/- the given amount (in degrees) from '
@@ -981,9 +983,6 @@ class ProtocolBase(em.EMProtocol):
             inputObj = self.inputVolumes.get()
             if isinstance(inputObj, em.SetOfVolumes):
                 # input SetOfVolumes as references
-                return self._getRefStar()
-        else:  # 2D
-            if self.referenceAverages.get():
                 return self._getRefStar()
         return None  # No --ref should be used at this point
 
