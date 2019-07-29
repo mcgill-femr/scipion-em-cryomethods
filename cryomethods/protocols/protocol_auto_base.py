@@ -294,7 +294,6 @@ class ProtAutoBase(ProtocolBase):
             self._setNormalArgs(args)
             self._setComputeArgs(args)
 
-            del args['--firstiter_cc']
             # if self.IS_2D:
             args['--K'] = 1
             args['--iter'] = iters
