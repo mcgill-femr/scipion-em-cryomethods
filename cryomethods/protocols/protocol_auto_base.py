@@ -257,8 +257,6 @@ class ProtAutoBase(ProtocolBase):
 
         clsChange = 0
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-            print ("ROW IMGID: ", row.getValue(md.RLN_IMAGE_ID))
-            print ("ROW IMG: ", row.getValue(md.RLN_IMAGE_NAME))
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
             newClass = labels[clsPart-1] + 1
             row.setValue(md.RLN_PARTICLE_CLASS, newClass)
@@ -283,7 +281,7 @@ class ProtAutoBase(ProtocolBase):
         #-----metadata to save all final particles-----
         finalData = self._getFileName('finalData')
         finalDataMd = self._getMetadata()
-        print('BEFORE LOOP TO ')
+        print('BEFORE FINAL LOOP ')
 
         for rLev in levelRuns:
             makePath(self._getRunPath(self._level, rLev))
