@@ -452,6 +452,9 @@ class ProtocolBase(em.EMProtocol):
                                'the use of very focused masks.This requires '
                                'that the optimal orientations of all '
                                'particles are already calculated.')
+        else:
+            form.addHidden('doImageAlignment', params.BooleanParam,
+                           default=True)
 
         if self.IS_3D:
             form.addParam('angularSamplingDeg', params.EnumParam, default=1,
