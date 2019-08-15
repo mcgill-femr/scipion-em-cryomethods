@@ -194,26 +194,10 @@ class Prot2DAutoClassifier(ProtAutoBase):
         partSet = self.inputParticles.get()
 
         classes2D = self._createSetOfClasses2D(partSet)
-        pass
-        # self._fillClassesFromIter(classes3D)
-        #
-        # self._defineOutputs(outputClasses=classes3D)
-        # self._defineSourceRelation(self.inputParticles, classes3D)
-        #
-        # # create a SetOfVolumes and define its relations
-        # volumes = self._createSetOfVolumes()
-        # volumes.setSamplingRate(partSet.getSamplingRate())
-        #
-        # for class3D in classes3D:
-        #     vol = class3D.getRepresentative()
-        #     vol.setObjId(class3D.getObjId())
-        #     volumes.append(vol)
-        #
-        # self._defineOutputs(outputVolumes=volumes)
-        # self._defineSourceRelation(self.inputParticles, volumes)
-        #
-        # self._defineSourceRelation(self.inputVolumes, classes3D)
-        # self._defineSourceRelation(self.inputVolumes, volumes)
+        self._fillClassesFromIter(classes2D)
+
+        self._defineOutputs(outputClasses=classes2D)
+        self._defineSourceRelation(self.inputParticles, classes2D)
 
     # -------------------------- UTILS functions -------------------------------
     def _setSamplingArgs(self, args):
@@ -239,12 +223,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
         noOfLevRuns = self._getLevRuns(self._level)
         print("dataModel's loop to evaluate stop condition")
 
-        # x = [k for k, v in self.stopResLog.items()]
-        # y = [v for k, v in self.stopResLog.items()]
-        # f = np.polyfit(x, y, 2)
-        # print ("polynomial values: ", f)
-        # pol = np.poly1d(f)
-
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
             modelFn = self._getFileName('model', iter=iters,
@@ -256,12 +234,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                suffixSsnr = 'model_class_%d@' % clsId
-                # ssnrMd = md.MetaData(suffixSsnr + modelFn)
-                # val = 1.05 * self._getArea(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                # size = np.math.log10(classSize)
-                # ExpcVal = pol(size)
                 ptcStop = self.minPartsToStop.get()
                 clsId += 1
                 print("ValuesStop: parts %d" %classSize)
@@ -322,3 +295,14 @@ class Prot2DAutoClassifier(ProtAutoBase):
             volList = volNp.reshape(lenght)
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
+
+    def _updateParticle(self, item, row):
+        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
+        item.setTransform(rowToAlignment(row, em.ALIGN_2D))
+
+        item._rlnLogLikeliContribution = em.Float(
+            row.getValue('rlnLogLikeliContribution'))
+        item._rlnMaxValueProbDistribution = em.Float(
+            row.getValue('rlnMaxValueProbDistribution'))
+        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+
