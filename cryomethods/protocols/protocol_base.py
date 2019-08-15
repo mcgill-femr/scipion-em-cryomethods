@@ -27,6 +27,8 @@
 import re
 from glob import glob
 from os.path import exists
+import numpy as np
+from scipy import stats
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -371,17 +373,8 @@ class ProtocolBase(em.EMProtocol):
                            'Too small values yield too-low resolution '
                            'structures; too high values result in '
                            'over-estimated resolutions and overfitting.')
-        if self.IS_VOLSELECTOR:
-            form.addParam('numberOfIterations', params.IntParam, default=25,
-                          expertLevel=expertLev,
-                          label='Number of iterations',
-                          help='Number of iterations to be performed. Note '
-                               'that the current implementation does NOT '
-                               'comprise a convergence criterium. Therefore, '
-                               'the calculations will need to be stopped '
-                               'by the user if further iterations do not yield '
-                               'improvements in resolution or classes.')
-        else:
+
+        if not self.IS_VOLSELECTOR:
             form.addParam('doSubsets', params.BooleanParam, default=False,
                           label='Use subsets for initial updates?',
                           help='If set to True, multiple maximization updates '
@@ -656,56 +649,45 @@ class ProtocolBase(em.EMProtocol):
         #already implemented in subclasses
         pass
 
-    def _insertClassifyStep(self, step='runClassifyStep'):
+    def _insertClassifyStep(self, **kwargs):
         """ Prepare the command line arguments before calling Relion. """
         # Join in a single line all key, value pairs of the args dict
-        args = {}
+        normalArgs = {}
+        basicArgs = {}
+        self._setNormalArgs(normalArgs)
+        self._setBasicArgs(basicArgs)
+        if kwargs:
+            for key, value in kwargs.items():
+                newKey = '--%s' % key
+                normalArgs[newKey] = value
 
-        self._setNormalArgs(args)
-        self._setComputeArgs(args)
-        params = self._getParams(args)
-        return self._insertFunctionStep(step, params)
+        return self._insertFunctionStep('runClassifyStep', normalArgs,
+                                        basicArgs, self._rLev)
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
-        """ Create the input file in STAR format as expected by Relion.
-        If the input particles comes from Relion, just link the file.
-        Params:
-            particlesId: use this parameters just to force redo of convert if
-                the input particles are changed.
-        """
-        imgSet = self._getInputParticles()
-        imgStar = self._getFileName('input_star')
+        """ Implemented in subclasses. """
+        pass
 
-        self.info("Converting set from '%s' into '%s'" %
-                  (imgSet.getFileName(), imgStar))
+    def runClassifyStep(self, normalArgs, basicArgs, rLev):
+        self._createIterTemplates(rLev)  # initialize files to know iterations
+        self._setComputeArgs(normalArgs)
+        params = self._getParams(normalArgs)
+        self._runClassifyStep(params)
 
-        # Pass stack file as None to avoid write the images files
-        # If copyAlignment is set to False pass alignType to ALIGN_NONE
-        alignType = imgSet.getAlignment() if copyAlignment \
-            else em.ALIGN_NONE
-        hasAlign = alignType != em.ALIGN_NONE
-        fillRandomSubset = hasAlign and getattr(self, 'fillRandomSubset',
-                                                False)
+        for i in range(7, 75, 1):
+            basicArgs['--iter'] = i
+            self._setContinueArgs(basicArgs, rLev)
+            self._setComputeArgs(basicArgs)
+            paramsCont = self._getParams(basicArgs)
 
-        conv.writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
-                                 alignType=alignType,
-                                 postprocessImageRow=self._postprocessParticleRow,
-                                 fillRandomSubset=fillRandomSubset)
+            stop = self._stopRunCondition(rLev, i)
+            if not stop:
+                self._runClassifyStep(paramsCont)
+            else:
+                break
 
-        alignToPrior = hasAlign and getattr(self, 'alignmentAsPriors',
-                                            False)
-
-        if alignToPrior:
-            self._copyAlignAsPriors(imgStar, alignType)
-
-        if self.doCtfManualGroups:
-            self._splitInCTFGroups(imgStar)
-
-        if self._getRefArg():
-            self._convertRef()
-
-    def runClassifyStep(self, params):
+    def _runClassifyStep(self, params):
         """ Execute the relion steps with the give params. """
         self.runJob(self._getProgram(), params)
 
@@ -840,7 +822,7 @@ class ProtocolBase(em.EMProtocol):
                      '--oversampling': self.oversampling.get(),
                      '--tau2_fudge': self.regularisationParamT.get()
                      })
-        args['--iter'] = self._getnumberOfIters() if self.IS_VOLSELECTOR else 6
+        args['--iter'] = 6
 
         if not self.IS_VOLSELECTOR:
             self._setSubsetArgs(args)
@@ -889,6 +871,15 @@ class ProtocolBase(em.EMProtocol):
             args['--gpu'] = self.gpusToUse.get()
         args['--j'] = self.numberOfThreads.get()
 
+    def _setContinueArgs(self, args, rLev):
+        continueIter = self._lastIter(rLev)
+        if self.IS_AUTOCLASSIFY:
+            args['--continue'] = self._getFileName('optimiser', lev=self._level,
+                                                   rLev=rLev, iter=continueIter)
+        else:
+            args['--continue'] = self._getFileName('optimiser', ruNum=rLev,
+                                                   iter=continueIter)
+
     def _getParams(self, args):
         return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
 
@@ -920,7 +911,8 @@ class ProtocolBase(em.EMProtocol):
                 # number
         return result
 
-    def _lastIter(self):
+    def _lastIter(self, rLev=None):
+        self._createIterTemplates(rLev)
         return self._getIterNumber(-1)
 
     def _firstIter(self):
@@ -1071,6 +1063,24 @@ class ProtocolBase(em.EMProtocol):
 
         moveFile(self._getFileName('preprocess_parts'),
                  self._getTmpPath('particles_subset.mrcs'))
+
+    def _stopRunCondition(self, rLev, iter):
+        x = np.array([])
+        y = np.array([])
+
+        for i in range(iter-5, iter, 1):
+            x = np.append(x, i)
+            if self.IS_AUTOCLASSIFY:
+                modelFn = self._getFileName('model', iter=i,
+                                            lev=self._level, rLev=rLev)
+            else:
+                modelFn = self._getFileName('model', iter=i, ruNum=rLev)
+
+            modelMd = md.RowMetaData('model_general@' + modelFn)
+            y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
+
+        slope, _, _, _, _ = stats.linregress(x, y)
+        return True if slope <= 0.01 else False
 
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()
