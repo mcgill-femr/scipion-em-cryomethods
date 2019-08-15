@@ -27,7 +27,7 @@
 import os
 import re
 import numpy as np
-from scipy import stats
+from scipy import stats, interpolate
 from glob import glob
 from collections import Counter, defaultdict
 
@@ -62,8 +62,6 @@ class ProtAutoBase(ProtocolBase):
     def _createIterTemplates(self, rLev=None):
         """ Setup the regex on how to find iterations. """
         rLev = self._rLev if rLev is None else rLev
-        print("level rLev in _createIterTemplates:", self._level, rLev)
-
         self._iterTemplate = self._getFileName('data', lev=self._level,
                                                rLev=rLev,
                                                iter=0).replace('000', '???')
@@ -118,42 +116,23 @@ class ProtAutoBase(ProtocolBase):
 
     def _instertLev0Step(self):
         self._insertClassifyStep(K=1)
-        self._insertFunctionStep('resLogStep')
-        for i in range(1, 5, 1):
+        # self._insertFunctionStep('resLogStep')
+        for i in range(6):
             self._insertFunctionStep('runContinueClasfStep', i)
             self._insertFunctionStep('resLogStep')
         dep = self._insertFunctionStep('addDoneListStep')
         self._setNewEvalIds()
         return [dep]
 
-    def _insertClassifyStep(self, **kwargs):
-        """ Prepare the command line arguments before calling Relion. """
-        # Join in a single line all key, value pairs of the args dict
-        normalArgs = {}
-        basicArgs = {}
-        self._setNormalArgs(normalArgs)
-        self._setBasicArgs(basicArgs)
-        if kwargs:
-            for key, value in kwargs.items():
-                newKey = '--%s' % key
-                normalArgs[newKey] = value
-
-        return self._insertFunctionStep('runClassifyStep', normalArgs,
-                                        basicArgs, self._rLev)
-
     def _insertEvaluationStep(self, deps):
         evalDep = self._insertFunctionStep('evaluationStep', prerequisites=deps)
         return evalDep
 
     def _stepsCheck(self):
-        print('_stepsCheck???')
         if Counter(self._evalIdsList) == Counter(self._doneList):
-            print ('pass trough here: '
-                   'Counter(self._evalIdsList) == Counter(self._doneList)')
 
             mergeStep = self._getFirstJoinStep()
             if self._condToStop() and self._level > 0:
-                print('_condToStop ???')
                 # Unlock mergeClassesStep if finished all jobs
                 if mergeStep and mergeStep.isWaiting():
                     self._level += 1
@@ -170,28 +149,6 @@ class ProtAutoBase(ProtocolBase):
     def convertInputStep(self, resetDeps, copyAlignment):
         """ Implemented in subclasses. """
         pass
-
-    def runClassifyStep(self, normalArgs, basicArgs, rLev):
-        self._createIterTemplates(rLev)  # initialize files to know iterations
-        self._setComputeArgs(normalArgs)
-        params = self._getParams(normalArgs)
-        self._runClassifyStep(params)
-
-        for i in range(7, 75, 1):
-            basicArgs['--iter'] = i
-            self._setContinueArgs(basicArgs, rLev)
-            self._setComputeArgs(basicArgs)
-            paramsCont = self._getParams(basicArgs)
-
-            stop = self._stopRunCondition(rLev, i)
-            if not stop:
-                self._runClassifyStep(paramsCont)
-            else:
-                break
-
-    def _runClassifyStep(self, params):
-        """ Execute the relion steps with the give params. """
-        self.runJob(self._getProgram(), params)
 
     def runContinueClasfStep(self, i):
         args = {}
@@ -210,12 +167,7 @@ class ProtAutoBase(ProtocolBase):
         self._setBasicArgs(args)
         self._setContinueArgs(args, 1)
         self._setComputeArgs(args)
-        args['--iter'] = iters+1
-        args['--skip_align'] = ''
-        del args['--healpix_order']
-        del args['--offset_range']
-        del args['--offset_step']
-        del args['--gpu']
+        args['--iter'] = iters+6
 
         paramsCont = self._getParams(args)
 
@@ -226,11 +178,12 @@ class ProtAutoBase(ProtocolBase):
         modelFn = self._getFileName('model', iter=iters,lev=self._level, rLev=1)
         modelMd = self._getMetadata('model_class_1@' + modelFn)
 
-        area = self._getArea(modelMd)
+        # area = self._getArea(modelMd)
+        f = self._getFunc(modelMd)
         imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
         mdData = self._getMetadata(imgStar)
         size = np.math.log10(mdData.size())
-        self.stopResLog[size] = area
+        self.stopResLog[size] = f(1)
         print("stopResLog: ", self.stopResLog)
 
     def addDoneListStep(self):
@@ -322,8 +275,11 @@ class ProtAutoBase(ProtocolBase):
             mapId = self._getRunLevId(rLev=rLev)
             newMap = self._getMapById(mapId)
             imgRow.setValue(refLabel, newMap)
-
-            copyFile(fn, newMap)
+            if self.IS_2D:
+                ih = em.ImageHandler()
+                ih.convert(fn, newMap)
+            else:
+                copyFile(fn, newMap)
             self._mapsDict[fn] = mapId
 
             imgRow.addToMd(finalMd)
@@ -346,11 +302,6 @@ class ProtAutoBase(ProtocolBase):
     def _setSamplingArgs(self, args):
         """ Implemented in subclasses. """
         pass
-
-    def _setContinueArgs(self, args, rLev):
-        continueIter = self._lastIter(rLev)
-        args['--continue'] = self._getFileName('optimiser', lev=self._level,
-                                               rLev=rLev, iter=continueIter)
 
     def _getResetDeps(self):
         """ Implemented in subclasses. """
@@ -462,33 +413,14 @@ class ProtAutoBase(ProtocolBase):
         outModel = self._getFileName('outputModel', lev=self._level)
         return False if os.path.exists(outModel) else True
 
-    def _stopRunCondition(self, rLev, iter):
-        x = np.array([])
-        y = np.array([])
-
-        for i in range(iter-5, iter, 1):
-            print("iteration: ", i)
-            x = np.append(x, i)
-            modelFn = self._getFileName('model', iter=i,
-                                        lev=self._level, rLev=rLev)
-            print('filename: ', modelFn)
-            modelMd = md.RowMetaData('model_general@' + modelFn)
-            y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
-            print('values to stimate the slope: ', x, y, modelFn)
-
-        slope, _, _, _, _ = stats.linregress(x, y)
-        print("Slope: ", slope)
-        return True if slope <= 0.01 else False
-
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
         print("dataModel's loop to evaluate stop condition")
 
         x = [k for k, v in self.stopResLog.items()]
         y = [v for k, v in self.stopResLog.items()]
-        f = np.polyfit(x, y, 2)
-        print ("polynomial values: ", f)
-        pol = np.poly1d(f)
+        slope, y0, _, _, err = stats.linregress(x, y)
+        print("EvalStop mx+n: m: %0.4f, n %0.4f,  err %0.4f" % (slope, y0, err))
 
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -503,14 +435,17 @@ class ProtAutoBase(ProtocolBase):
                 mapId = self._mapsDict[fn]
                 suffixSsnr = 'model_class_%d@' % clsId
                 ssnrMd = md.MetaData(suffixSsnr + modelFn)
-                val = 1.05 * self._getArea(ssnrMd)
+
+                f = self._getFunc(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                size = np.math.log10(classSize)
-                ExpcVal = pol(size)
+                ExpcVal = slope*np.math.log10(classSize) + y0
+
                 ptcStop = self.minPartsToStop.get()
+                val = f(1) + (2*err)
+
                 clsId += 1
-                print("ValuesStop: Val Area: %0.1f, ExpecVal %0.1f, parts %d"
-                      % (val, ExpcVal, classSize))
+                print("StopValues: Val SSnr=1: %0.4f, parts %d, ExpcVal %0.4f"
+                      % (val, classSize, ExpcVal))
 
                 if classSize < ptcStop or (val < ExpcVal and self._level >= 2):
                     self.stopDict[mapId] = True
@@ -611,15 +546,17 @@ class ProtAutoBase(ProtocolBase):
         npAvgVol = np.divide(npAvgVol, len(listVol))
         return npAvgVol, dType
 
-    def _getArea(self, modelMd):
+    def _getFunc(self, modelMd):
         resolution = []
         ssnr = []
         for row in md.iterRows(modelMd):
             resolution.append(row.getValue('rlnResolution'))
             ssnr.append(row.getValue('rlnSsnrMap'))
+            if ssnr[-1] == 0.0:
+                break
 
-        area = np.trapz(ssnr, resolution)
-        return area
+        f = interpolate.interp1d(ssnr, resolution)
+        return f
 
     def _getPathMaps(self, filename="*.mrc"):
         filesPath = self._getLevelPath(self._level, filename)
@@ -712,10 +649,6 @@ class ProtAutoBase(ProtocolBase):
 
     def _getFinalMapIds(self):
         return [k for k, v in self.stopDict.items() if v is True]
-
-    def _lastIter(self, rLev=None):
-        self._createIterTemplates(rLev)
-        return self._getIterNumber(-1)
 
     def _clusteringData(self, matProj):
         method = self.classMethod.get()
