@@ -52,7 +52,6 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
         self.extraIter = self._getExtraPath('run_%(ruNum)02d/relion_it%(iter)03d_')
-        self.extraLast = self._getExtraPath('parSel2/relion_it%(iter)03d_')
         myDict = {
             'final_particles': self._getExtraPath('Finput_particles.star'),
             'input_star': self._getPath('input_particles_%(run)02d.star'),
@@ -69,7 +68,6 @@ class ProtInitialVolumeSelector(ProtocolBase):
             'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
             'movie_particles': self._getPath('movie_particles.star'),
             'dataFinal': self._getExtraPath("relion_data.star"),
-            'modelFinal': self.extraLast + 'model.star',
             'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
             'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
             'preprocess_parts_star': self._getPath("preprocess_particles.star"),
@@ -86,7 +84,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
                                      'class%(ref3d)03d.mrc:mrc'
         self._updateFilenamesDict(myDict)
 
-    def _createTemplates(self, run=None):
+    def _createIterTemplates(self, run=None):
         run = self._rLev if run is None else run
         """ Setup the regex on how to find iterations. """
         self._iterTemplate = self._getFileName('data', ruNum=run,
@@ -114,16 +112,17 @@ class ProtInitialVolumeSelector(ProtocolBase):
         b = np.log((1 - (float(selectedVols) / float(totalVolumes))))
         numOfRuns = 1 if selectedVols >= totalVolumes else int(-3 / b)
 
-        for run in range(numOfRuns):
+        for run in range(1, numOfRuns+1):
             self._createFilenameTemplates()
-            self._createTemplates(run)
+            self._createIterTemplates(run)
             self._createVolDict()
             self._rLev = run
             resetDeps = self._getResetDeps()
             self._insertFunctionStep('convertInputStep', resetDeps, run)
             self._insertClassifyStep()
         self._insertFunctionStep('mergeVolumesStep', numOfRuns)
-        self._insertFunctionStep('randomParSel')
+        self._rLev += 1
+        self._insertFunctionStep('converParticlesStep', self._rLev)
         self._insertLastSteps()
         self._insertFunctionStep('createOutputStep')
 
@@ -142,6 +141,10 @@ class ProtInitialVolumeSelector(ProtocolBase):
             convert if either the input particles and/or input volumes are
             changed.
         """
+        self.converParticlesStep(run)
+        self._convertRef()
+
+    def converParticlesStep(self, run):
         self._imgFnList = []
         imgSet = self._getInputParticles()
         imgStar = self._getFileName('input_star', run=run)
@@ -160,20 +163,14 @@ class ProtInitialVolumeSelector(ProtocolBase):
         writeSetOfParticles(subset, imgStar, self._getExtraPath(),
                             alignType=em.ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
-        self._convertRef()
-
-    def runClassifyStep(self, params):
-        """ Execute the relion steps with the give params. """
-        params += ' --j %d' % self.numberOfThreads.get()
-        self.runJob(self._getProgram(), params)
 
     def mergeVolumesStep(self, numOfRuns):
         mdOut = md.MetaData()
         volFnList = []
         clsDistList = []
         accList = []
-        for run in range(numOfRuns):
-            it = self.numberOfIterations.get()
+        for run in range(1, numOfRuns + 1):
+            it = self._lastIter(run)
             modelFile = self._getFileName('model', ruNum=run, iter=it)
             mdIn = md.MetaData('model_classes@%s' % modelFile)
             for row in md.iterRows(mdIn, md.RLN_MLMODEL_REF_IMAGE):
@@ -200,31 +197,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
         mdOut.write(self._getRefStar())
 
-    def randomParSel(self):
-        self._imgFnList = []
-        imgSet = self._getInputParticles()
-        imgStar = self._getFileName('final_particles')
-        os.makedirs(self._getExtraPath('parSel2'))
-        subset = em.SetOfParticles(filename=":memory:")
-
-        newIndex = 1
-        for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
-            self._scaleImages(newIndex, img)
-            newIndex += 1
-            subset.append(img)
-            subsetSize = self.subsetSize.get() * self.numOfVols.get()
-            minSize = min(subsetSize, imgSet.getSize())
-            if subsetSize > 0 and subset.getSize() == minSize:
-                break
-        writeSetOfParticles(subset, imgStar, self._getExtraPath(),
-                            alignType=em.ALIGN_NONE,
-                            postprocessImageRow=self._postprocessParticleRow)
-
-    def _getRefStar(self):
-        return self._getTmpPath("allVolumes.star")
-
     def rerunClassifyStep(self, args):
-        args['--o'] = self._getExtraPath('parSel2/relion')
         params = self._getParams(args)
 
         # Execute the relion steps with the give params.
@@ -270,6 +243,9 @@ class ProtInitialVolumeSelector(ProtocolBase):
                                self.inputVolumes.get().getObjId(),
                                self.targetResol.get())
 
+    def _getRefStar(self):
+        return self._getTmpPath("allVolumes.star")
+
     def _getClassId(self, volFile):
         result = None
         s = self._classRegex.search(volFile)
@@ -286,7 +262,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def _fillVolSetFromIter(self, volSet, it):
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
         modelStar = md.MetaData('model_classes@' +
-                                self._getFileName('modelFinal', iter=it))
+                                self._getFileName('model', ruNum=self._rLev,
+                                                  iter=it))
         idList = []
         volFnList = []
         clsDistList = []
