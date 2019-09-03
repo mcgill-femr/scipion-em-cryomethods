@@ -95,7 +95,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
         """
 
         if self._level == 0:
-            imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
 
             makePath(self._getRunPath(self._level, 1))
             imgSet = self._getInputParticles()
@@ -120,11 +120,24 @@ class Prot3DAutoClassifier(ProtAutoBase):
             if self.doCtfManualGroups:
                 self._splitInCTFGroups(imgStar)
 
+            mdInput = self._getMetadata(imgStar)
+            mdSize = mdInput.size()
+
+            for i in range(2, 10, 1):
+                makePath(self._getRunPath(self._level, i))
+                mStar = self._getFileName('input_star', lev=self._level, rLev=i)
+                size = 10000 * i if mdSize >= 100000 else mdSize * i / 10
+                mdAux1 = self._getMetadata()
+                mdAux2 = self._getMetadata()
+                mdAux1.randomize(mdInput)
+                mdAux2.selectPart(mdAux1, 1, size)
+                mdAux2.write(mStar)
+
             self._convertVol(em.ImageHandler(), self.inputVolumes.get())
 
         elif self._level == 1:
             makePath(self._getRunPath(self._level, 1))
-            imgStarLev0 = self._getFileName('input_star', lev=0, rLev=1)
+            imgStarLev0 = self._getFileName('input_star', lev=0, rLev=0)
             imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
             copyFile(imgStarLev0, imgStar)
 
@@ -228,8 +241,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
             rMap = self._getFileName('relionMap', lev=self._level,
-                                     iter=iters,
-                                     ref3d=clsPart, rLev=rLev)
+                                     iter=iters, ref3d=clsPart, rLev=rLev)
             mapId = self._mapsDict[rMap]
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]

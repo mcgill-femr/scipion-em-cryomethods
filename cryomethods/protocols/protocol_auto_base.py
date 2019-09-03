@@ -115,13 +115,12 @@ class ProtAutoBase(ProtocolBase):
         return deps
 
     def _instertLev0Step(self):
-        self._insertClassifyStep(K=1)
-        # self._insertFunctionStep('resLogStep')
-        for i in range(6):
-            self._insertFunctionStep('runContinueClasfStep', i)
-            self._insertFunctionStep('resLogStep')
-        dep = self._insertFunctionStep('addDoneListStep')
-        self._setNewEvalIds()
+        for i in range(2, 10, 1):
+            self._rLev = i  # Just to generate the proper input star file.
+            self._insertClassifyStep(K=1)
+            self._insertFunctionStep('resLogStep', i)
+            dep = self._insertFunctionStep('addDoneListStep', i)
+            self._setNewEvalIds()
         return [dep]
 
     def _insertEvaluationStep(self, deps):
@@ -130,14 +129,12 @@ class ProtAutoBase(ProtocolBase):
 
     def _stepsCheck(self):
         if Counter(self._evalIdsList) == Counter(self._doneList):
-
             mergeStep = self._getFirstJoinStep()
             if self._condToStop() and self._level > 0:
                 # Unlock mergeClassesStep if finished all jobs
                 if mergeStep and mergeStep.isWaiting():
                     self._level += 1
                     mergeStep.setStatus(cons.STATUS_NEW)
-
             else:
                 self._level += 1
                 fDeps = self._insertLevelSteps()
@@ -173,21 +170,21 @@ class ProtAutoBase(ProtocolBase):
 
         self._runClassifyStep(paramsCont)
 
-    def resLogStep(self):
-        iters = self._lastIter(1)
-        modelFn = self._getFileName('model', iter=iters,lev=self._level, rLev=1)
+    def resLogStep(self, rLev):
+        iters = self._lastIter(rLev)
+        modelFn = self._getFileName('model', iter=iters,lev=self._level,
+                                    rLev=rLev)
         modelMd = self._getMetadata('model_class_1@' + modelFn)
-
-        # area = self._getArea(modelMd)
         f = self._getFunc(modelMd)
-        imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
+        imgStar = self._getFileName('data', iter=iters, lev=self._level,
+                                    rLev=rLev)
         mdData = self._getMetadata(imgStar)
         size = np.math.log10(mdData.size())
         self.stopResLog[size] = f(1)
         print("stopResLog: ", self.stopResLog)
 
-    def addDoneListStep(self):
-        rLevId = self._getRunLevId(level=0, rLev=1)
+    def addDoneListStep(self, rLev):
+        rLevId = self._getRunLevId(level=0, rLev=rLev)
         self._doneList.append(rLevId)
 
     def evaluationStep(self):
