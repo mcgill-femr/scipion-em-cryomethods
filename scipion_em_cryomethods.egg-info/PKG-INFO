@@ -1,0 +1,25 @@
+Metadata-Version: 1.1
+Name: scipion-em-cryomethods
+Version: 1.0.0
+Summary: Plugin to use Cryomethods program within the Scipion framework
+Home-page: https://github.com/mcgill-femr/scipion-em-cryomethods
+Author: Josue Gomez Blanco & Javier Vargas Balbuena
+Author-email: josue.gomez-blanco@mcgill.ca
+License: UNKNOWN
+Project-URL: Source, https://github.com/mcgill-femr/scipion-em-cryomethods/
+Project-URL: Bug Reports, https://github.com/mcgill-femr/scipion-em-cryomethods/issues/
+Description: # Cryomethods plugin
+        
+        This plugin allows to use Cryomethods program within the Scipion framework.
+        
+        cryoEF is a program developed by Josué Gómez Blanco
+        
+        Supported versions of Cryomethods: 
+        
+        ![build status]()
+        
+Keywords: scipion electron-microscopy cryomethods structural-biology image-processing
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Classifier: Programming Language :: Python :: 2.7

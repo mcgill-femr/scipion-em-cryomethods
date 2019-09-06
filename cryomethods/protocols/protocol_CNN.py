@@ -22,6 +22,7 @@ import torch.nn.functional as F
 from torch import optim
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 import os
 
@@ -66,6 +67,12 @@ class ProtSCNN(ProtocolBase):
                        pointerClass='SetOfMicrographs',
                        label="Negative micrographs",
                        help='Select the input images.')
+        group.addParam('transferLearning', params.BooleanParam, default=True,
+                       label='Transfer Learning',
+                       help='Enable if you want to train using a pretrained model.')
+        group.addParam('pretrainedModel', params.PathParam, condition="transferLearning",
+                       label='Pretrained Model:',
+                       help='Select the weights file of the pretrained neuronal network model.')
         group.addParam('weightFolder', params.PathParam,
                        label='Weight folder:',
                        help='Folder where the weights will be saved.')
@@ -162,25 +169,64 @@ class ProtSCNN(ProtocolBase):
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
         print('Device:', device)
-
-        model = Classify(size_in=(1, 419, 419)).to(device)
+        model = Classify(size_in=(1, 419, 419))
+        if self.transferLearning.get():
+            model.load_state_dict(torch.load(self.pretrainedModel.get()))
+        model = model.to(device)
         print('Model:', model)
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
         criterion_train = nn.NLLLoss()
+        criterion_test = nn.NLLLoss(size_average=False)
+
+        self.loss_list = []
+        self.accuracy_list = []
 
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
             train(model, device, data_loader, optimizer, criterion_train)
             if self.weightEveryEpoch:
+                model.train()
                 torch.save(model.cpu(), os.path.join(
                     self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
                 if use_cuda:
                     model.cuda()
 
+            loss, accuracy = self.calcLoss(model, 2, data_loader, device, criterion_test)
+            self.loss_list.append(loss)
+            self.accuracy_list.append(accuracy)
+
         if not self.weightEveryEpoch:
+            model.train()
             torch.save(model.cpu(), os.path.join(
                 self.weightFolder.get(), 'model.pt'))
+
+        print(self.loss_list)
+        print(self.accuracy_list)
+        self.plot_loss_screening(self.loss_list, self.accuracy_list)
+
+    def plot_loss_screening(self, loss_list, accuracy_list):
+
+        plt.figure(figsize=(9, 7))
+        # plt.plot(good, label='Micrografia buena')
+        # plt.plot(bad, label='Micrografia mala')
+        plt.plot(accuracy_list)
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
+        plt.title('Accuracy')
+        plt.legend()
+        plt.ylim(bottom=0)
+        plt.tight_layout()
+        plt.savefig('accuracy.png')
+                
+        plt.figure(figsize=(11, 8))
+        plt.plot(loss_list)
+        plt.title('Loss function')
+        plt.ylabel('Loss function')
+        plt.xlabel('Epoch')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig('loss.png')
 
     def classsify_micrographs(self, images_path):
         """
@@ -201,6 +247,42 @@ class ProtSCNN(ProtocolBase):
         model.load_state_dict(torch.load(self.weightsfile.get()))
         model = model.to(device)
         return classify(model, device, data_loader)
+
+    def calcLoss(self, model, n_classes, data_loader, device, loss_function):
+        test_loss = 0
+        class_correct = [0. for i in range(n_classes)]
+        class_total = [0. for i in range(n_classes)]
+        model.eval()
+        with torch.no_grad():
+            for data in data_loader:
+                # Move tensors to the configured device
+                data, target = data['image'].to(
+                    device), data['label'].to(device)
+                # Forward pass
+                output = model(data)
+                # Sum up batch loss
+                test_loss += loss_function(output, target).item()
+                # Predicted classes
+                _, predicted = torch.max(output, 1)
+                c = (predicted == target).squeeze()
+
+                # Count classes
+                for i in range(len(target)):
+                    label = target[i]
+                    class_correct[label] += c[i].item()
+                    class_total[label] += 1
+
+        test_loss /= len(data_loader.dataset)
+
+        # Results of each class
+        correct = 0
+        for i in range(n_classes):
+            correct += class_correct[i]
+            print('Accuracy of {}: {}/{} ({:.0f}%)'.format(
+                i, int(class_correct[i]), int(class_total[i]),
+                100 * class_correct[i] / class_total[i]))
+        
+        return test_loss, 100. * correct / len(data_loader.dataset)
 
 
 def classify(model, device, data_loader):

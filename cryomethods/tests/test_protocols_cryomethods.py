@@ -27,9 +27,10 @@
 from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes
+from pyworkflow.em import ProtImportParticles, ProtImportVolumes, ProtImportMicrographs
 from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
+from cryomethods.protocols import ProtSCNN
 
 
 class TestBase(BaseTest):
@@ -106,7 +107,8 @@ class Test3DAutoClasifier(TestBase):
             autoClassifierProt.setObjLabel(label)
             autoClassifierProt.inputParticles.set(
                 self.protImport.outputParticles)
-            autoClassifierProt.inputVolumes.set(self.protImportVol.outputVolume)
+            autoClassifierProt.inputVolumes.set(
+                self.protImportVol.outputVolume)
 
             autoClassifierProt.doGpu.set(doGpu)
 
@@ -179,7 +181,7 @@ class TestVolumeSelector(TestBase):
 
         def _checkAsserts(prot):
             self.assertIsNotNone(prot.outputVolumes, "There was a problem with "
-                                                      "Initial Volume Selector")
+                                 "Initial Volume Selector")
 
         environ = Environ(os.environ)
         cudaPath = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
@@ -196,3 +198,55 @@ class TestVolumeSelector(TestBase):
             self.launchProtocol(volSelNoGPU)
             _checkAsserts(volSelNoGPU)
 
+
+class TestCNNClasifier(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+        cls.protImport = cls.runImportCNN(cls.particlesFn, 7.08)
+
+    @classmethod
+    def runImportCNN(cls, pattern, samplingRate, checkStack=False):
+        """ Run an Import micrographs protocol. """
+        protImport = cls.newProtocol(ProtImportMicrographs,
+                                     importFrom=4,
+                                     sqliteFile=pattern,
+                                     samplingRate=samplingRate,
+                                     checkStack=checkStack)
+
+        cls.launchProtocol(protImport)
+        # check that input images have been imported (a better way to do this?)
+        if protImport.outputMicrographs is None:
+            raise Exception('Import of images: %s, failed. outputMicrographs '
+                            'is None.' % pattern)
+        return protImport
+
+    def testCnnClassify(self):
+        def _runCnnClassifier(useGPU=False, label=''):
+            print label
+            cnnProt = self.newProtocol(ProtSCNN, predictEnable=True, useGPU=False,
+                                       weightsfile="/home/alex/CryoEM/clasifica/model_weight.pt")
+
+            # numberOfIterations=10,
+            #                                       minPartsToStop=200,
+            #                                       classMethod=1,
+            #                                       numberOfMpi=4,
+            #                                       numberOfThreads=1
+
+            cnnProt.setObjLabel(label)
+            cnnProt.inputImgs.set(
+                self.protImport.outputParticles)
+
+            cnnProt.useGPU.set(useGPU)
+            self.launchProtocol(cnnProt)
+            return cnnProt
+
+        def _checkAsserts(relionProt):
+            self.assertIsNotNone(
+                relionProt.positiveMicrographs, "There was a problem: positive micrographs")
+            self.assertIsNotNone(
+                relionProt.negativeMicrographs, "There was a problem: negative micrographs")
+
+        cnnRun = _runCnnClassifier(True, "Run CNN classifier")
+        _checkAsserts(cnnRun)
