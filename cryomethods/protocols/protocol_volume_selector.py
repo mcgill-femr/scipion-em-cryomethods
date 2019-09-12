@@ -123,14 +123,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
         self._insertFunctionStep('mergeVolumesStep', numOfRuns)
         self._rLev += 1
         self._insertFunctionStep('converParticlesStep', self._rLev)
-        self._insertLastSteps()
+        self._insertClassifyStep()
         self._insertFunctionStep('createOutputStep')
-
-    def _insertLastSteps(self):
-        args = {}
-        self._setNormalArgs(args)
-        self._setComputeArgs(args)
-        self._insertFunctionStep('rerunClassifyStep', args)
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, run):
@@ -196,13 +190,6 @@ class ProtInitialVolumeSelector(ProtocolBase):
             row.addToMd(mdOut)
 
         mdOut.write(self._getRefStar())
-
-    def rerunClassifyStep(self, args):
-        params = self._getParams(args)
-
-        # Execute the relion steps with the give params.
-        params += ' --j %d' % self.numberOfThreads.get()
-        self.runJob(self._getProgram(), params)
 
     def createOutputStep(self):
         # create a SetOfVolumes and define its relations

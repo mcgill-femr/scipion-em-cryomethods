@@ -675,7 +675,7 @@ class ProtocolBase(em.EMProtocol):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(7, 75, 1):
+        for i in range(11, 75, 1):
             basicArgs['--iter'] = i
             self._setContinueArgs(basicArgs, rLev)
             self._setComputeArgs(basicArgs)
@@ -822,7 +822,7 @@ class ProtocolBase(em.EMProtocol):
                      '--oversampling': self.oversampling.get(),
                      '--tau2_fudge': self.regularisationParamT.get()
                      })
-        args['--iter'] = 6
+        args['--iter'] = 10
 
         if not self.IS_VOLSELECTOR:
             self._setSubsetArgs(args)
@@ -1080,7 +1080,7 @@ class ProtocolBase(em.EMProtocol):
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
 
         slope, _, _, _, _ = stats.linregress(x, y)
-        return True if slope <= 0.01 else False
+        return True if slope <= 0.001 else False
 
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()
