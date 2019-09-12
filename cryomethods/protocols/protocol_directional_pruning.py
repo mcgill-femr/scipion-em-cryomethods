@@ -499,7 +499,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                '--sampling_rate %(angularSampling)f --sym %(symmetry)s'
         args += ' --method fourier 1 0.25 bspline --compute_neighbors ' \
                 '--angular_distance %(angularSampling)f'
-        args += ' --experimental_images %(expParticles)s --max_tilt_angle 90'
+        args += ' --experimental_images %(expParticles)s --max_tilt_angle 180'
 
         self.runJob("xmipp_angular_project_library", args % params)
 
