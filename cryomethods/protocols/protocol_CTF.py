@@ -13,10 +13,12 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 
 from .protocol_base import ProtocolBase
 
+
 from ..functions import num_flat_features
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
@@ -24,16 +26,14 @@ from torch import optim
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import json
 
 
-class ProtSCNN(ProtocolBase):
+class ProtDCTF(ProtocolBase):
     """
-    Screening using a CNN.
-    This protocol has two modes:
-        - Predict: Used to predict the class of the input (SetOfMicrograph).
-        - Train: Used to train the neural network model and it can be used to transsfer learning.
+    Calculate the CTF with deep learning.
     """
-    _label = 'S-CNN'
+    _label = 'DCTF'
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -41,10 +41,6 @@ class ProtSCNN(ProtocolBase):
     # --------------- DEFINE param functions ---------------
 
     def _defineParams(self, form):
-        """
-        Define the params show in the GUI.
-        The param 'predictEnable' set the mode (train or predict).
-        """
 
         form.addSection('Params')
         line = form.addLine('General')
@@ -65,14 +61,10 @@ class ProtSCNN(ProtocolBase):
                        help='Select the weights file of the neuronal network model.')
 
         group = form.addGroup('Train', condition="not predictEnable")
-        group.addParam('positiveInput', params.PointerParam, allowsNull=True,
+        group.addParam('trainSet', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfMicrographs',
-                       label="Positive micrographs",
-                       help='Select the input images.')
-        group.addParam('negativeInput', params.PointerParam, allowsNull=True,
-                       pointerClass='SetOfMicrographs',
-                       label="Negative micrographs",
-                       help='Select the input images.')
+                       label="Train set",
+                       help='Select the train images.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -82,9 +74,6 @@ class ProtSCNN(ProtocolBase):
         group.addParam('weightFolder', params.PathParam,
                        label='Weight folder:',
                        help='Folder where the weights will be saved.')
-        group.addParam('balance', params.BooleanParam, default=False,
-                       label='Balance data',
-                       help='Enable if you want to balance the dataset.')
         group.addParam('lr', params.FloatParam, default=0.0001,
                        label='Learning rate',
                        help='Learning rate.')
@@ -99,59 +88,42 @@ class ProtSCNN(ProtocolBase):
 
     def _insertAllSteps(self):
         self._insertFunctionStep('convertInputStep')
-        self._insertFunctionStep('runCNNStep')
+        self._insertFunctionStep('runCTFStep')
         self._insertFunctionStep('createOutputStep')
 
     # --------------- STEPS functions -----------------------
 
     def convertInputStep(self):
-        """
-        Read the input.
-            - Train: it use two SetOfMicrograph, one belongs to positive class and the other to the negative class.
-            - Predict: only use one SetOfMicrograph.
-        """
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
             self.images_path = self.imgSet.getFiles()
         else:
-            self.good_data = list(self.positiveInput.get().getFiles())
-            self.bad_data = list(self.negativeInput.get().getFiles())
+            self.data = list(self.trainSet.get().getFiles())
 
-    def runCNNStep(self):
+    def runCTFStep(self):
         if self.predictEnable:
-            self.results = self.classsify_micrographs(self.images_path)
+            self.results = self.predict_CTF(self.images_path)            
         else:
             self.train_nn(self.good_data, self.bad_data)
 
     def createOutputStep(self):
-        """ 
-        Create outputs:
-        Train: Create and save one plot of the training loss.
-        Predict: Create two SetOfMicrograph for each class.
-        """
 
         if self.predictEnable:
-            self.positiveMicrographs = self._createSetOfMicrographs()
-            self.positiveMicrographs.setSamplingRate(self.imgSet.getSamplingRate())
-            for i, img in enumerate(self.imgSet):
-                img._probability = Float(self.results[i]['Probability'])
-                if self.results[i]['Class'] == 1:
-                    self.positiveMicrographs.append(img)
-            self._defineOutputs(positiveMicrographs=self.positiveMicrographs)
+            self.ctfResults = self._createSetOfMicrographs()
+            self.ctfResults.setSamplingRate(
+                self.imgSet.getSamplingRate())
 
-            self.negativeMicrographs = self._createSetOfMicrographs()
-            self.negativeMicrographs.setSamplingRate(self.imgSet.getSamplingRate())
             for i, img in enumerate(self.imgSet):
-                img._probability = Float(self.results[i]['Probability'])
-                if self.results[i]['Class'] == 0:
-                    self.negativeMicrographs.append(img)
-            self._defineOutputs(negativeMicrographs=self.negativeMicrographs)
+                print(self.results[i][0])
+                img._defocusU = Float(self.results[i][0])
+                img._defocusV = Float(self.results[i][1])
+                img._angle = Float(self.results[i][2])
+                img._resolution = Float(self.results[i][3])                
+                self.ctfResults.append(img)
+
+            self._defineOutputs(ctfResults=self.ctfResults)
 
             # self._defineSourceRelation(self.inputImgs, self.out)
-        
-        else:
-            self.plot_loss_screening(self.loss_list, self.accuracy_list)
-        
 
     # --------------- INFO functions -------------------------
 
@@ -174,14 +146,15 @@ class ProtSCNN(ProtocolBase):
         Method to create the model and train it
         """
         trainset = LoaderTrain(good_data, bad_data)
-        data_loader = DataLoader(trainset, batch_size=32, shuffle=True, num_workers=32, pin_memory=True)
+        data_loader = DataLoader(
+            trainset, batch_size=32, shuffle=True, num_workers=32, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
         print('Device:', device)
-        model = Classify(size_in=(1, 419, 419))
+        model = Regresion(size_in=(1, 512, 512), size_out=4)
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
         model = model.to(device)
@@ -204,7 +177,7 @@ class ProtSCNN(ProtocolBase):
                 if use_cuda:
                     model.cuda()
 
-            loss, accuracy = calcLoss(model, 2, data_loader, device, criterion_test)
+            loss, accuracy = self.calcLoss(model, 2, data_loader, device, criterion_test)
             self.loss_list.append(loss)
             self.accuracy_list.append(accuracy)
 
@@ -213,6 +186,9 @@ class ProtSCNN(ProtocolBase):
             torch.save(model.cpu(), os.path.join(
                 self.weightFolder.get(), 'model.pt'))
 
+        print(self.loss_list)
+        print(self.accuracy_list)
+        self.plot_loss_screening(self.loss_list, self.accuracy_list)
 
     def plot_loss_screening(self, loss_list, accuracy_list):
 
@@ -237,9 +213,9 @@ class ProtSCNN(ProtocolBase):
         plt.tight_layout()
         plt.savefig('loss.png')
 
-    def classsify_micrographs(self, images_path):
+    def predict_CTF(self, images_path):
         """
-        Method to prepare the model and classify the micrographs
+        Method to prepare the model and calculate the CTF of the psd
         """
         trainset = LoaderPredict(images_path)
         data_loader = DataLoader(trainset, batch_size=1,
@@ -249,62 +225,51 @@ class ProtSCNN(ProtocolBase):
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
-        print('Device:', device)
-        # weightsfile = "/home/alex/CryoEM/clasifica/model_weight.pt"
+        print('Device:', device)        
         # Create the model and load weights
-        model = Classify(size_in=(1, 419, 419))
+        model = Regresion(size_in=(1, 512, 512), size_out=4)
         model.load_state_dict(torch.load(self.weightsfile.get()))
         model = model.to(device)
-        return classify(model, device, data_loader)
+        return predict(model, device, data_loader, trainset)
 
-def calcLoss(model, n_classes, data_loader, device, loss_function):
-    """
-    Calc the loss and accuracy of the model.
+    def calcLoss(self, model, n_classes, data_loader, device, loss_function):
+        test_loss = 0
+        class_correct = [0. for i in range(n_classes)]
+        class_total = [0. for i in range(n_classes)]
+        model.eval()
+        with torch.no_grad():
+            for data in data_loader:
+                # Move tensors to the configured device
+                data, target = data['image'].to(
+                    device), data['label'].to(device)
+                # Forward pass
+                output = model(data)
+                # Sum up batch loss
+                test_loss += loss_function(output, target).item()
+                # Predicted classes
+                _, predicted = torch.max(output, 1)
+                c = (predicted == target).squeeze()
 
-    Parameters
-    ----------
-    model : Model of the neuronal network
-    data_loader: Input dataset
-    loss_function: Loss function wich will give the loss value using the model results and the dataset.
-    """
-    
-    test_loss = 0
-    class_correct = [0. for i in range(n_classes)]
-    class_total = [0. for i in range(n_classes)]
-    model.eval()
-    with torch.no_grad():
-        for data in data_loader:
-            # Move tensors to the configured device
-            data, target = data['image'].to(
-                device), data['label'].to(device)
-            # Forward pass
-            output = model(data)
-            # Sum up batch loss
-            test_loss += loss_function(output, target).item()
-            # Predicted classes
-            _, predicted = torch.max(output, 1)
-            c = (predicted == target).squeeze()
+                # Count classes
+                for i in range(len(target)):
+                    label = target[i]
+                    class_correct[label] += c[i].item()
+                    class_total[label] += 1
 
-            # Count classes
-            for i in range(len(target)):
-                label = target[i]
-                class_correct[label] += c[i].item()
-                class_total[label] += 1
+        test_loss /= len(data_loader.dataset)
 
-    test_loss /= len(data_loader.dataset)
-
-    # Results of each class
-    correct = 0
-    for i in range(n_classes):
-        correct += class_correct[i]
-        print('Accuracy of {}: {}/{} ({:.0f}%)'.format(
-            i, int(class_correct[i]), int(class_total[i]),
-            100 * class_correct[i] / class_total[i]))
-    
-    return test_loss, 100. * correct / len(data_loader.dataset)
+        # Results of each class
+        correct = 0
+        for i in range(n_classes):
+            correct += class_correct[i]
+            print('Accuracy of {}: {}/{} ({:.0f}%)'.format(
+                i, int(class_correct[i]), int(class_total[i]),
+                100 * class_correct[i] / class_total[i]))
+        
+        return test_loss, 100. * correct / len(data_loader.dataset)
 
 
-def classify(model, device, data_loader):
+def predict(model, device, data_loader, trainset):
     """
     Method to predict using the neuronal network
     """
@@ -314,15 +279,10 @@ def classify(model, device, data_loader):
         for data in data_loader:
             # Move tensors to the configured device
             data = data['image'].to(device)
-
             # Forward pass
-            output = model(data)
-
-            # Predicted class
-            probability, predicted = torch.max(output, 1)
-
-            results.append({'Probability': np.exp(
-                probability.item()), 'Class': predicted.item()})
+            output = model(data)                        
+            output = trainset.normalization.inv_transform(output.cpu().numpy())            
+            results.append(output[0])
     return results
 
 
@@ -350,20 +310,24 @@ def train(model, device, train_loader, optimizer, loss_function):
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
-
-class Classify(nn.Module):
+class Regresion(nn.Module):
     """
-    This class define the model of the neuronal network 
+    Neuronal Network model
     """
 
-    def __init__(self, size_in=(1, 419, 419), num_classes=2):
-        super(Classify, self).__init__()
+    def __init__(self, size_in=(1, 419, 419), size_out=3):
+        super(Regresion, self).__init__()
 
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+        self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = nn.Conv2d(80, 192, kernel_size=3)
+
         self.flat_size = num_flat_features(self._get_conv_ouput(size_in))
-        self.fc1 = nn.Linear(self.flat_size, 50)
-        self.fc2 = nn.Linear(50, num_classes)
+        
+        self.fc1 = nn.Linear(self.flat_size, 400)
+        self.fc2 = nn.Linear(400, size_out)
 
     def _get_conv_ouput(self, shape):
         f = torch.rand(1, *shape)
@@ -371,16 +335,40 @@ class Classify(nn.Module):
         return g
 
     def _forward_conv(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(F.dropout2d(self.conv2(x)), 2))
+
+        x = self.Conv2d_1a_3x3(x)
+        x = F.dropout2d(x)
+        x = F.relu(x)
+
+        x = self.Conv2d_2a_3x3(x)
+        x = F.dropout2d(x)
+        x = F.relu(x)
+
+        x = self.Conv2d_2b_3x3(x)
+        x = F.dropout2d(x)
+        x = F.relu(x)
+
+        x = F.max_pool2d(x, kernel_size=3, stride=2) 
+
+        x = self.Conv2d_3b_1x1(x)
+        x = F.dropout2d(x)
+        x = F.relu(x)
+
+        x = self.Conv2d_4a_3x3(x)
+        x = F.dropout2d(x)
+        x = F.relu(x)
+
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+
         return x
 
     def forward(self, x):
         x = self._forward_conv(x)
         x = x.view(-1, self.flat_size)
-        x = F.relu(self.fc1(x))
+        x = self.fc1(x)
+        x = F.relu(x)
         x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
+        return x
 
 
 def normalize(mat):
@@ -395,28 +383,37 @@ def normalize(mat):
 
 class LoaderPredict(Dataset):
     """
-    Class to load the dataset for predict mode
+    Class to load the dataset for predict
     """
 
-    def __init__(self, filename_list, size=(1, 419, 419)):
+    def __init__(self, datafiles):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
+                        
+        
+        self.normalization = Normalization(None)
+        #this file path need to be changed
+        self.normalization.load('/home/alex/norm.txt')
+        print(datafiles)
 
-        self._data = []
-        self._size = size
-        self._data += [{'file': i} for i in filename_list]
-
+        self._data = [i for i in datafiles]
+        
+        
     def __len__(self):
         return len(self._data)
+        
+    def __getitem__(self, index):           
+        img_path = self._data[index]        
+        img = self.open_image(img_path)        
+        return {'image': img, 'name': img_path }
 
-    def __getitem__(self, item):
-        data = self._data[item]
-        img_path = data['file']
-        img = loadMrc(img_path)
-        img = normalize(img)
-        img = np.resize(img, self._size)
-        img = torch.from_numpy(img)
-        return {'image': img, 'path': img_path}
+    def open_image(self, filename):        
+        img = loadMrc(filename)        
+        _min = img.min()
+        _max = img.max()
+        img = (img - _min) / (_max - _min)
+        img = np.resize(img, (1, 512, 512))
+        return torch.from_numpy(img)
 
 
 class LoaderTrain(Dataset):
@@ -458,3 +455,70 @@ class LoaderTrain(Dataset):
         img = np.resize(img, self._size)
         img = torch.from_numpy(img)
         return {'image': img, 'label': label}
+
+
+
+class Normalization():
+    
+    def __init__(self, dataMatrix):
+
+        if dataMatrix is None:
+            return
+
+        self.set_max_min(dataMatrix)
+        dataMatrix = self.scale(dataMatrix)
+        self.set_mean_std(dataMatrix)
+
+    def set_max_min(self, dataMatrix):
+        self._min_value = dataMatrix.min(axis = 0)
+        self._max_value = dataMatrix.max(axis = 0)
+    
+    def set_mean_std(self, dataMatrix):
+        self._mean = dataMatrix.mean(axis = 0)
+        self._std = dataMatrix.std(axis = 0)
+
+    def scale(self, data):
+        return (data - self._min_value) / (self._max_value - self._min_value)
+        
+    def standard_score(self, data):        
+        return (data - self._mean) / self._std
+    
+    def inv_scale(self, data):
+        return data * (self._max_value - self._min_value) + self._min_value
+        
+    def inv_standard_score(self, data):
+        return data * self._std + self._mean
+
+    def transform(self, data):
+        data = self.scale(data)
+        return self.standard_score(data)        
+
+    def inv_transform(self, data):
+        data = self.inv_standard_score(data)
+        return self.inv_scale(data)
+
+    def save(self, filename):
+        data = {'min': self._min_value.tolist(), 'max': self._max_value.tolist(), 'mean': self._mean.tolist(), 'std': self._std.tolist()}
+        with open(filename, 'w') as outfile:        
+            json.dump(data, outfile)
+    
+    def load(self, filename):
+        with open(filename) as file:
+            data = json.load(file)            
+            self._min_value = np.array(data['min'], dtype=np.float32)
+            self._max_value = np.array(data['max'], dtype=np.float32)
+            self._mean = np.array(data['mean'], dtype=np.float32)
+            self._std = np.array(data['std'], dtype=np.float32)        
+    
+    def print_values(self):        
+        print('Min:', self._min_value)
+        print('Max:', self._max_value)
+        print('Mean:', self._mean)
+        print('Std:', self._std)
+
+
+def weighted_mse_loss(input, target):
+    weight = 10 * torch.abs(target[:,0] - target[:,1])
+    loss = (input - target) ** 2    
+    loss[:,2] = weight * loss[:,2]
+    return torch.sum(loss)/len(loss)

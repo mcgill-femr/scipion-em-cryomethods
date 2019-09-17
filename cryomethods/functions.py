@@ -422,3 +422,15 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
         distances.flat[::distances.shape[0] + 1] = 0.0
 
     return distances if squared else np.sqrt(distances, out=distances)
+
+
+
+def num_flat_features(x):
+    """
+    Flat a matrix and calculate the number of features
+    """
+    sizes = x.size()[1:]
+    num_features = 1
+    for s in sizes:
+        num_features *= s
+    return num_features
