@@ -157,6 +157,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
         writeSetOfParticles(subset, imgStar, self._getExtraPath(),
                             alignType=em.ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
+        if self.doCtfManualGroups:
+            self._splitInCTFGroups(imgStar)
 
     def mergeVolumesStep(self, numOfRuns):
         mdOut = md.MetaData()
@@ -278,6 +280,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
         score = self._estimateScore(accRotList, clsDistList, None, self.std)
         threshold = 1/float(self.numOfVols.get())
         score = [s if s >= threshold else None for s in score]
+        print("score: %0.2f" % score)
 
         for i, s in enumerate(score):
             if s is not None:
