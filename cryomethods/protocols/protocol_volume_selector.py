@@ -318,7 +318,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
         std = np.std(accList) if std is None else std
 
         gList = [self._gaussian(x, mean, std) for x in accList]
-        weigth = [g*d for g,d in zip(gList, distList)]
+        weigth = [g*d if not d > 0.5 else d*sum(gList)/len(gList)
+                  for g,d in zip(gList, distList)]
         score = [s*len(gList)/sum(gList) for s in weigth]
 
         return score
