@@ -27,6 +27,8 @@
 # **************************************************************************
 
 import math
+import itertools
+
 
 import xmippLib
 import random
@@ -63,6 +65,10 @@ from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
 import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
+from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
+                                 relionToLocation, loadMrc, saveMrc,
+                                 alignVolumes, applyTransforms)
+from numpy.core import transpose
 
 
 
@@ -98,6 +104,7 @@ class ProtNmaMerge(em.EMProtocol):
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
+        self.levDir = self._getExtraPath('run_%(run)02d/')
         self.extraIter = self._getExtraPath('run_%(ruNum)02d/relion_it%(iter)03d_')
         self.extraLast = self._getExtraPath('parSel2/relion_it%(iter)03d_')
         myDict = {
@@ -119,6 +126,8 @@ class ProtNmaMerge(em.EMProtocol):
             'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
             'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
             'preprocess_parts_star': self._getPath("preprocess_particles.star"),
+            'avgMap': self.levDir + 'map_average.mrc',
+            'finalAvgMap': self._getExtraPath('map_average.mrc')
         }
         # add to keys, data.star, optimiser.star and sampling.star
         for key in self.FILE_KEYS:
@@ -566,7 +575,7 @@ class ProtNmaMerge(em.EMProtocol):
                            'Too small values yield too-low resolution '
                            'structures; too high values result in '
                            'over-estimated resolutions and overfitting.')
-        form.addParam('numberOfIterations', params.IntParam, default=35,
+        form.addParam('numberOfIterations', params.IntParam, default=2,
                       expertLevel=expertLev,
                       label='Number of iterations',
                       help='Number of iterations to be performed. Note '
@@ -795,10 +804,11 @@ class ProtNmaMerge(em.EMProtocol):
 
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._insertFunctionStep('convertVolumeStep')
-        self._insertFunctionStep('computeNMAStep')
-        self._insertFunctionStep('convertPdbStep')
-        self._insertFunctionStep('particleAttrStep')
+
+        # self._insertFunctionStep('convertVolumeStep')
+        # self._insertFunctionStep('computeNMAStep')
+        # self._insertFunctionStep('convertPdbStep')
+        # self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
@@ -1302,7 +1312,8 @@ class ProtNmaMerge(em.EMProtocol):
         print (selectedVols, "selectedVols")
 
         b = np.log((1 - (float(selectedVols) / float(sizeList))))
-        numOfRuns = int(-3 / b)
+        # numOfRuns = int(-3 / b)
+        numOfRuns = 3
         for run in range(numOfRuns):
             self._createFilenameTemplates()
             self._createTemplates(run)
@@ -1339,17 +1350,7 @@ class ProtNmaMerge(em.EMProtocol):
 
 
 
-            listVol = self._getFinalMaps()
-            print (listVol, "listvolll")
 
-    def _getFinalMaps(self):
-        return [self.extraIter + 'model.star']
-        # args['--o'] = self._getExtraPath('run_%02d' % run)
-        # params = self._getParams(args)
-        #
-        # # Execute the relion steps with the give params.
-        # params += ' --j %d' % self.numberOfThreads.get()
-        # self.runJob(self._getProgram(), params)
 
     # def createOutputStep(self):
     #     # create a SetOfVolumes and define its relations
@@ -1364,27 +1365,262 @@ class ProtNmaMerge(em.EMProtocol):
 
 
     #
-    def estimatePCAStep(self):
-        listNpVol = []
-        m = []
+    def _getAverageVol(self, listVol=[]):
 
-        listVol = self._getFinalMaps()
-        print (listVol)
+        self._createFilenameTemplates()
+        m = []
+        totalVolumes = self._getExtraPath("*.vol")
+        fnList = glob(totalVolumes)
+        sizeList = len(fnList)
+        selectedVols = self.numOfVols.get()
+        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        # numOfRuns = int(-3 / b)
+        numOfRuns = 3
+        iter = self.numberOfIterations.get()
+        listModelStar = []
+        p = ['']
+        ref3d = self.numOfVols.get()
+        for run in range(numOfRuns):
+            for m in range (1, ref3d+1):
+                mf = (self._getExtraPath('run_%02d' % run,
+                                                 'relion_it%03d_' % iter+
+                                                 'class%03d.mrc' % m))
+                listModelStar.append(mf)
+
+        print (listModelStar, "list")
+        listVol = listModelStar
+        print('creating average map: ', listVol)
+        avgVol = self._getFileName('avgMap', run=run)
+        print (avgVol, "avgVolll")
+        #
+        # print('alignining each volume vs. reference')
+        for vol in listVol:
+            print (vol, "vol")
+
+            npVol = loadMrc(vol,  writable=False)
+            #saveMrc(vol,self._getExtraPath('kk.mrc'))
+            #sys.exit()
+
+            print (npVol, "npVol")
+            if vol == listVol[0]:
+                dType = npVol.dtype
+                #print (dType, "dType")
+                npAvgVol = np.zeros(npVol.shape)
+                #print (npAvgVol, "npAvgVol")
+            npAvgVol += npVol
+
+
+        print (npAvgVol, "npAvgVol1")
+        npAvgVol = np.divide(npAvgVol, len(listVol))
+        #print (npAvgVol, "npAvgVol2")
+        print('saving average volume')
+
+        saveMrc(npAvgVol.astype(dType), avgVol)
+        # preCorr = []
+        # print ("PART2")
+        # for vol in listVol:
+        #     npVol = loadMrc(vol, writable=False)
+        #     print (npVol, "npVol2")
+        #
+        #     subst = npVol - npAvgVol
+        #     print (npAvgVol, "npAvgVol")
+        #     print (subst, "subst")
+        #     preCorr.append(subst)
+        #
+        # for i in preCorr:
+        #     x = i-1
+        #     y = i+1
+        #     # X = np.stack((x, y), axis=0)
+        #     print(np.cov(x, y))
+        #
+        #     # covMatrix = np.cov(preCorr)
+        #
+        #     # npAvgVol += npVol
+
+
+    def estimatePCAStep(self):
+        Plugin.setEnviron()
+        numOfRuns = 3
+        iter = self.numberOfIterations.get()
+        listModelStar = []
+        p = ['']
+        ref3d = self.numOfVols.get()
+        print (ref3d, "ref3d")
+        for run in range(numOfRuns):
+            for m in range(1, ref3d+1):
+                    mf = (self._getExtraPath('run_%02d' % run,
+                                             'relion_it%03d_' % iter+
+                                             'class%03d.mrc' % m))
+                    listModelStar.append(mf)
+
+
+        listVol = listModelStar
+        print (len(listVol), "listvol")
         self._getAverageVol(listVol)
+        avgVol = self._getFileName('avgMap', run=run)
+        npAvgVol = loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+
+        volNp = loadMrc(listVol.__getitem__(0), False)
+        dim = volNp.shape[0]
+        lenght = dim ** 3
+        listNpVol = []
+        cov_matrix= []
+        checkList = []
+        for vol in listVol:
+            volNp = loadMrc(vol, False)
+            # Now, not using diff volume to estimate PCA
+            # diffVol = volNp - npAvgVol
+            volList = volNp.reshape(lenght)
+            # listNpVol.append(volList)
+            # volList = volList - npAvgVol
+
+            print (npAvgVol, "npAvgVol")
+
+            row = []
+            b = volList - npAvgVol.reshape(lenght)
+            print (b, 'b')
+            for j in listVol:
+                npVol = loadMrc(j, writable=False)
+                volList = npVol.reshape(lenght)
+                volList_two = volList - npAvgVol.reshape(lenght)
+                print (volList, "vollist")
+                temp_a= np.corrcoef(volList_two, b).item(1)
+                print (temp_a, "temp_a")
+                row.append(temp_a)
+                # b= volList_two
+                # print (corr, "corr")
+            cov_matrix.append(row)
+
+
+        print (cov_matrix, "cov_matrix");
+            #preCorr.append(sub)
+
+        u, s, vh = np.linalg.svd(cov_matrix)
+        cuttOffMatrix = sum(s) * 0.95
+        sCut = 0
+
+        print('cuttOffMatrix: ', cuttOffMatrix)
+        print (s, "s")
+        for i in s:
+            print('cuttOffMatrix: ', cuttOffMatrix)
+            if (cuttOffMatrix > 0).any():
+                print("Pass, i = %s " % i)
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+        print('sCut: ', sCut)
+
+        eigValsFile = 'eigenvalues.txt'
+        self._createMFile(s, eigValsFile)
+
+        eigVecsFile = 'eigenvectors.txt'
+        self._createMFile(vh, eigVecsFile)
+
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        self._createMFile(vhDel, 'matrix_vhDel.txt')
+
+        print(' this is the matrix "vhDel": ', vhDel)
+        mat_one= []
+        for vol in listVol:
+            volNp = loadMrc(vol, False)
+            volList = volNp.reshape(lenght)
+            print (volList, "volList")
+            row_one= []
+            for j in listVol:
+                npVol = loadMrc(j, writable=False)
+                volList_three = npVol.reshape(lenght)
+                j_trans = volList_three.transpose()
+                matrix_two= np.dot(volList, j_trans)
+                row_one.append(matrix_two)
+            mat_one.append(row_one)
+
+        matProj = np.dot(mat_one, vhDel)
+        # print (newBaseAxis, "newbase")
+        # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
+        print (matProj, "matProj")
+        # projFile = 'projection_matrix.txt'
+
+
+        # print (newBaseAxis, "newBaseAxis")
+        # print (matProj, "matProj")
         #
-        # avgVol = self._getFileName('avgMap', lev=self._level)
-        # npAvgVol = loadMrc(avgVol, False)
-        # dType = npAvgVol.dtype
-        #
+        # projFile = 'projection_matrix.txt'
+        # self._createMFile(matProj, projFile)
+        # return matProj
+
+
+
+        # checkList_one= []
         # for vol in listVol:
         #     volNp = loadMrc(vol, False)
-        #     dim = volNp.shape[0]
-        #     lenght = dim ** 3
-        #     # Now, not using diff volume to estimate PCA
-        #     # diffVol = volNp - npAvgVol
         #     volList = volNp.reshape(lenght)
-        #     listNpVol.append(volList)
-        #
+        #     # newBaseAxis = []
+        #     b = volList - npAvgVol.reshape(lenght)
+        #     print (b, 'b')
+        #     # vhDel = vhDel.reshape(lenght)
+        #     for j in listVol:
+        #         if not j in checkList_one:
+        #             npVol = loadMrc(j, writable=False)
+        #             volList = npVol.reshape(lenght)
+        #             volList_two = volList - npAvgVol.reshape(lenght)
+        #             print (volList_two, "volList_two")
+            #         print (newBaseAxis, "newBaseAxis")
+            #         b = volList_two
+            # checkList_one.append(vol)
+        # print (newBaseAxis, "newBaseAxis")
+
+    def _getLevelPath(self, run):
+        return self._getExtraPath('run_%02d' % self._rLev)
+
+    def _createMFile(self, matrix, name='matrix.txt'):
+        f = open(name, 'w')
+        for list in matrix:
+            s = "%s\n" % list
+            f.write(s)
+        f.close()
+
+        # m = np.asarray(j)
+        # fweights = np.asarray(np.arange(m) * 2, dtype=float)
+        # print (fweights, "m")
+        # print (i, 'I')
+        # print ("all clear")
+        # p= m.astype(int)
+        # f = np.arange(m) * 2
+        # p = np.vectorize(np.int(f))
+        # print (p, "f")
+
+        # a = np.arange(p) ** 2
+        # print (f, "f")
+        # print (a, "a")
+
+        #         bias = False
+        #         ddof = None
+        #         fweights = None
+        #         f = fweights
+        #         aweights = None
+        #         a = aweights
+        #         w = f * a
+        #         v1 = np.sum(w)
+        #         v2 = np.sum(w * a)
+        #         cov_mat = np.dot(i, j.T) *v1 / (v1 ** 2 - ddof * v2)
+
+        # ddof=0
+        # f= cov_mat.shape[1] - ddof
+        # a= f - ddof
+        # w = f * a
+        # v1 = np.sum(w)
+        # v2 = np.sum(w * a)
+        # # w_sum = np.average(cov_mat, axis=1, weights=None, returned=True)
+        # print(v1, "f")
+        # print (v2, "a")
+        # cov = cov_mat * v1 / (v1**2 - ddof * v2)
+
+        # covMatrix = np.cov(preCorr)
+
+        # npAvgVol += npVol
+
         # covMatrix = np.cov(listNpVol)
         # u, s, vh = np.linalg.svd(covMatrix)
         # cuttOffMatrix = sum(s) * 0.95
@@ -1392,37 +1628,7 @@ class ProtNmaMerge(em.EMProtocol):
         #
         # print('cuttOffMatrix & s: ', cuttOffMatrix, s)
 
-    def _getFinalMaps(self):
-        return [self.extraIter + 'model.star']
 
-    # def loadMrc(fn, writable=True):
-    #     """Return a NumPy array memory mapped from an existing MRC file.
-    #
-    #     The returned NumPy array will have an attribute, Mrc, that is
-    #     an instance of the Mrc class.  You can use that to access the
-    #     header or extended header of the file.  For instance, if x
-    #     was returned by bindFile(), x.Mrc.hdr.Num is the number of x
-    #     samples, number of y samples, and number of sections from the
-    #     file's header.
-    #
-    #     Positional parameters:
-    #     fn -- Is the name of the MRC file to bind.
-    #
-    #     Keyword parameters:
-    #     writable -- If True, the returned array will allow the elements of
-    #     the array to be modified.  The Mrc instance packaged with the
-    #     array will also allow modification of the header and extended
-    #     header entries.  Changes made to the array elements or the header
-    #     will affect the file to which the array is bound.
-    #     """
-    #     import mrc
-    #
-    #     mode = 'r'
-    #     if writable:
-    #         mode = 'r+'
-    #     a = mrc.Mrc(fn, mode)
-    #
-    #     return a.data_withMrc(fn)
 
     #--------------------------- INFO functions ---------------------------
     def _methods(self):
@@ -1527,11 +1733,6 @@ class ProtNmaMerge(em.EMProtocol):
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
 
-        listVol = self._getFinalMaps()
-        print (listVol, "listvolll")
-
-    def _getFinalMaps(self):
-        return [self.extraIter + 'model.star']
 
     def _getOutputVolFn(self, fn):
         return self._getExtraPath(replaceBaseExt(fn, '_origSize.mrc'))
