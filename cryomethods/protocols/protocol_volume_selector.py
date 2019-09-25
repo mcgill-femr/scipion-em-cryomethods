@@ -29,6 +29,7 @@ import os
 import re
 import numpy as np
 import pyworkflow.em as em
+import pyworkflow.object as pwObj
 import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
 from .protocol_base import ProtocolBase
@@ -48,6 +49,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
+        self.rLev = pwObj.Integer(0)
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
@@ -85,7 +87,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
         self._updateFilenamesDict(myDict)
 
     def _createIterTemplates(self, run=None):
-        run = self._rLev if run is None else run
+        run = self.rLev.get() if run is None else run
+
         """ Setup the regex on how to find iterations. """
         self._iterTemplate = self._getFileName('data', ruNum=run,
                                                iter=0).replace('000', '???')
@@ -139,6 +142,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
         self._convertRef()
 
     def converParticlesStep(self, run):
+        self._setrLev(run)
         self._imgFnList = []
         imgSet = self._getInputParticles()
         imgStar = self._getFileName('input_star', run=run)
@@ -212,7 +216,21 @@ class ProtInitialVolumeSelector(ProtocolBase):
         """ Should be overwritten in subclasses to
         return summary message for NORMAL EXECUTION.
         """
-        return []
+        self._initialize()
+        lastIter = self._lastIter()
+
+        if lastIter is not None:
+            iterMsg = 'run: %d\n' % self.rLev.get()
+            iterMsg += 'Iteration %d' % lastIter
+        else:
+            iterMsg = 'No iteration finished yet.'
+        summary = [iterMsg]
+
+        if self._getInputParticles().isPhaseFlipped():
+            flipMsg = "Your input images are ctf-phase flipped"
+            summary.append(flipMsg)
+
+        return summary
 
     def _methods(self):
         """ Should be overwritten in each protocol.
@@ -288,6 +306,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
                 self._invertScaleVol(volFnList[i])
                 vol.setFileName(self._getOutputVolFn(volFnList[i]))
                 vol.setObjId(idList[i])
+                vol._cmScore = em.Float(s)
                 vol._rlnClassDistribution = em.Float(clsDistList[i])
                 vol._rlnAccuracyRotations = em.Float(accRotList[i])
                 vol._rlnAccuracyTranslations = em.Float(accTransList[i])
@@ -326,3 +345,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def _gaussian(self, x, mean, std, c=1):
         return (np.exp(-(((x - mean) ** 2) / (c * (std ** 2)))))
+
+    def _setrLev(self, val=None):
+        self.rLev.set(self._rLev) if val is None else self.rLev.set(val)
+        self._store(self.rLev)

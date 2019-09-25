@@ -723,23 +723,7 @@ class ProtocolBase(em.EMProtocol):
         return cites
 
     def _summary(self):
-        self._initialize()
-
-        lastIter = self._lastIter()
-
-        if lastIter is not None:
-            iterMsg = 'Iteration %d' % lastIter
-            if self.hasAttribute('numberOfIterations'):
-                iterMsg += '/%d' % self._getnumberOfIters()
-        else:
-            iterMsg = 'No iteration finished yet.'
-        summary = [iterMsg]
-
-        if self._getInputParticles().isPhaseFlipped():
-            flipMsg = "Your input images are ctf-phase flipped"
-            summary.append(flipMsg)
-
-        summary += self._summaryNormal()
+        summary = self._summaryNormal()
         return summary
 
     def _summaryNormal(self):
