@@ -257,7 +257,10 @@ class TestDirectionalPruning(TestBase):
         protSolid2.inputParticles.set(protSubset.outputParticles)
         self.launchProtocol(protSolid2)
         self.checkOutput(protSolid2, 'outputParticles')
+
+
 class TestClass3DRansac(TestBase):
+
     @classmethod
     def setUpClass(cls):
         setupTestProject(cls)
@@ -267,6 +270,7 @@ class TestClass3DRansac(TestBase):
         cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
 
     def test_solidAndSplit(self):
+
         # Let's keep a smaller subset of particles to speed-up computations
         protSubset = self.newProtocol(ProtSubSet,
                                       objLabel='subset 1K',
@@ -276,51 +280,47 @@ class TestClass3DRansac(TestBase):
         protSubset.inputFullSet.set(self.protImport.outputParticles)
         self.launchProtocol(protSubset)
 
+
         # We use a coarse angular sampling of 20 to speed-up test
-        protSolid = self.newProtocol(ProtClass3DRansac,
-                                objLabel='directional classes 1',
-                                angularSampling=20,
-                                angularDistance=25,
-                                numClasses=2,
-                                directionalSamples=5,
-                                directionalTrials=10,
-                                numberOfMpi=4
-                                )
+        DransacProt = self.newProtocol(ProtClass3DRansac,
+                                    objLabel='directional classes 1',
+                                    Class2D=0,
+                                    angularSampling=20,
+                                    angularDistance=25,
+                                    numClasses=5,
+                                    numberOfMpi=4
+                                    )
 
-        protSolid.inputVolume.set(self.protImportVol.outputVolume)
-        protSolid.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(protSolid)
-        self.checkOutput(protSolid, 'outputParticles')
 
-        protSolid1 = self.newProtocol(ProtClass3DRansac,
-                                objLabel='directional classes 1',
-                                classMethod=1,
-                                angularSampling=20,
-                                angularDistance=25,
-                                numClasses=2,
-                                directionalSamples=5,
-                                directionalTrials=10,
-                                numberOfMpi=4
-                                )
+        DransacProt.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt)
 
-        protSolid1.inputVolume.set(self.protImportVol.outputVolume)
-        protSolid1.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(protSolid1)
-        self.checkOutput(protSolid1, 'outputParticles')
 
-        protSolid2 = self.newProtocol(ProtClass3DRansac,
-                                      objLabel='directional classes 1',
-                                      classMethod=2,
-                                      numberOfIterations=5,
-                                      regularisationParamT=2,
-                                      numClasses=2,
-                                      directionalSamples=5,
-                                      directionalTrials=10,
-                                      numberOfMpi=4
-                                      )
+        DransacProt1= self.newProtocol(ProtClass3DRansac,
+                                    objLabel='directional classes 1',
+                                    Class2D=1,
+                                    angularSampling=20,
+                                    angularDistance=25,
+                                    numClasses=5,
+                                    numberOfMpi=4
+                                    )
 
-        protSolid2.inputVolume.set(self.protImportVol.outputVolume)
-        protSolid2.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(protSolid2)
-        self.checkOutput(protSolid2, 'outputParticles')
+        DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt1.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt1)
+
+
+        DransacProt2 = self.newProtocol(ProtClass3DRansac,
+                                          objLabel='directional classes 1',
+                                          Class2D=2,
+                                          numberOfIterations=5,
+                                          regularisationParamT=2,
+                                          numClasses=5,
+                                          numberOfMpi=4
+                                          )
+
+        DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt2.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt2)
 
