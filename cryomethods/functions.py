@@ -434,3 +434,16 @@ def num_flat_features(x):
     for s in sizes:
         num_features *= s
     return num_features
+
+
+def normalize(mat):
+    """
+    Set a numpy array as standard score and after that scale the data between 0 and 1.
+    """
+    mean = mat.mean()
+    sigma = mat.std()
+    mat = (mat - mean) / sigma
+    a = mat.min()
+    b = mat.max()
+    mat = (mat-a)/(b-a)
+    return mat

@@ -104,26 +104,22 @@ class ProtDCTF(ProtocolBase):
         if self.predictEnable:
             self.results = self.predict_CTF(self.images_path)            
         else:
-            self.train_nn(self.good_data, self.bad_data)
+            self.train_nn(self.data)
 
     def createOutputStep(self):
-
         if self.predictEnable:
             self.ctfResults = self._createSetOfMicrographs()
             self.ctfResults.setSamplingRate(
                 self.imgSet.getSamplingRate())
-
-            for i, img in enumerate(self.imgSet):
-                print(self.results[i][0])
+            for i, img in enumerate(self.imgSet):                
                 img._defocusU = Float(self.results[i][0])
                 img._defocusV = Float(self.results[i][1])
                 img._angle = Float(self.results[i][2])
                 img._resolution = Float(self.results[i][3])                
                 self.ctfResults.append(img)
-
             self._defineOutputs(ctfResults=self.ctfResults)
-
             # self._defineSourceRelation(self.inputImgs, self.out)
+
 
     # --------------- INFO functions -------------------------
 
@@ -141,11 +137,11 @@ class ProtDCTF(ProtocolBase):
 
     # --------------- UTILS functions -------------------------
 
-    def train_nn(self, good_data, bad_data):
+    def train_nn(self, images_path):
         """
         Method to create the model and train it
         """
-        trainset = LoaderTrain(good_data, bad_data)
+        trainset = LoaderTrain(images_path)
         data_loader = DataLoader(
             trainset, batch_size=32, shuffle=True, num_workers=32, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -177,9 +173,8 @@ class ProtDCTF(ProtocolBase):
                 if use_cuda:
                     model.cuda()
 
-            loss, accuracy = self.calcLoss(model, 2, data_loader, device, criterion_test)
+            loss = self.calcLoss(model, data_loader, device, criterion_test)
             self.loss_list.append(loss)
-            self.accuracy_list.append(accuracy)
 
         if not self.weightEveryEpoch:
             model.train()
@@ -187,23 +182,9 @@ class ProtDCTF(ProtocolBase):
                 self.weightFolder.get(), 'model.pt'))
 
         print(self.loss_list)
-        print(self.accuracy_list)
-        self.plot_loss_screening(self.loss_list, self.accuracy_list)
+        self.plot_loss_screening(self.loss_list)
 
-    def plot_loss_screening(self, loss_list, accuracy_list):
-
-        plt.figure(figsize=(9, 7))
-        # plt.plot(good, label='Micrografia buena')
-        # plt.plot(bad, label='Micrografia mala')
-        plt.plot(accuracy_list)
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy')
-        plt.title('Accuracy')
-        plt.legend()
-        plt.ylim(bottom=0)
-        plt.tight_layout()
-        plt.savefig('accuracy.png')
-                
+    def plot_loss_screening(self, loss_list):                
         plt.figure(figsize=(11, 8))
         plt.plot(loss_list)
         plt.title('Loss function')
@@ -232,41 +213,19 @@ class ProtDCTF(ProtocolBase):
         model = model.to(device)
         return predict(model, device, data_loader, trainset)
 
-    def calcLoss(self, model, n_classes, data_loader, device, loss_function):
+    def calcLoss(self, model, data_loader, device, loss_function):
         test_loss = 0
-        class_correct = [0. for i in range(n_classes)]
-        class_total = [0. for i in range(n_classes)]
         model.eval()
         with torch.no_grad():
             for data in data_loader:
                 # Move tensors to the configured device
-                data, target = data['image'].to(
-                    device), data['label'].to(device)
+                data, target = data['image'].to(device), data['label'].to(device)
                 # Forward pass
                 output = model(data)
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
-                # Predicted classes
-                _, predicted = torch.max(output, 1)
-                c = (predicted == target).squeeze()
-
-                # Count classes
-                for i in range(len(target)):
-                    label = target[i]
-                    class_correct[label] += c[i].item()
-                    class_total[label] += 1
-
-        test_loss /= len(data_loader.dataset)
-
-        # Results of each class
-        correct = 0
-        for i in range(n_classes):
-            correct += class_correct[i]
-            print('Accuracy of {}: {}/{} ({:.0f}%)'.format(
-                i, int(class_correct[i]), int(class_total[i]),
-                100 * class_correct[i] / class_total[i]))
-        
-        return test_loss, 100. * correct / len(data_loader.dataset)
+                
+        return test_loss / len(data_loader.dataset)
 
 
 def predict(model, device, data_loader, trainset):
@@ -310,6 +269,7 @@ def train(model, device, train_loader, optimizer, loss_function):
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
+
 class Regresion(nn.Module):
     """
     Neuronal Network model
@@ -335,7 +295,6 @@ class Regresion(nn.Module):
         return g
 
     def _forward_conv(self, x):
-
         x = self.Conv2d_1a_3x3(x)
         x = F.dropout2d(x)
         x = F.relu(x)
@@ -371,16 +330,6 @@ class Regresion(nn.Module):
         return x
 
 
-def normalize(mat):
-    mean = mat.mean()
-    sigma = mat.std()
-    mat = (mat - mean) / sigma
-    a = mat.min()
-    b = mat.max()
-    mat = (mat-a)/(b-a)
-    return mat
-
-
 class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
@@ -389,13 +338,10 @@ class LoaderPredict(Dataset):
     def __init__(self, datafiles):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
-                        
-        
+                            
         self.normalization = Normalization(None)
         #this file path need to be changed
         self.normalization.load('/home/alex/norm.txt')
-        print(datafiles)
-
         self._data = [i for i in datafiles]
         
         
@@ -418,44 +364,35 @@ class LoaderPredict(Dataset):
 
 class LoaderTrain(Dataset):
     """
-    Class to load the dataset for train the neuronal network
+    Class to load the dataset for predict
     """
 
-    def __init__(self, good_data, bad_data, balance=True, size=(1, 419, 419)):
+    def __init__(self, data):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
-
-        self._data = []
-        self._size = size
-
-        if(balance):
-            n_good = len(good_data)
-            n_bad = len(bad_data)
-            n_data = n_good if n_good < n_bad else n_bad
-            good_data = good_data[:n_data]
-            bad_data = bad_data[:n_data]
-
-        self._format_data(good_data, bad_data, self._data)
-
-    def _format_data(self, good_data, bad_data, formated_data):
-        formated_data += [{'file': data, 'label': 1}
-                          for data in good_data]  # Label 1 is good
-        formated_data += [{'file': data, 'label': 0}
-                          for data in bad_data]  # Label 0 is bad
-
+                            
+        self.normalization = Normalization(None)
+        #this file path need to be changed
+        self.normalization.load('/home/alex/norm.txt')
+        self._data = data
+        
+        
     def __len__(self):
         return len(self._data)
+        
+    def __getitem__(self, index):           
+        img_path = self._data[index]['img']
+        target = self._data[index]['target']
+        img = self.open_image(img_path)
+        return {'image': img, 'target': target,'name': img_path }
 
-    def __getitem__(self, item):
-        data = self._data[item]
-        img_path = data['file']
-        label = data['label']
-        img = loadMrc(img_path)
-        img = normalize(img)
-        img = np.resize(img, self._size)
-        img = torch.from_numpy(img)
-        return {'image': img, 'label': label}
-
+    def open_image(self, filename):        
+        img = loadMrc(filename)        
+        _min = img.min()
+        _max = img.max()
+        img = (img - _min) / (_max - _min)
+        img = np.resize(img, (1, 512, 512))
+        return torch.from_numpy(img)
 
 
 class Normalization():

@@ -13,7 +13,7 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 
 from .protocol_base import ProtocolBase
 
-from ..functions import num_flat_features
+from ..functions import num_flat_features, normalize
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -381,16 +381,6 @@ class Classify(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
-
-
-def normalize(mat):
-    mean = mat.mean()
-    sigma = mat.std()
-    mat = (mat - mean) / sigma
-    a = mat.min()
-    b = mat.max()
-    mat = (mat-a)/(b-a)
-    return mat
 
 
 class LoaderPredict(Dataset):
