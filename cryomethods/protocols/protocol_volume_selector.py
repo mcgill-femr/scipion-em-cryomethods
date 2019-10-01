@@ -30,6 +30,7 @@ import re
 import numpy as np
 import pyworkflow.em as em
 import pyworkflow.object as pwObj
+import pyworkflow.utils as pwUtils
 import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
 from .protocol_base import ProtocolBase
@@ -53,36 +54,27 @@ class ProtInitialVolumeSelector(ProtocolBase):
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
-        self.extraIter = self._getExtraPath('run_%(ruNum)02d/relion_it%(iter)03d_')
+        self.extraRun = self._getExtraPath('run_%(ruNum)02d/relion_it%(iter)03d_')
         myDict = {
             'final_particles': self._getExtraPath('Finput_particles.star'),
             'input_star': self._getPath('input_particles_%(run)02d.star'),
-            'data_scipion': self.extraIter + 'data_scipion.sqlite',
-            'volumes_scipion': self.extraIter + 'volumes.sqlite',
-            'data': self.extraIter + 'data.star',
-            'model': self.extraIter + 'model.star',
-            'optimiser': self.extraIter + 'optimiser.star',
-            'angularDist_xmipp': self.extraIter + 'angularDist_xmipp.xmd',
-            'all_avgPmax_xmipp': self._getTmpPath(
-                'iterations_avgPmax_xmipp.xmd'),
-            'all_changes_xmipp': self._getTmpPath(
-                'iterations_changes_xmipp.xmd'),
+            'data_scipion': self.extraRun + 'data_scipion.sqlite',
+            'volumes_scipion': self.extraRun + 'volumes.sqlite',
+            'volume': self.extraRun + "_class%(ref3d)03d.mrc",
+            'data': self.extraRun + 'data.star',
+            'model': self.extraRun + 'model.star',
             'selected_volumes': self._getTmpPath('selected_volumes_xmipp.xmd'),
-            'movie_particles': self._getPath('movie_particles.star'),
-            'dataFinal': self._getExtraPath("relion_data.star"),
-            'finalvolume': self._getExtraPath("relion_class%(ref3d)03d.mrc:mrc"),
-            'preprocess_parts': self._getPath("preprocess_particles.mrcs"),
-            'preprocess_parts_star': self._getPath("preprocess_particles.star"),
+
         }
         # add to keys, data.star, optimiser.star and sampling.star
         for key in self.FILE_KEYS:
-            myDict[key] = self.extraIter + '%s.star' % key
+            myDict[key] = self.extraRun + '%s.star' % key
             key_xmipp = key + '_xmipp'
-            myDict[key_xmipp] = self.extraIter + '%s.xmd' % key
+            myDict[key_xmipp] = self.extraRun + '%s.xmd' % key
         # add other keys that depends on prefixes
         for p in self.PREFIXES:
-            myDict['%smodel' % p] = self.extraIter + '%smodel.star' % p
-            myDict['%svolume' % p] = self.extraIter + p + \
+            myDict['%smodel' % p] = self.extraRun + '%smodel.star' % p
+            myDict['%svolume' % p] = self.extraRun + p + \
                                      'class%(ref3d)03d.mrc:mrc'
         self._updateFilenamesDict(myDict)
 
@@ -200,7 +192,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def createOutputStep(self):
         # create a SetOfVolumes and define its relations
         volumes = self._createSetOfVolumes()
-        self._fillVolSetFromIter(volumes, self._lastIter())
+        self._fillVolSetFromIter(volumes)
 
         self._defineOutputs(outputVolumes=volumes)
         self._defineSourceRelation(self.inputVolumes, volumes)
@@ -266,11 +258,31 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def _defineOutput(self, args):
         args['--o'] = self._getExtraPath('run_%02d/relion' % self._rLev)
 
-    def _fillVolSetFromIter(self, volSet, it):
+    def _getIterVolumes(self, run, clean=True):
+        """ Return a volumes .sqlite file for this iteration.
+        If the file doesn't exists, it will be created by
+        converting from this iteration data.star file.
+        """
+        it = self._lastIter()
+        sqlteVols = self._getFileName('volumes_scipion', ruNum=run, iter=it)
+
+        if clean:
+            pwUtils.cleanPath(sqlteVols)
+
+        if not os.path.exists(sqlteVols):
+            volSet = self.OUTPUT_TYPE(filename=sqlteVols)
+            self._fillVolSetFromIter(volSet, rLev=run)
+            volSet.write()
+            volSet.close()
+        return sqlteVols
+
+    def _fillVolSetFromIter(self, volSet, rLev=None, it=None):
+        it = self._lastIter() if it is None else it
+        rLev = self._rLev if rLev is None else rLev
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
-        modelStar = md.MetaData('model_classes@' +
-                                self._getFileName('model', ruNum=self._rLev,
-                                                  iter=it))
+        modelFn = self._getFileName('model', ruNum=rLev, iter=it)
+        print('modelFn: ', modelFn)
+        modelStar = md.MetaData('model_classes@' + modelFn)
         idList = []
         volFnList = []
         clsDistList = []
@@ -282,6 +294,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
             accurracyRot = row.getValue('rlnAccuracyRotations')
             if accurracyRot <= 90:
                 fn = row.getValue('rlnReferenceImage')
+                print('Volume: ', fn)
                 fnMrc = fn + ":mrc"
                 itemId = self._getClassId(fn)
                 classDistrib = row.getValue('rlnClassDistribution')
@@ -294,24 +307,24 @@ class ProtInitialVolumeSelector(ProtocolBase):
                 accRotList.append(accurracyRot)
                 accTransList.append(accurracyTras)
                 resoList.append(resol)
-
-        score = self._estimateScore(accRotList, clsDistList, None, self.std)
+        std = self.std if hasattr(self, 'std') else None
+        score = self._estimateScore(accRotList, clsDistList, None, std)
         threshold = 1/float(self.numOfVols.get())
-        score = [s if s >= threshold else None for s in score]
         print("score: ", score)
 
         for i, s in enumerate(score):
-            if s is not None:
-                vol = em.Volume()
-                self._invertScaleVol(volFnList[i])
-                vol.setFileName(self._getOutputVolFn(volFnList[i]))
-                vol.setObjId(idList[i])
-                vol._cmScore = em.Float(s)
-                vol._rlnClassDistribution = em.Float(clsDistList[i])
-                vol._rlnAccuracyRotations = em.Float(accRotList[i])
-                vol._rlnAccuracyTranslations = em.Float(accTransList[i])
-                vol._rlnEstimatedResolution = em.Float(resoList[i])
-                volSet.append(vol)
+            vol = em.Volume()
+            self._invertScaleVol(volFnList[i])
+            vol.setFileName(self._getOutputVolFn(volFnList[i]))
+            vol.setObjId(idList[i])
+            if s <= threshold:
+                vol._objEnabled = False
+            vol._cmScore = em.Float(s)
+            vol._rlnClassDistribution = em.Float(clsDistList[i])
+            vol._rlnAccuracyRotations = em.Float(accRotList[i])
+            vol._rlnAccuracyTranslations = em.Float(accTransList[i])
+            vol._rlnEstimatedResolution = em.Float(resoList[i])
+            volSet.append(vol)
 
     def _convertRef(self):
         ih = em.ImageHandler()

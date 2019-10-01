@@ -33,7 +33,7 @@ from scipy import stats
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
-from pyworkflow.utils.path import cleanPath, replaceBaseExt
+from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
@@ -692,12 +692,8 @@ class ProtocolBase(em.EMProtocol):
         self.runJob(self._getProgram(), params)
 
     def createOutputStep(self):
-        # create a SetOfVolumes and define its relations
-        volumes = self._createSetOfVolumes()
-        self._fillVolSetFromIter(volumes, self._lastIter())
-
-        self._defineOutputs(outputVolumes=volumes)
-        self._defineSourceRelation(self.inputVolumes, volumes)
+        """ Implemented in subclasses. """
+        pass
 
     # --------------------------- INFO functions -------------------------------
     def _validate(self):
@@ -912,23 +908,6 @@ class ProtocolBase(em.EMProtocol):
     def _getnumberOfIters(self):
         return self.numberOfIterations.get()
 
-    def _getIterVolumes(self, it, clean=False):
-        """ Return a volumes .sqlite file for this iteration.
-        If the file doesn't exists, it will be created by
-        converting from this iteration data.star file.
-        """
-        sqlteVols = self._getFileName('volumes_scipion', iter=it)
-
-        if clean:
-            cleanPath(sqlteVols)
-
-        if not exists(sqlteVols):
-            volSet = self.OUTPUT_TYPE(filename=sqlteVols)
-            self._fillVolSetFromIter(volSet, it)
-            volSet.write()
-            volSet.close()
-        return sqlteVols
-
     def _fillVolSetFromIter(self, volSet, it):
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
         modelStar = md.MetaData('model_classes@' +
@@ -1075,7 +1054,7 @@ class ProtocolBase(em.EMProtocol):
         img.write(outputFn)
 
     def _getOutputVolFn(self, fn):
-        return self._getExtraPath(replaceBaseExt(fn, '_origSize.mrc'))
+        return replaceExt(fn, '_origSize.mrc')
 
     def _postprocessImageRow(self, img, imgRow):
         partId = img.getParticleId()
