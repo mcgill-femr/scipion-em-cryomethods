@@ -45,7 +45,6 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def _defineVariables(cls):
-        cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
         cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
 
 
@@ -54,23 +53,6 @@ class Plugin(pyworkflow.em.Plugin):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = cls.getRelionEnviron()
-        pythonPath = [cls.getHome('imageLib'),
-                      cls.getHome('alignLib'),
-                      cls.getHome('alignLib/frm/swig'),
-                      cls.getHome('alignLib/tompy')]
-
-        libPath = [cls.getHome('alignLib/frm/swig'),
-                   cls.getHome('alignLib/SpharmonicKit27')]
-
-        # for lPath in libPath:
-        #     if not lPath in os.environ['LD_LIBRARY_PATH']:
-        #        environ.update({'LD_LIBRARY_PATH': lPath},
-        #                       position=pwutils.Environ.BEGIN)
-
-        for pPath in pythonPath:
-            if not pPath in os.environ['PYTHONPATH']:
-                environ.update({'PYTHONPATH': pPath},
-                               position=pwutils.Environ.BEGIN)
         return environ
 
 
@@ -85,14 +67,6 @@ class Plugin(pyworkflow.em.Plugin):
     @classmethod
     def setEnviron(cls):
         environ = cls.getEnviron()
-        pythonPath = [cls.getHome('imageLib'),
-                      cls.getHome('alignLib'),
-                      cls.getHome('alignLib/frm/swig'),
-                      cls.getHome('alignLib/tompy')]
-
-        for path in pythonPath:
-            if not path in sys.path:
-                sys.path.append(path)
         os.environ.update(cls.getEnviron())
 
 
@@ -150,17 +124,6 @@ class Plugin(pyworkflow.em.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        libSphPath = cls.getHome('alignLib/SpharmonicKit27/libsphkit.so')
-        libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
-        commands = ('python alignLib/compile.py ; ln -sf %s ../../lib/ '
-                    '; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
-        target = libFrmPath
-        url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
-        env.addPackage('cryomethods', version='0.1',
-                       url=url,
-                       commands=[(commands, target)],
-                       deps=['fftw3', 'fftw3f'])
-        ## PIP PACKAGES ##
         def addPipModule(moduleName, *args, **kwargs):
             """ To try to add certain pipModule.
                 If it fails due to it is already add by other plugin or Scipion,
@@ -174,10 +137,6 @@ class Plugin(pyworkflow.em.Plugin):
                     return moduleName
                 else:
                     raise Exception(e)
-        #
-        # joblib = addPipModule('joblib', '0.11', target='joblib*')
-        #
-        # ## --- DEEP LEARNING TOOLKIT --- ##
         scipy = addPipModule('scipy', '0.14.0', default=False,
                                 deps=['lapack', 'matplotlib'])
         cython = addPipModule('cython', '0.22', target='Cython-0.22*',
@@ -185,11 +144,5 @@ class Plugin(pyworkflow.em.Plugin):
         scikit_learn = addPipModule('scikit-learn', '0.20.0',
                                        target='scikit_learn*',
                                        default=True, deps=[scipy, cython])
-        # unittest2 = addPipModule('unittest2', '0.5.1', target='unittest2*',
-        #                             default=False)
-        # h5py = addPipModule('h5py', '2.8.0rc1', target='h5py*',
-        #                        default=False, deps=[unittest2])
-        # cv2 = addPipModule('opencv-python', "3.4.2.17",
-        #                       target="cv2", default=False)
 
 pyworkflow.em.Domain.registerPlugin(__name__)

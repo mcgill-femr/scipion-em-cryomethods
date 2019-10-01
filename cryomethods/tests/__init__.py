@@ -25,5 +25,4 @@
 # *
 # **************************************************************************
 
-from test_functions_cryomethods import *
 from test_protocols_cryomethods import *
