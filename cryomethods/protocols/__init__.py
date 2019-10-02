@@ -25,6 +25,5 @@
 # *
 # **************************************************************************
 
-from protocol_auto_classifier import Prot3DAutoClassifier
 from protocol_volume_selector import ProtInitialVolumeSelector
 

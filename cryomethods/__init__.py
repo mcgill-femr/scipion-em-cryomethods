@@ -31,7 +31,7 @@ import os, sys
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0
+from .constants import RELION_CRYOMETHODS_HOME, V3_0
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
@@ -39,9 +39,9 @@ _references = []
 
 
 class Plugin(pyworkflow.em.Plugin):
-    _homeVar = CRYOMETHODS_HOME
-    _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME]
-    _supportedVersions = []
+    _homeVar = RELION_CRYOMETHODS_HOME
+    _pathVars = [RELION_CRYOMETHODS_HOME]
+    _supportedVersions = [V3_0]
 
     @classmethod
     def _defineVariables(cls):
@@ -116,11 +116,6 @@ class Plugin(pyworkflow.em.Plugin):
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
         return [V3_0]
-
-    @classmethod
-    def getSupportedVersions(cls):
-        """ Return the list of supported binary versions. """
-        return ['0.1']
 
     @classmethod
     def defineBinaries(cls, env):
