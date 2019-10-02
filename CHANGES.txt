@@ -1,3 +1,4 @@
-23-April-2019 - First plugin version
-October 1st, - First stable version of Volume selector protocol.
+2019-April-23 - First plugin version
+2019-October-1, - First stable version
+    - Volume selector protocol - stable release
 
