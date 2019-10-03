@@ -29,6 +29,6 @@ from protocol_2d_auto_classifier import Prot2DAutoClassifier
 from protocol_auto_classifier import Prot3DAutoClassifier
 from protocol_volume_selector import ProtInitialVolumeSelector
 #from xmipp3.protocols.nma.protocol_nma_base import NMA_CUTOFF_ABS, NMA_CUTOFF_REL
-from Merge_NMA import ProtNmaMerge
+from Merge_NMA import ProtLandscapeNMA
 
 

@@ -55,7 +55,8 @@ from pyworkflow.em.protocol import ProtImportParticles
 import re
 import numpy as np
 from glob import glob
-
+import matplotlib
+import matplotlib.pyplot as plt
 import pyworkflow.em as em
 import pyworkflow.protocol.params as params
 from pyworkflow.utils.path import cleanPath, replaceBaseExt
@@ -89,8 +90,8 @@ VOL_TWO = 2
 
 
 
-class ProtNmaMerge(em.EMProtocol):
-    _label = 'nma landscape'
+class ProtLandscapeNMA(em.EMProtocol):
+    _label = 'Landscape NMA'
 
     IS_2D = False
     IS_VOLSELECTOR = False
@@ -262,7 +263,7 @@ class ProtNmaMerge(em.EMProtocol):
         form.addSection(label='Animation')
         form.addParam('amplitude', FloatParam, default=70,
                       label="Amplitude")
-        form.addParam('nframes', IntParam, default=40,
+        form.addParam('nframes', IntParam, default=10,
                       expertLevel=LEVEL_ADVANCED,
                       label='Number of frames')
         form.addParam('downsample', FloatParam, default=1,
@@ -377,23 +378,6 @@ class ProtNmaMerge(em.EMProtocol):
                       condition='finalVols==%d' % VOL_TWO,
                       label='equal space volume selection',
                       help='')
-        # form.addParam('maskMode', EnumParam,
-        #               choices=['none', 'threshold', 'file'],
-        #               default=NMA_MASK_NONE,
-        #               label='Mask mode', display=EnumParam.DISPLAY_COMBO,
-        #               help='')
-        # form.addParam('maskThreshold', FloatParam, default=0.01,
-        #               condition='maskMode==%d' % NMA_MASK_THRE,
-        #               label='Threshold value',
-        #               help='Gray values below this threshold are set to 0')
-        # form.addParam('volumeMask', PointerParam, pointerClass='VolumeMask',
-        #               label='Mask volume',
-        #               condition='maskMode==%d' % NMA_MASK_FILE,
-        #               )
-
-
-
-
 
         form.addParam('numOfVols', params.IntParam,
                       default=5, label='Number of Volumes',
@@ -805,10 +789,10 @@ class ProtNmaMerge(em.EMProtocol):
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
 
-        # self._insertFunctionStep('convertVolumeStep')
-        # self._insertFunctionStep('computeNMAStep')
-        # self._insertFunctionStep('convertPdbStep')
-        # self._insertFunctionStep('particleAttrStep')
+        self._insertFunctionStep('convertVolumeStep')
+        self._insertFunctionStep('computeNMAStep')
+        self._insertFunctionStep('convertPdbStep')
+        self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
@@ -1311,9 +1295,9 @@ class ProtNmaMerge(em.EMProtocol):
 
         print (selectedVols, "selectedVols")
 
-        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
         # numOfRuns = int(-3 / b)
-        numOfRuns = 3
+        numOfRuns= 3
         for run in range(numOfRuns):
             self._createFilenameTemplates()
             self._createTemplates(run)
@@ -1375,7 +1359,7 @@ class ProtNmaMerge(em.EMProtocol):
         selectedVols = self.numOfVols.get()
         b = np.log((1 - (float(selectedVols) / float(sizeList))))
         # numOfRuns = int(-3 / b)
-        numOfRuns = 3
+        numOfRuns= 3
         iter = self.numberOfIterations.get()
         listModelStar = []
         p = ['']
@@ -1440,7 +1424,13 @@ class ProtNmaMerge(em.EMProtocol):
 
     def estimatePCAStep(self):
         Plugin.setEnviron()
-        numOfRuns = 3
+        totalVolumes = self._getExtraPath("*.vol")
+        fnList = glob(totalVolumes)
+        sizeList = len(fnList)
+        selectedVols = self.numOfVols.get()
+        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        # numOfRuns = int(-3 / b)
+        numOfRuns= 3
         iter = self.numberOfIterations.get()
         listModelStar = []
         p = ['']
@@ -1540,7 +1530,30 @@ class ProtNmaMerge(em.EMProtocol):
         # print (newBaseAxis, "newbase")
         # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
         print (matProj, "matProj")
-        # projFile = 'projection_matrix.txt'
+#----------------------
+        mdOut = md.MetaData()
+        dictMd = {}
+        for run in range(numOfRuns):
+            it = self.numberOfIterations.get()
+            modelFile = self._getFileName('model', ruNum=run, iter=it)
+            mdIn = md.MetaData('model_classes@%s' % modelFile)
+            for row in md.iterRows(mdIn, md.RLN_MLMODEL_REF_IMAGE):
+                mV = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
+                lV = row.getValue('rlnClassDistribution')
+                dictMd[lV] = mV
+
+        x_proj = [item[0] for item in matProj]
+        y_proj = [item[1] for item in matProj]
+        # plt.hist2d(x_proj, y_proj, bins=5, cmap='Blues')
+        # plt.show()
+        plt.figure(figsize=(12, 4));plt.subplot(150)
+        plt.hexbin(x_proj, y_proj)
+        plt.colorbar();
+        plt.tight_layout()
+        plt.show()
+
+
+
 
 
         # print (newBaseAxis, "newBaseAxis")

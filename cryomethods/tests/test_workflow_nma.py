@@ -28,7 +28,7 @@ from pyworkflow.tests.em.workflows.test_workflow import TestWorkflow
 
 
 
-from cryomethods.protocols.Merge_NMA import ProtNmaMerge
+from cryomethods.protocols.Merge_NMA import ProtLandscapeNMA
 
 from xmipp3.protocols.pdb.protocol_pseudoatoms_base import NMA_MASK_THRE
 from pyworkflow.tests import *
@@ -144,7 +144,7 @@ class CryoMetTestNMA(TestBase):
         #self.launchProtocol(protImportParts)
 
         # Convert the Volume to Pdb
-        protConvertVol = self.newProtocol(ProtNmaMerge)
+        protConvertVol = self.newProtocol(ProtLandscapeNMA)
         protConvertVol.inputParticles.set(self.protImport.outputParticles)
         protConvertVol.subsetSize.set(100)
         protConvertVol.inputVolume.set(self.protImportVol.outputVolume)
