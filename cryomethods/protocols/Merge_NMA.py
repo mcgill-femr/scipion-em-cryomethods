@@ -809,9 +809,10 @@ class ProtLandscapeNMA(em.EMProtocol):
                          % (fnIn, fnMask, self.maskThreshold.get())
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
-        elif self.maskMode == NMA_MASK_FILE:
+        else:
             fnMask = getImageLocation(self.volumeMask.get())
 
+        print ("fnmask1")
         pseudoatoms = 'pseudoatoms'
         outputFn = self._getPath(pseudoatoms)
         sampling = inputVol.getSamplingRate()
@@ -822,6 +823,9 @@ class ProtLandscapeNMA(em.EMProtocol):
                  "%(nthreads)d "
         params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
                   "-v 2 --intensityColumn Bfactor"
+
+        print ("fnmask1")
+
         if fnMask:
             params += " --mask binary_file %(fnMask)s"
         self.runJob("xmipp_volume_to_pseudoatoms", params % locals(),
