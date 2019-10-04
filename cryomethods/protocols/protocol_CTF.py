@@ -13,8 +13,9 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 
 from .protocol_base import ProtocolBase
 
-
 from ..functions import num_flat_features
+
+from pyworkflow.em.data import CTFModel
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -62,7 +63,7 @@ class ProtDCTF(ProtocolBase):
 
         group = form.addGroup('Train', condition="not predictEnable")
         group.addParam('trainSet', params.PointerParam, allowsNull=True,
-                       pointerClass='SetOfMicrographs',
+                       pointerClass='SetOfCTF',
                        label="Train set",
                        help='Select the train images.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
@@ -98,28 +99,32 @@ class ProtDCTF(ProtocolBase):
             self.imgSet = self.inputImgs.get()
             self.images_path = self.imgSet.getFiles()
         else:
-            self.data = list(self.trainSet.get().getFiles())
+            self.ctfs = self.trainSet.get()
+            self.data = []
+            for ctf in self.ctfs:
+                target = list(ctf.getDefocus())
+                target.append(ctf.getResolution())
+                img = ctf.getPsdFile()
+                self.data.append({'img':img, 'target': np.array(target, dtype=np.float32)})
 
     def runCTFStep(self):
         if self.predictEnable:
-            self.results = self.predict_CTF(self.images_path)            
+            self.results = self.predict_CTF(self.images_path)
         else:
             self.train_nn(self.data)
 
     def createOutputStep(self):
         if self.predictEnable:
-            self.ctfResults = self._createSetOfMicrographs()
-            self.ctfResults.setSamplingRate(
-                self.imgSet.getSamplingRate())
-            for i, img in enumerate(self.imgSet):                
-                img._defocusU = Float(self.results[i][0])
-                img._defocusV = Float(self.results[i][1])
-                img._angle = Float(self.results[i][2])
-                img._resolution = Float(self.results[i][3])                
-                self.ctfResults.append(img)
+            self.ctfResults = self._createSetOfCTF()
+            for i, img in enumerate(self.imgSet):
+                ctf = CTFModel()
+                ctf.setResolution(self.results[i][3])                
+                ctf.setMicrograph(img)                
+                ctf.setPsdFile(img.getMicName())
+                ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
+                self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
             # self._defineSourceRelation(self.inputImgs, self.out)
-
 
     # --------------- INFO functions -------------------------
 
@@ -141,7 +146,8 @@ class ProtDCTF(ProtocolBase):
         """
         Method to create the model and train it
         """
-        trainset = LoaderTrain(images_path)
+        # this file path need to be changed 
+        trainset = LoaderTrain(images_path, '/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(
             trainset, batch_size=32, shuffle=True, num_workers=32, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -150,6 +156,8 @@ class ProtDCTF(ProtocolBase):
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
         print('Device:', device)
+
+        # Create the model
         model = Regresion(size_in=(1, 512, 512), size_out=4)
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
@@ -157,8 +165,9 @@ class ProtDCTF(ProtocolBase):
         print('Model:', model)
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
-        criterion_train = nn.NLLLoss()
-        criterion_test = nn.NLLLoss(size_average=False)
+
+        criterion_train = weighted_mse_loss
+        criterion_test = nn.MSELoss(reduction = 'sum')
 
         self.loss_list = []
         self.accuracy_list = []
@@ -167,24 +176,20 @@ class ProtDCTF(ProtocolBase):
             print('\nEpoch:', epoch, '/', self.epochs.get())
             train(model, device, data_loader, optimizer, criterion_train)
             if self.weightEveryEpoch:
-                model.train()
-                torch.save(model.cpu(), os.path.join(
-                    self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
-                if use_cuda:
-                    model.cuda()
+                torch.save(model.cpu().state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
+                model = model.to(device)
 
             loss = self.calcLoss(model, data_loader, device, criterion_test)
             self.loss_list.append(loss)
 
         if not self.weightEveryEpoch:
             model.train()
-            torch.save(model.cpu(), os.path.join(
-                self.weightFolder.get(), 'model.pt'))
+            torch.save(model.cpu(), os.path.join(self.weightFolder.get(), 'model.pt'))
 
         print(self.loss_list)
         self.plot_loss_screening(self.loss_list)
 
-    def plot_loss_screening(self, loss_list):                
+    def plot_loss_screening(self, loss_list):
         plt.figure(figsize=(11, 8))
         plt.plot(loss_list)
         plt.title('Loss function')
@@ -198,7 +203,8 @@ class ProtDCTF(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path)
+        # this file path need to be changed 
+        trainset = LoaderPredict(images_path, '/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -206,7 +212,7 @@ class ProtDCTF(ProtocolBase):
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
-        print('Device:', device)        
+        print('Device:', device)
         # Create the model and load weights
         model = Regresion(size_in=(1, 512, 512), size_out=4)
         model.load_state_dict(torch.load(self.weightsfile.get()))
@@ -219,12 +225,12 @@ class ProtDCTF(ProtocolBase):
         with torch.no_grad():
             for data in data_loader:
                 # Move tensors to the configured device
-                data, target = data['image'].to(device), data['label'].to(device)
+                data, target = data['image'].to(device), data['target'].to(device)
                 # Forward pass
                 output = model(data)
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
-                
+
         return test_loss / len(data_loader.dataset)
 
 
@@ -239,8 +245,8 @@ def predict(model, device, data_loader, trainset):
             # Move tensors to the configured device
             data = data['image'].to(device)
             # Forward pass
-            output = model(data)                        
-            output = trainset.normalization.inv_transform(output.cpu().numpy())            
+            output = model(data)
+            output = trainset.normalization.inv_transform(output.cpu().numpy())
             results.append(output[0])
     return results
 
@@ -252,11 +258,11 @@ def train(model, device, train_loader, optimizer, loss_function):
     model.train()
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
-        data, target = data['image'].to(device), data['label'].to(device)
-
+        data, target = data['image'].to(device), data['target'].to(device)
+        
         # Forward pass
         output = model(data)
-        loss = loss_function(output, target)
+        loss = loss_function(output, target)       
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -264,7 +270,7 @@ def train(model, device, train_loader, optimizer, loss_function):
         optimizer.step()
 
         # Print data
-        if batch_idx % 20 == 0:
+        if batch_idx % 50 == 0:
             print('Train: [{}/{} ({:.0f}%)]    \tLoss: {:.6f}'.format(
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
@@ -285,7 +291,7 @@ class Regresion(nn.Module):
         self.Conv2d_4a_3x3 = nn.Conv2d(80, 192, kernel_size=3)
 
         self.flat_size = num_flat_features(self._get_conv_ouput(size_in))
-        
+
         self.fc1 = nn.Linear(self.flat_size, 400)
         self.fc2 = nn.Linear(400, size_out)
 
@@ -307,7 +313,7 @@ class Regresion(nn.Module):
         x = F.dropout2d(x)
         x = F.relu(x)
 
-        x = F.max_pool2d(x, kernel_size=3, stride=2) 
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
 
         x = self.Conv2d_3b_1x1(x)
         x = F.dropout2d(x)
@@ -335,26 +341,24 @@ class LoaderPredict(Dataset):
     Class to load the dataset for predict
     """
 
-    def __init__(self, datafiles):
+    def __init__(self, datafiles, norm_file):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
-                            
+
         self.normalization = Normalization(None)
-        #this file path need to be changed
-        self.normalization.load('/home/alex/norm.txt')
+        self.normalization.load(norm_file)
         self._data = [i for i in datafiles]
-        
-        
+
     def __len__(self):
         return len(self._data)
-        
-    def __getitem__(self, index):           
-        img_path = self._data[index]        
-        img = self.open_image(img_path)        
-        return {'image': img, 'name': img_path }
 
-    def open_image(self, filename):        
-        img = loadMrc(filename)        
+    def __getitem__(self, index):
+        img_path = self._data[index]
+        img = self.open_image(img_path)
+        return {'image': img, 'name': img_path}
+
+    def open_image(self, filename):
+        img = loadMrc(filename)
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)
@@ -367,27 +371,32 @@ class LoaderTrain(Dataset):
     Class to load the dataset for predict
     """
 
-    def __init__(self, data):
+    def __init__(self, data, norm_file):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
-                            
-        self.normalization = Normalization(None)
-        #this file path need to be changed
-        self.normalization.load('/home/alex/norm.txt')
+
+        self.normalization = Normalization(None)        
+        self.normalization.load(norm_file)
+
+        dataMatrix = np.array([d['target'] for d in data])
+        dataMatrix = self.normalization.transform(dataMatrix)
+        
+        for i in range(len(data)):
+            data[i]['target'] = dataMatrix[i]
+        
         self._data = data
-        
-        
+
     def __len__(self):
         return len(self._data)
-        
-    def __getitem__(self, index):           
+
+    def __getitem__(self, index):
         img_path = self._data[index]['img']
         target = self._data[index]['target']
         img = self.open_image(img_path)
-        return {'image': img, 'target': target,'name': img_path }
+        return {'image': img, 'target': target, 'name': img_path}
 
-    def open_image(self, filename):        
-        img = loadMrc(filename)        
+    def open_image(self, filename):
+        img = loadMrc(filename)
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)
@@ -396,7 +405,7 @@ class LoaderTrain(Dataset):
 
 
 class Normalization():
-    
+
     def __init__(self, dataMatrix):
 
         if dataMatrix is None:
@@ -407,47 +416,48 @@ class Normalization():
         self.set_mean_std(dataMatrix)
 
     def set_max_min(self, dataMatrix):
-        self._min_value = dataMatrix.min(axis = 0)
-        self._max_value = dataMatrix.max(axis = 0)
-    
+        self._min_value = dataMatrix.min(axis=0)
+        self._max_value = dataMatrix.max(axis=0)
+
     def set_mean_std(self, dataMatrix):
-        self._mean = dataMatrix.mean(axis = 0)
-        self._std = dataMatrix.std(axis = 0)
+        self._mean = dataMatrix.mean(axis=0)
+        self._std = dataMatrix.std(axis=0)
 
     def scale(self, data):
         return (data - self._min_value) / (self._max_value - self._min_value)
-        
-    def standard_score(self, data):        
+
+    def standard_score(self, data):
         return (data - self._mean) / self._std
-    
+
     def inv_scale(self, data):
         return data * (self._max_value - self._min_value) + self._min_value
-        
+
     def inv_standard_score(self, data):
         return data * self._std + self._mean
 
     def transform(self, data):
         data = self.scale(data)
-        return self.standard_score(data)        
+        return self.standard_score(data)
 
     def inv_transform(self, data):
         data = self.inv_standard_score(data)
         return self.inv_scale(data)
 
     def save(self, filename):
-        data = {'min': self._min_value.tolist(), 'max': self._max_value.tolist(), 'mean': self._mean.tolist(), 'std': self._std.tolist()}
-        with open(filename, 'w') as outfile:        
+        data = {'min': self._min_value.tolist(), 'max': self._max_value.tolist(
+        ), 'mean': self._mean.tolist(), 'std': self._std.tolist()}
+        with open(filename, 'w') as outfile:
             json.dump(data, outfile)
-    
+
     def load(self, filename):
         with open(filename) as file:
-            data = json.load(file)            
+            data = json.load(file)
             self._min_value = np.array(data['min'], dtype=np.float32)
             self._max_value = np.array(data['max'], dtype=np.float32)
             self._mean = np.array(data['mean'], dtype=np.float32)
-            self._std = np.array(data['std'], dtype=np.float32)        
-    
-    def print_values(self):        
+            self._std = np.array(data['std'], dtype=np.float32)
+
+    def print_values(self):
         print('Min:', self._min_value)
         print('Max:', self._max_value)
         print('Mean:', self._mean)
@@ -455,7 +465,7 @@ class Normalization():
 
 
 def weighted_mse_loss(input, target):
-    weight = 10 * torch.abs(target[:,0] - target[:,1])
-    loss = (input - target) ** 2    
-    loss[:,2] = weight * loss[:,2]
+    weight = 10 * torch.abs(target[:, 0] - target[:, 1])
+    loss = (input - target) ** 2
+    loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss)/len(loss)

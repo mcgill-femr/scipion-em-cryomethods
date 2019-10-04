@@ -1,6 +1,7 @@
 LICENSE
 MANIFEST.in
 README.md
+setup.py
 cryomethods/__init__.py
 cryomethods/constants.py
 cryomethods/convert.py
@@ -9,6 +10,8 @@ cryomethods/viewers.py
 cryomethods/wizards.py
 cryomethods/protocols/__init__.py
 cryomethods/protocols/protocol_2d_auto_classifier.py
+cryomethods/protocols/protocol_CNN.py
+cryomethods/protocols/protocol_CTF.py
 cryomethods/protocols/protocol_auto_classifier.py
 cryomethods/protocols/protocol_base.py
 cryomethods/protocols/protocol_volume_selector.py
