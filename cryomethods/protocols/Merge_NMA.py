@@ -804,10 +804,11 @@ class ProtLandscapeNMA(em.EMProtocol):
         print (inputVol, "inputVol")
         fnMask = None
         fnIn = getImageLocation(inputVol)
+        fn_one= self._getPath(fnIn)
         print (fnIn, "fnIn")
         self.runJob("xmipp_image_convert",
                 "-i %s -o %s output_vol.mrc -t vol"
-                % (fnIn, self._getPath(inputVol)),
+                % (fnIn, fn_one),
                 numberOfMpi=1, numberOfThreads=1)
 
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
