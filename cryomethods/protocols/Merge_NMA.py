@@ -809,6 +809,8 @@ class ProtLandscapeNMA(em.EMProtocol):
                     "-i %s -o output_vol.mrc -t vol"
                     % (fnIn),
                     numberOfMpi=1, numberOfThreads=1)
+        for suffix in ["output_vol.mrc"]:
+            moveFile(self._getPath(fnIn + suffix))
 
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
