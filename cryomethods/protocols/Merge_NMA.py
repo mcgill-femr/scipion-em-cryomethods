@@ -802,14 +802,13 @@ class ProtLandscapeNMA(em.EMProtocol):
     def convertVolumeStep(self):
         inputVol = self.inputVolume.get()
         fnIn = getImageLocation(inputVol)
-
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
                          % (fnIn, fnMask, self.maskThreshold.get())
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
-        else:
+        elif self.maskMode == NMA_MASK_FILE:
             fnMask = getImageLocation(self.volumeMask.get())
 
         print ("fnmask1")
