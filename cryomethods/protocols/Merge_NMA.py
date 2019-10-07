@@ -806,11 +806,16 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnIn = getImageLocation(inputVol)
         print (fnIn, "fnIn")
         self.runJob("xmipp_image_convert",
-                    "-i %s -o output_vol.mrc -t vol"
-                    % (fnIn),
-                    numberOfMpi=1, numberOfThreads=1)
-        for suffix in ["output_vol.mrc"]:
-            moveFile(self._getPath(fnIn + suffix))
+                "-i %s -o %s output_vol.mrc -t vol"
+                % (fnIn, self._getPath(inputVol)),
+                numberOfMpi=1, numberOfThreads=1)
+
+        # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
+        #
+        # self.info("Output file: " + outFile)
+
+
+
 
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
