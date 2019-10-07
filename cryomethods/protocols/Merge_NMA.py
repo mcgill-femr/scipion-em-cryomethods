@@ -805,6 +805,11 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnMask = None
         fnIn = getImageLocation(inputVol)
         print (fnIn, "fnIn")
+        self.runJob("xmipp_image_convert",
+                    "-i %s_volume.vol -o %s_volume.mrc -t vol"
+                    % (fnIn, fnIn),
+                    numberOfMpi=1, numberOfThreads=1)
+
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
