@@ -815,6 +815,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         print ("fnmask1")
         pseudoatoms = 'pseudoatoms'
         outputFn = self._getPath(pseudoatoms)
+        print (outputFn, "outputFn")
         sampling = inputVol.getSamplingRate()
         sigma = sampling * self.pseudoAtomRadius.get()
         targetErr = self.pseudoAtomTarget.get()
