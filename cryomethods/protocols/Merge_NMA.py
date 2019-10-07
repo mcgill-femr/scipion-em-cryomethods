@@ -810,9 +810,8 @@ class ProtLandscapeNMA(em.EMProtocol):
                 "-i %s -o %s/output_vol.mrc -t vol"
                 % (fnIn, fn_one),
                 numberOfMpi=1, numberOfThreads=1)
-
-        fnIn_after= getImageLocation("output_vol.mrc")
-        print ( fnIn_after, "fnIn_after")
+        fnOut= self._getPath("output_vol.mrc")
+        print ( fnOut, "fnOut")
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
         #
         # self.info("Output file: " + outFile)
@@ -823,7 +822,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
-                         % ( fnIn_after, fnMask, self.maskThreshold.get())
+                         % ( fnOut, fnMask, self.maskThreshold.get())
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
         elif self.maskMode == NMA_MASK_FILE:
@@ -837,7 +836,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         sigma = sampling * self.pseudoAtomRadius.get()
         targetErr = self.pseudoAtomTarget.get()
         nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
-        params = "-i %( fnIn_after)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+        params = "-i %(fnOut)s -o %(outputFn)s --sigma %(sigma)f --thr " \
                  "%(nthreads)d "
         params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
                   "-v 2 --intensityColumn Bfactor"
