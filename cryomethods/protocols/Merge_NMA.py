@@ -807,10 +807,10 @@ class ProtLandscapeNMA(em.EMProtocol):
         fn_one= self._getExtraPath()
         print (fnIn, "fnIn")
         self.runJob("xmipp_image_convert",
-                "-i %s -o %s/output_vol.mrc -t vol"
+                "-i %s -o %s/output_vol.mrc:mrc"
                 % (fnIn, fn_one),
                 numberOfMpi=1, numberOfThreads=1)
-        fnOut= self._getExtraPath("output_vol.mrc")
+        fnOut= self._getExtraPath("output_vol.mrc:mrc")
         print ( fnOut, "fnOut")
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
         #
