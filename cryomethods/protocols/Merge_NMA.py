@@ -804,17 +804,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         print (inputVol, "inputVol")
         fnMask = None
         fnIn = getImageLocation(inputVol)
-        # fn_one= self._getExtraPath()
-        # print (fnIn, "fnIn")
-        # self.runJob("xmipp_image_convert",
-        #         "-i %s -o %s/output_vol.mrc:mrc -t vol"
-        #         % (fnIn, fn_one),
-        #         numberOfMpi=1, numberOfThreads=1)
-        # fnOut= self._getExtraPath("output_vol.mrc:mrc")
-        # print (fnOut, "fnOut")
-        # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
-        #
-        # self.info("Output file: " + outFile)
+
 
 
 
@@ -860,6 +850,19 @@ class ProtLandscapeNMA(em.EMProtocol):
                     (self._getExtraPath(pseudoatoms), sampling),
                         numberOfMpi=1, numberOfThreads=1)
         cleanPattern(self._getPath(pseudoatoms + '_*'))
+
+        # fn_one= self._getExtraPath()
+        # print (fnIn, "fnIn")
+        # self.runJob("xmipp_image_convert",
+        #         "-i %s -o %s/output_vol.mrc:mrc -t vol"
+        #         % (fnIn, fn_one),
+        #         numberOfMpi=1, numberOfThreads=1)
+        # fnOut= self._getExtraPath("output_vol.mrc:mrc")
+        # print (fnOut, "fnOut")
+        # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
+        #
+        # self.info("Output file: " + outFile)
+
 
     def computeNMAStep(self):
         # self.structureEM = self._getPath('pseudoatoms.pdb')
