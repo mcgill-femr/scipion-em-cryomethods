@@ -804,14 +804,14 @@ class ProtLandscapeNMA(em.EMProtocol):
         print (inputVol, "inputVol")
         fnMask = None
         fnIn = getImageLocation(inputVol)
-        fn_one= self._getExtraPath()
-        print (fnIn, "fnIn")
-        self.runJob("xmipp_image_convert",
-                "-i %s -o %s/output_vol.mrc:mrc -t vol"
-                % (fnIn, fn_one),
-                numberOfMpi=1, numberOfThreads=1)
-        fnOut= self._getExtraPath("output_vol.mrc:mrc")
-        print ( fnOut, "fnOut")
+        # fn_one= self._getExtraPath()
+        # print (fnIn, "fnIn")
+        # self.runJob("xmipp_image_convert",
+        #         "-i %s -o %s/output_vol.mrc:mrc -t vol"
+        #         % (fnIn, fn_one),
+        #         numberOfMpi=1, numberOfThreads=1)
+        # fnOut= self._getExtraPath("output_vol.mrc:mrc")
+        # print (fnOut, "fnOut")
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
         #
         # self.info("Output file: " + outFile)
@@ -822,7 +822,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
-                         % (fnOut, fnMask, self.maskThreshold.get())
+                         % (fnIn, fnMask, self.maskThreshold.get())
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
         elif self.maskMode == NMA_MASK_FILE:
@@ -836,7 +836,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         sigma = sampling * self.pseudoAtomRadius.get()
         targetErr = self.pseudoAtomTarget.get()
         nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
-        params = "-i %(fnOut)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+        params = "-i %(fnIn)s -o %(outputFn)s --sigma %(sigma)f --thr " \
                  "%(nthreads)d "
         params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
                   "-v 2 --intensityColumn Bfactor"
