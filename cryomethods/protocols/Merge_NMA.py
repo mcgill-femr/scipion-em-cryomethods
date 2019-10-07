@@ -1267,7 +1267,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                         fnList.append(filename)
                     elif 'ENDMDL' not in line:
                         outfile.write(line)
-                fnList = fnList[:-1]
+                fnList = fnList[:len(fnList)/2]
 
         # fnListl = sorted(fnList)
         print (fnList, "fnlist")
