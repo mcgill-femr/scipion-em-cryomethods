@@ -811,7 +811,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 % (fnIn, fn_one),
                 numberOfMpi=1, numberOfThreads=1)
 
-        fnIn_after= self._getExtraPath("output_vol.mrc")
+        fnIn_after= getImageLocation("output_vol.mrc")
         print ( fnIn_after, "fnIn_after")
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
         #
