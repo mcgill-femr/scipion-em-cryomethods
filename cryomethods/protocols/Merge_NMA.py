@@ -801,8 +801,10 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- STEP functions --------------------------------
     def convertVolumeStep(self):
         inputVol = self.inputVolume.get()
+        print (inputVol, "inputVol")
         fnMask = None
         fnIn = getImageLocation(inputVol)
+        print (fnIn, "fnIn")
         if self.maskMode == NMA_MASK_THRE:
             fnMask = self._getExtraPath('mask.vol')
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
