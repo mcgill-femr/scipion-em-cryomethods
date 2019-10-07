@@ -811,6 +811,8 @@ class ProtLandscapeNMA(em.EMProtocol):
                 % (fnIn, fn_one),
                 numberOfMpi=1, numberOfThreads=1)
 
+        print (fn_one, "fn_one")
+
         # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
         #
         # self.info("Output file: " + outFile)
