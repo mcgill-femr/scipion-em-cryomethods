@@ -806,8 +806,8 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnIn = getImageLocation(inputVol)
         print (fnIn, "fnIn")
         self.runJob("xmipp_image_convert",
-                    "-i %s.vol -o %s.mrc -t vol"
-                    % (fnIn, fnIn),
+                    "-i %s -o output_vol.mrc -t vol"
+                    % (fnIn),
                     numberOfMpi=1, numberOfThreads=1)
 
         if self.maskMode == NMA_MASK_THRE:
