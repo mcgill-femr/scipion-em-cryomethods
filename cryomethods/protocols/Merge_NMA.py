@@ -189,7 +189,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       label='Mask volume',
                       condition='maskMode==%d' % NMA_MASK_FILE,
                       )
-        form.addParam('pseudoAtomRadius', FloatParam, default=1,
+        form.addParam('pseudoAtomRadius', FloatParam, default=10,
                       label='Pseudoatom radius (vox)',
                       help='Pseudoatoms are defined as Gaussians whose \n'
                            'standard deviation is this value in voxels')
