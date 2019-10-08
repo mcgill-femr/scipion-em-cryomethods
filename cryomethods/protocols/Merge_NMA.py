@@ -1260,14 +1260,17 @@ class ProtLandscapeNMA(em.EMProtocol):
                 for line in infile:
                     if 'TER' in line:
                         i += 1
-                        if i == 6:
+                        if i == self.nframes.get():
                             break
                         filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                         outfile = open(filename, 'w')
                         fnList.append(filename)
+
                     elif 'ENDMDL' not in line:
                         outfile.write(line)
+
                 # fnList = fnList[:len(fnList)/2]
+
 
         # fnListl = sorted(fnList)
         print (fnList, "fnlist")
@@ -1288,6 +1291,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 args += ' --centerPDB'
 
             args += ' --size %d' % size
+            print (size, "sizepdb")
 
             self.info("Input file: " + fn)
             self.info("Output file: " + outFile)
