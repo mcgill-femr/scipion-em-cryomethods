@@ -447,3 +447,31 @@ def normalize(mat):
     b = mat.max()
     mat = (mat-a)/(b-a)
     return mat
+
+def calcPsd(img):
+    """
+    Calculate PSD using periodogram
+    """
+    img_f = np.fft.fft2(img)
+    img_f = np.fft.fftshift(img_f)
+    img_f = abs(img_f)
+    # img_f = img_f * img_f
+    rows, cols = img_f.shape
+    img_f = img_f / (rows * cols)
+    return img_f
+
+
+def calcAvgPsd(img, windows_size = 256, step_size = 128):
+    """
+    Calculate PSD using average periodogram
+    """
+    print(img.shape)
+    rows, cols = img.shape
+    avg_psd = np.zeros((windows_size, windows_size))    
+    count = 0
+    for i in range(0, rows - windows_size, step_size):    
+        for j in range(0, cols - windows_size, step_size):
+            count +=1            
+            avg_psd += calcPsd(img[i:i+windows_size, j:j+windows_size])
+    avg_psd /= count
+    return np.log(avg_psd)    

@@ -13,7 +13,7 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 
 from .protocol_base import ProtocolBase
 
-from ..functions import num_flat_features
+from ..functions import num_flat_features, calcAvgPsd
 
 from pyworkflow.em.data import CTFModel
 
@@ -34,7 +34,7 @@ class ProtDCTF(ProtocolBase):
     """
     Calculate the CTF with deep learning.
     """
-    _label = 'DCTF'
+    _label = 'CTFDeep'
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -109,7 +109,7 @@ class ProtDCTF(ProtocolBase):
 
     def runCTFStep(self):
         if self.predictEnable:
-            self.results = self.predict_CTF(self.images_path)
+            self.psd_list, self.results = self.predict_CTF(self.images_path)
         else:
             self.train_nn(self.data)
 
@@ -119,8 +119,8 @@ class ProtDCTF(ProtocolBase):
             for i, img in enumerate(self.imgSet):
                 ctf = CTFModel()
                 ctf.setResolution(self.results[i][3])                
-                ctf.setMicrograph(img)                
-                ctf.setPsdFile(img.getMicName())
+                ctf.setMicrograph(img)
+                ctf.setPsdFile(self.psd_list[i])
                 ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
                 self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
@@ -142,6 +142,7 @@ class ProtDCTF(ProtocolBase):
 
     # --------------- UTILS functions -------------------------
 
+    
     def train_nn(self, images_path):
         """
         Method to create the model and train it
@@ -190,6 +191,9 @@ class ProtDCTF(ProtocolBase):
         self.plot_loss_screening(self.loss_list)
 
     def plot_loss_screening(self, loss_list):
+        """
+        Create the plot figure using the values of loss_list
+        """        
         plt.figure(figsize=(11, 8))
         plt.plot(loss_list)
         plt.title('Loss function')
@@ -208,7 +212,6 @@ class ProtDCTF(ProtocolBase):
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
-
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
@@ -220,6 +223,9 @@ class ProtDCTF(ProtocolBase):
         return predict(model, device, data_loader, trainset)
 
     def calcLoss(self, model, data_loader, device, loss_function):
+        """
+        Calculate the value of the loss function
+        """
         test_loss = 0
         model.eval()
         with torch.no_grad():
@@ -240,15 +246,21 @@ def predict(model, device, data_loader, trainset):
     """
     model.eval()
     results = []
+    psd_list = []
     with torch.no_grad():
         for data in data_loader:
             # Move tensors to the configured device
-            data = data['image'].to(device)
+            filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
+            image = data['image']
+            saveMrc(np.float32(image.numpy()), filename)
+            image = image.to(device)
             # Forward pass
-            output = model(data)
+            output = model(image)
             output = trainset.normalization.inv_transform(output.cpu().numpy())
+            # Save results
             results.append(output[0])
-    return results
+            psd_list.append(filename)
+    return psd_list, results
 
 
 def train(model, device, train_loader, optimizer, loss_function):
@@ -355,22 +367,22 @@ class LoaderPredict(Dataset):
     def __getitem__(self, index):
         img_path = self._data[index]
         img = self.open_image(img_path)
+        img.unsqueeze_(0)
         return {'image': img, 'name': img_path}
 
     def open_image(self, filename):
         img = loadMrc(filename)
-        _min = img.min()
-        _max = img.max()
-        img = (img - _min) / (_max - _min)
-        img = np.resize(img, (1, 512, 512))
-        return torch.from_numpy(img)
-
+        # _min = img.min()
+        # _max = img.max()
+        # img = (img - _min) / (_max - _min)
+        psd = calcAvgPsd(img[0,:,:], windows_size = 512, step_size = 128)
+        # img = np.resize(img, (1, 512, 512))
+        return torch.from_numpy(np.float32(psd))
 
 class LoaderTrain(Dataset):
     """
-    Class to load the dataset for predict
+    Class to load the dataset for train
     """
-
     def __init__(self, data, norm_file):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
@@ -392,7 +404,7 @@ class LoaderTrain(Dataset):
     def __getitem__(self, index):
         img_path = self._data[index]['img']
         target = self._data[index]['target']
-        img = self.open_image(img_path)
+        img = self.open_image(img_path)        
         return {'image': img, 'target': target, 'name': img_path}
 
     def open_image(self, filename):
