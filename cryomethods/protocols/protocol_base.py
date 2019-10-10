@@ -715,7 +715,7 @@ class ProtocolBase(em.EMProtocol):
         return []
 
     def _citations(self):
-        cites = []
+        cites = ['GomezBlanco2019']
         return cites
 
     def _summary(self):
