@@ -186,8 +186,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
         self._copyLevelMaps()
         self._evalStop()
         self._mergeMetaDatas()
-        # self._getAverageVol()
-        # self._alignVolumes()
         print('Finishing evaluation step')
 
     def createOutputStep(self):
@@ -218,36 +216,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
     def _getMapById(self, mapId):
         level = int(mapId.split('.')[0])
         return self._getFileName('image', lev=level, id=mapId)
-
-    def _evalStop(self):
-        noOfLevRuns = self._getLevRuns(self._level)
-        print("dataModel's loop to evaluate stop condition")
-
-        for rLev in noOfLevRuns:
-            iters = self._lastIter(rLev)
-            modelFn = self._getFileName('model', iter=iters,
-                                        lev=self._level, rLev=rLev)
-            modelMd = md.MetaData('model_classes@' + modelFn)
-            partSize = md.getSize(self._getFileName('input_star',
-                                                    lev=self._level, rLev=rLev))
-            clsId = 1
-            for row in md.iterRows(modelMd):
-                fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-                mapId = self._mapsDict[fn]
-                classSize = row.getValue('rlnClassDistribution') * partSize
-                ptcStop = self.minPartsToStop.get()
-                clsId += 1
-                print("ValuesStop: parts %d" %classSize)
-
-                if classSize < ptcStop:
-                    self.stopDict[mapId] = True
-                    if not bool(self._clsIdDict):
-                        self._clsIdDict[mapId] = 1
-                    else:
-                        classId = sorted(self._clsIdDict.values())[-1] + 1
-                        self._clsIdDict[mapId] = classId
-                else:
-                    self.stopDict[mapId] = False
 
     def _mergeDataStar(self, rLev):
         iters = self._lastIter(rLev)

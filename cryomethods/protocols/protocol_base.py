@@ -162,6 +162,7 @@ class ProtocolBase(em.EMProtocol):
                                 'the initial references.')
         elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
+
             group.addParam('minPartsToStop', params.FloatParam, default=5000,
                            label='min particles to stop',
                            help='Minimum number of particles per class that is '
@@ -174,8 +175,16 @@ class ProtocolBase(em.EMProtocol):
                                 'a single reference by division of the data '
                                 'into random subsets during the first '
                                 'iteration.')
-            group.addParam('classMethod', params.EnumParam,
-                           default=1, choices=METHOD,
+            group.addParam('useReslog', params.BooleanParam,
+                           default=True, expertLevel=em.LEVEL_ADVANCED,
+                           label='Use reslog as stop condition?:',
+                           help='')
+            group.addParam('doGrouping', params.BooleanParam,
+                           default=True, expertLevel=em.LEVEL_ADVANCED,
+                           label='Grouping the classes:',
+                           help='')
+            group.addParam('classMethod', params.EnumParam, default=1,
+                           choices=METHOD, condition='doGrouping',
                            label='Method to determine the classes:',
                            help='')
 

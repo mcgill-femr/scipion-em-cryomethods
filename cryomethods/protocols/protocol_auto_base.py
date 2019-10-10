@@ -77,7 +77,7 @@ class ProtAutoBase(ProtocolBase):
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._level = 0 if self.IS_3D else 1
+        self._level = 0 if self.IS_3D and self.useReslog else 1
         self._rLev = 1
         self._evalIdsList = []
         self._doneList = []
@@ -245,14 +245,6 @@ class ProtAutoBase(ProtocolBase):
             # if self.IS_2D:
             args['--K'] = 1
             args['--iter'] = iters
-            # else:
-            #     del args['--iter']
-            #     del args['--K']
-            #     del args['--tau2_fudge']
-            #     args['--auto_local_healpix_order'] = args['--healpix_order'] + 2
-            #     args['--low_resol_join_halves'] = 40
-            #     args['--auto_refine'] = ''
-            #     args['--split_random_halves'] = ''
 
             mapId = mapIds[rLev-1]
             if self.IS_3D:
@@ -414,10 +406,8 @@ class ProtAutoBase(ProtocolBase):
         noOfLevRuns = self._getLevRuns(self._level)
         print("dataModel's loop to evaluate stop condition")
 
-        x = [k for k, v in self.stopResLog.items()]
-        y = [v for k, v in self.stopResLog.items()]
-        slope, y0, _, _, err = stats.linregress(x, y)
-        print("EvalStop mx+n: m: %0.4f, n %0.4f,  err %0.4f" % (slope, y0, err))
+        if self.IS_3D and self.useReslog:
+            slope, y0, err = self._getReslogVars()
 
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
@@ -430,21 +420,26 @@ class ProtAutoBase(ProtocolBase):
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 mapId = self._mapsDict[fn]
-                suffixSsnr = 'model_class_%d@' % clsId
-                ssnrMd = md.MetaData(suffixSsnr + modelFn)
 
-                f = self._getFunc(ssnrMd)
                 classSize = row.getValue('rlnClassDistribution') * partSize
-                ExpcVal = slope*np.math.log10(classSize) + y0
-
                 ptcStop = self.minPartsToStop.get()
-                val = f(1) + (2*err)
 
-                clsId += 1
-                print("StopValues: Val SSnr=1: %0.4f, parts %d, ExpcVal %0.4f"
-                      % (val, classSize, ExpcVal))
+                if self.IS_3D and self.useReslog:
 
-                if classSize < ptcStop or (val < ExpcVal and self._level >= 2):
+                    suffixSsnr = 'model_class_%d@' % clsId
+                    ssnrMd = md.MetaData(suffixSsnr + modelFn)
+                    f = self._getFunc(ssnrMd)
+                    ExpcVal = slope*np.math.log10(classSize) + y0
+                    val = f(1) + (2*err)
+
+                    clsId += 1
+                    print("StopValues: Val SSnr=1: %0.4f, parts %d, ExpcVal "
+                          "%0.4f" % (val, classSize, ExpcVal))
+                    evalSlope = val < ExpcVal and self._level > 2
+                else:
+                    evalSlope = False
+
+                if classSize < ptcStop or evalSlope:
                     self.stopDict[mapId] = True
                     if not bool(self._clsIdDict):
                         self._clsIdDict[mapId] = 1
@@ -453,6 +448,13 @@ class ProtAutoBase(ProtocolBase):
                         self._clsIdDict[mapId] = classId
                 else:
                     self.stopDict[mapId] = False
+
+    def _getReslogVars(self):
+        x = [k for k, v in self.stopResLog.items()]
+        y = [v for k, v in self.stopResLog.items()]
+        slope, y0, _, _, err = stats.linregress(x, y)
+        print("EvalStop mx+n: m: %0.4f, n %0.4f,  err %0.4f" % (slope, y0, err))
+        return slope, y0, err
 
     def _mergeMetaDatas(self):
         print('--------MERGEMETADATAS-----------')
