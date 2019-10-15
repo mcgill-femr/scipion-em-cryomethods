@@ -153,7 +153,6 @@ class TestAlignVolumes(TestBase):
                               '/002624_ProtAutoClassifier/extra/lev_03/'
                               'map_id-03.0??.mrc'))
         self._getAverageVol(volList)
-
         # for i in range(4):
         dictNames = {}
         groupDict = {}

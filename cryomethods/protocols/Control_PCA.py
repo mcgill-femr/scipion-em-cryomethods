@@ -27,6 +27,7 @@ from cryomethods.convert import writeSetOfParticles
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 from matplotlib import *
+import sys
 
 
 
@@ -173,6 +174,8 @@ class ProtLandscapePCA(ProtocolBase):
 
 
     def estimatePCAStep(self):
+        self._createFilenameTemplates()
+
         Plugin.setEnviron()
         listNpVol = []
 
@@ -263,9 +266,8 @@ class ProtLandscapePCA(ProtocolBase):
 
         print(' this is the matrix "vhDel": ', vhDel)
 
-        mf = self._getPath('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
-        print (mf, "mf")
 
+        # insert at 1, 0 is the script path (or '' in REPL)
 
         mat_one = []
         for vol in listVol:
@@ -285,6 +287,28 @@ class ProtLandscapePCA(ProtocolBase):
         # print (newBaseAxis, "newbase")
         # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
         print (matProj, "matProj")
+
+        volSet=[]
+        mf = '/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star'
+        modelFile = md.MataData(mf)
+        modelStar = md.MetaData('model_classes@' +
+                                self._getFileName(modelFile))
+        for row in md.iterRows(modelStar):
+            fn = row.getValue('rlnReferenceImage')
+
+            itemId = self._getClassId(fn)
+            classDistrib = row.getValue('rlnClassDistribution')
+
+            if classDistrib > 0:
+                vol = em.Volume()
+                vol.setObjId(itemId)
+                vol._rlnClassDistribution = em.Float(classDistrib)
+                volSet.append(vol)
+
+        # mf = self._getPath('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        print (mf, "mf")
+
+
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
         print (x_proj, "x_proj")
