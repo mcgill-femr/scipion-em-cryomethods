@@ -1393,7 +1393,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnList = glob(totalVolumes)
         sizeList = len(fnList)
         selectedVols = self.numOfVols.get()
-        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
         # numOfRuns = int(-3 / b)
         numOfRuns= 3
         iter = self.numberOfIterations.get()
