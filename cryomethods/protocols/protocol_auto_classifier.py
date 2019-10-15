@@ -93,35 +93,13 @@ class Prot3DAutoClassifier(ProtAutoBase):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
-
         if self._level == 0:
-            imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
-
             makePath(self._getRunPath(self._level, 1))
-            imgSet = self._getInputParticles()
-            self.info("Converting set from '%s' into '%s'" %
-                      (imgSet.getFileName(), imgStar))
-
-            # Pass stack file as None to avoid write the images files
-            # If copyAlignment is set to False pass alignType to ALIGN_NONE
-            alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
-
-            hasAlign = alignType != em.ALIGN_NONE
-            alignToPrior = hasAlign and self.alignmentAsPriors.get()
-            fillRandomSubset = hasAlign and self.fillRandomSubset.get()
-
-            writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
-                                alignType=alignType,
-                                postprocessImageRow=self._postprocessParticleRow,
-                                fillRandomSubset=fillRandomSubset)
-            if alignToPrior:
-                self._copyAlignAsPriors(imgStar, alignType)
-
-            if self.doCtfManualGroups:
-                self._splitInCTFGroups(imgStar)
-
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
+            self._convertStar(copyAlignment, imgStar)
             mdInput = self._getMetadata(imgStar)
             mdSize = mdInput.size()
+            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
 
             for i in range(2, 10, 1):
                 makePath(self._getRunPath(self._level, i))
@@ -133,13 +111,13 @@ class Prot3DAutoClassifier(ProtAutoBase):
                 mdAux2.selectPart(mdAux1, 1, size)
                 mdAux2.write(mStar)
 
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
-
         elif self._level == 1:
-            makePath(self._getRunPath(self._level, 1))
-            imgStarLev0 = self._getFileName('input_star', lev=0, rLev=0)
             imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
-            copyFile(imgStarLev0, imgStar)
+            makePath(self._getRunPath(self._level, 1))
+            self._convertStar(copyAlignment, imgStar)
+
+            # find a clever way to avoid volume conversion if its already done.
+            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
 
         else:
             lastCls = None
@@ -288,3 +266,26 @@ class Prot3DAutoClassifier(ProtAutoBase):
             volList = volNp.reshape(lenght)
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
+
+    def _convertStar(self, copyAlignment, imgStar):
+        imgSet = self._getInputParticles()
+        self.info("Converting set from '%s' into '%s'" %
+                  (imgSet.getFileName(), imgStar))
+
+        # Pass stack file as None to avoid write the images files
+        # If copyAlignment is set to False pass alignType to ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
+
+        hasAlign = alignType != em.ALIGN_NONE
+        alignToPrior = hasAlign and self.alignmentAsPriors.get()
+        fillRandomSubset = hasAlign and self.fillRandomSubset.get()
+
+        writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+                            alignType=alignType,
+                            postprocessImageRow=self._postprocessParticleRow,
+                            fillRandomSubset=fillRandomSubset)
+        if alignToPrior:
+            self._copyAlignAsPriors(imgStar, alignType)
+
+        if self.doCtfManualGroups:
+            self._splitInCTFGroups(imgStar)

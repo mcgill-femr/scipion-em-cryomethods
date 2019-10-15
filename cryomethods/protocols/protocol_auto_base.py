@@ -192,95 +192,104 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def mergeClassesStep(self):
-        levelRuns = []
-        listMd = []
+        if self.doGrouping:
+            levelRuns = []
+            listMd = []
 
-        makePath(self._getLevelPath(self._level))
-        # matrix = self._estimatePCA()
-        listVol = self._getFinalMaps()
-        matrix, _ = self._mrcToNp(listVol)
+            makePath(self._getLevelPath(self._level))
+            # matrix = self._estimatePCA()
+            listVol = self._getFinalMaps()
+            matrix, _ = self._mrcToNp(listVol)
 
-        labels = self._clusteringData(matrix)
-        prevStar = self._getFileName('rawFinalData')
-        mdData = md.MetaData(prevStar)
+            labels = self._clusteringData(matrix)
+            prevStar = self._getFileName('rawFinalData')
+            mdData = md.MetaData(prevStar)
 
-        clsChange = 0
-        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            newClass = labels[clsPart-1] + 1
-            row.setValue(md.RLN_PARTICLE_CLASS, newClass)
-            if not newClass == clsChange:
-                levelRuns.append(newClass)
-                if not clsChange == 0:
-                    mdOutput.write(fn)
-                clsChange = newClass
-                fn = self._getFileName('input_star', lev=self._level,
-                                       rLev=newClass)
-                mdOutput = md.MetaData()
-            row.addToMd(mdOutput)
-        mdOutput.write(fn)
+            clsChange = 0
+            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+                newClass = labels[clsPart-1] + 1
+                row.setValue(md.RLN_PARTICLE_CLASS, newClass)
+                if not newClass == clsChange:
+                    levelRuns.append(newClass)
+                    if not clsChange == 0:
+                        mdOutput.write(fn)
+                    clsChange = newClass
+                    fn = self._getFileName('input_star', lev=self._level,
+                                           rLev=newClass)
+                    mdOutput = md.MetaData()
+                row.addToMd(mdOutput)
+            mdOutput.write(fn)
 
-        mapIds = self._getFinalMapIds()
-        print("final mapIds:", mapIds)
+            mapIds = self._getFinalMapIds()
+            print("final mapIds:", mapIds)
 
-        #-----metadata to save all final models-------
-        finalModel = self._getFileName('finalModel')
-        finalMd = self._getMetadata()
+            #-----metadata to save all final models-------
+            finalModel = self._getFileName('finalModel')
+            finalMd = self._getMetadata()
 
-        #-----metadata to save all final particles-----
-        finalData = self._getFileName('finalData')
-        finalDataMd = self._getMetadata()
-        print('BEFORE FINAL LOOP ')
+            #-----metadata to save all final particles-----
+            finalData = self._getFileName('finalData')
+            finalDataMd = self._getMetadata()
+            print('BEFORE FINAL LOOP ')
 
-        for rLev in levelRuns:
-            makePath(self._getRunPath(self._level, rLev))
-            self._rLev = rLev
-            iters = 15
-            args = {}
+            for rLev in levelRuns:
+                makePath(self._getRunPath(self._level, rLev))
+                self._rLev = rLev
+                iters = 15
+                args = {}
 
-            self._setNormalArgs(args)
-            self._setComputeArgs(args)
+                self._setNormalArgs(args)
+                self._setComputeArgs(args)
 
-            # if self.IS_2D:
-            args['--K'] = 1
-            args['--iter'] = iters
+                # if self.IS_2D:
+                args['--K'] = 1
+                args['--iter'] = iters
 
-            mapId = mapIds[rLev-1]
-            if self.IS_3D:
-                args['--ref'] = self._getRefArg(mapId)
+                mapId = mapIds[rLev-1]
+                if self.IS_3D:
+                    args['--ref'] = self._getRefArg(mapId)
 
-            params = self._getParams(args)
-            self.runJob(self._getProgram(), params)
+                params = self._getParams(args)
+                self.runJob(self._getProgram(), params)
 
-            modelFn = self._getFileName('model', iter=iters,
-                                        lev=self._level, rLev=rLev)
-            modelMd = self._getMetadata('model_classes@' + modelFn)
+                modelFn = self._getFileName('model', iter=iters,
+                                            lev=self._level, rLev=rLev)
+                modelMd = self._getMetadata('model_classes@' + modelFn)
 
-            refLabel = md.RLN_MLMODEL_REF_IMAGE
-            imgRow = md.getFirstRow(modelMd)
-            fn = imgRow.getValue(refLabel)
+                refLabel = md.RLN_MLMODEL_REF_IMAGE
+                imgRow = md.getFirstRow(modelMd)
+                fn = imgRow.getValue(refLabel)
 
-            mapId = self._getRunLevId(rLev=rLev)
-            newMap = self._getMapById(mapId)
-            imgRow.setValue(refLabel, newMap)
-            if self.IS_2D:
-                ih = em.ImageHandler()
-                ih.convert(fn, newMap)
-            else:
-                copyFile(fn, newMap)
-            self._mapsDict[fn] = mapId
+                mapId = self._getRunLevId(rLev=rLev)
+                newMap = self._getMapById(mapId)
+                imgRow.setValue(refLabel, newMap)
+                if self.IS_2D:
+                    ih = em.ImageHandler()
+                    ih.convert(fn, newMap)
+                else:
+                    copyFile(fn, newMap)
+                self._mapsDict[fn] = mapId
 
-            imgRow.addToMd(finalMd)
+                imgRow.addToMd(finalMd)
 
-            dataFn = self._getFileName('data', iter=iters,
-                                       lev=self._level, rLev=rLev)
-            dataMd = self._getMetadata(dataFn)
-            for row in md.iterRows(dataMd):
-                row.setValue(md.RLN_PARTICLE_CLASS, rLev)
-                row.addToMd(finalDataMd)
+                dataFn = self._getFileName('data', iter=iters,
+                                           lev=self._level, rLev=rLev)
+                dataMd = self._getMetadata(dataFn)
+                for row in md.iterRows(dataMd):
+                    row.setValue(md.RLN_PARTICLE_CLASS, rLev)
+                    row.addToMd(finalDataMd)
 
-        finalDataMd.write(finalData)
-        finalMd.write('model_classes@' + finalModel)
+            finalDataMd.write(finalData)
+            finalMd.write('model_classes@' + finalModel)
+        else:
+            prevData = self._getFileName('rawFinalData')
+            finalData = self._getFileName('finalData')
+            prevModel = self._getFileName('rawFinalModel')
+            finalModel = self._getFileName('finalModel')
+            copyFile(prevData, finalData)
+            copyFile(prevModel, prevModel)
+
 
     def createOutputStep(self):
         """ Implemented in subclasses. """
