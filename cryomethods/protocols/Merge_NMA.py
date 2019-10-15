@@ -792,10 +792,10 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
 
-        # self._insertFunctionStep('convertVolumeStep')
-        # self._insertFunctionStep('computeNMAStep')
-        # self._insertFunctionStep('convertPdbStep')
-        # self._insertFunctionStep('particleAttrStep')
+        self._insertFunctionStep('convertVolumeStep')
+        self._insertFunctionStep('computeNMAStep')
+        self._insertFunctionStep('convertPdbStep')
+        self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
