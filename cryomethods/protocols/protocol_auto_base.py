@@ -201,7 +201,6 @@ class ProtAutoBase(ProtocolBase):
         matrix, _ = self._mrcToNp(listVol)
 
         labels = self._clusteringData(matrix)
-        print("labels: ", labels)
         prevStar = self._getFileName('rawFinalData')
         mdData = md.MetaData(prevStar)
 
@@ -335,11 +334,6 @@ class ProtAutoBase(ProtocolBase):
             mapsLevelIds = [k for k in mapsIds if k.split('.')[0] == '%02d' % l]
             rLevList = [int(k.split('.')[-1]) for k,v in self.stopDict.items()
                         if v is False and k.split('.')[0] == '%02d' % l]
-
-            print "level",  l, "self.stopDict",  self.stopDict
-            print "mapsIds", mapsIds, "mapsLevelIds", mapsLevelIds
-            print "rLevList", rLevList
-
             return rLevList
 
     def _getRefArg(self, mapId=None):
@@ -377,26 +371,24 @@ class ProtAutoBase(ProtocolBase):
 
     def _copyLevelMaps(self):
         noOfLevRuns = self._getLevRuns(self._level)
-        print('_copyLevelMaps, noOfLevRuns: ', noOfLevRuns)
         claseId = 0
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
-            print ("last iteration  _copyLevelMaps:", iters)
-
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
+
             for row in md.iterRows(modelMd):
                 claseId += 1
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-
-                mapId = self._getRunLevId(rLev=claseId)
-                newFn = self._getMapById(mapId)
-                print(('copy from %s to %s' % (fn, newFn)))
-                ih = em.ImageHandler()
-                ih.convert(fn, newFn)
-                # copyFile(fn, newFn)
-                self._mapsDict[fn] = mapId
+                clasDist = row.getValue('rlnClassDistribution')
+                if clasDist > 0:
+                    print("Meth: _copyLevelMaps, clasDist: ", clasDist)
+                    mapId = self._getRunLevId(rLev=claseId)
+                    newFn = self._getMapById(mapId)
+                    ih = em.ImageHandler()
+                    ih.convert(fn, newFn)
+                    self._mapsDict[fn] = mapId
 
     def _condToStop(self):
         outModel = self._getFileName('outputModel', lev=self._level)
@@ -404,7 +396,6 @@ class ProtAutoBase(ProtocolBase):
 
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
-        print("dataModel's loop to evaluate stop condition")
 
         if self.IS_3D and self.useReslog:
             slope, y0, err = self._getReslogVars()
@@ -419,35 +410,38 @@ class ProtAutoBase(ProtocolBase):
             clsId = 1
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-                mapId = self._mapsDict[fn]
+                clasDist = row.getValue('rlnClassDistribution')
+                classSize = clasDist * partSize
 
-                classSize = row.getValue('rlnClassDistribution') * partSize
-                ptcStop = self.minPartsToStop.get()
-
-                if self.IS_3D and self.useReslog:
-
-                    suffixSsnr = 'model_class_%d@' % clsId
-                    ssnrMd = md.MetaData(suffixSsnr + modelFn)
-                    f = self._getFunc(ssnrMd)
-                    ExpcVal = slope*np.math.log10(classSize) + y0
-                    val = f(1) + (2*err)
-
-                    clsId += 1
-                    print("StopValues: Val SSnr=1: %0.4f, parts %d, ExpcVal "
-                          "%0.4f" % (val, classSize, ExpcVal))
-                    evalSlope = val < ExpcVal and self._level > 2
-                else:
-                    evalSlope = False
-
-                if classSize < ptcStop or evalSlope:
-                    self.stopDict[mapId] = True
-                    if not bool(self._clsIdDict):
-                        self._clsIdDict[mapId] = 1
+                if clasDist > 0:
+                    mapId = self._mapsDict[fn]
+                    ptcStop = self.minPartsToStop.get()
+                    if classSize < partSize:
+                        if self.IS_3D and self.useReslog:
+                            suffixSsnr = 'model_class_%d@' % clsId
+                            ssnrMd = md.MetaData(suffixSsnr + modelFn)
+                            f = self._getFunc(ssnrMd)
+                            ExpcVal = slope*np.math.log10(classSize) + y0
+                            val = f(1) + (2*err)
+                            clsId += 1
+                            print("StopValues: \n"
+                                  "Val SSnr=1: %0.4f, parts %d, ExpcVal "
+                                  "%0.4f" % (val, classSize, ExpcVal))
+                            evalSlope = val < ExpcVal and self._level > 2
+                        else:
+                            evalSlope = False
                     else:
-                        classId = sorted(self._clsIdDict.values())[-1] + 1
-                        self._clsIdDict[mapId] = classId
-                else:
-                    self.stopDict[mapId] = False
+                        evalSlope = True
+
+                    if classSize < ptcStop or evalSlope:
+                        self.stopDict[mapId] = True
+                        if not bool(self._clsIdDict):
+                            self._clsIdDict[mapId] = 1
+                        else:
+                            classId = sorted(self._clsIdDict.values())[-1] + 1
+                            self._clsIdDict[mapId] = classId
+                    else:
+                        self.stopDict[mapId] = False
 
     def _getReslogVars(self):
         x = [k for k, v in self.stopResLog.items()]
@@ -457,10 +451,8 @@ class ProtAutoBase(ProtocolBase):
         return slope, y0, err
 
     def _mergeMetaDatas(self):
-        print('--------MERGEMETADATAS-----------')
         noOfLevRuns = self._getLevRuns(self._level)
 
-        print("entering in the loop to merge dataModel")
         for rLev in noOfLevRuns:
             rLevId = self._getRunLevId(rLev=rLev)
             self._lastCls = None
@@ -469,11 +461,9 @@ class ProtAutoBase(ProtocolBase):
             self._mergeDataStar(rLev)
 
             self._doneList.append(rLevId)
-        print("finished _mergeMetaDatas function")
 
     def _mergeModelStar(self, rLev):
         iters = self._lastIter(rLev)
-        print ("last iteration: _mergeModelStar ", iters)
 
 
         #metadata to save all models that continues
@@ -483,7 +473,6 @@ class ProtAutoBase(ProtocolBase):
         #metadata to save all final models
         finalModel = self._getFileName('rawFinalModel')
         finalMd = self._getMetadata(finalModel)
-        print "final MD has at beggining: ", finalMd, "\n*******************\n"
 
         #read model metadata
         modelFn = self._getFileName('model', iter=iters,
@@ -498,17 +487,14 @@ class ProtAutoBase(ProtocolBase):
             row.setValue(refLabel, newMap)
             row.writeToMd(modelMd, row.getObjId())
             if self.stopDict[mapId]:
-                print "this MapId %s is finished" % mapId
                 row.addToMd(finalMd)
             else:
-                print "this MapId %s is not finished" % mapId
                 row.addToMd(outMd)
 
         if outMd.size() != 0:
             outMd.write(outModel)
 
         if finalMd.size() != 0:
-            print "final MD has: ", finalMd
             finalMd.write('model_classes@' + finalModel)
 
     def _mergeDataStar(self, rLev):
@@ -520,18 +506,14 @@ class ProtAutoBase(ProtocolBase):
         return md.MetaData(file) if os.path.exists(fList[-1]) else md.MetaData()
 
     def _getAverageVol(self, listVol=[]):
-        print('--------GETAVERAGEVOL-----------')
 
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
-        print('creating average map: ', listVol)
         try:
             avgVol = self._getFileName('avgMap', lev=self._level)
         except:
             avgVol = self._getPath('map_average.mrc')
         npAvgVol, dType = self._doAverageMaps(listVol)
-        print('alignining each volume vs. reference')
-        print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _doAverageMaps(self, listVol):
@@ -562,17 +544,14 @@ class ProtAutoBase(ProtocolBase):
         return sorted(glob(filesPath))
 
     def _alignVolumes(self):
-        print('--------_alignVolumes-----------')
 
         # Align all volumes inside a level
         Plugin.setEnviron()
         listVol = self._getPathMaps()
-        print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
         npAvgVol = loadMrc(avgVol, writable=False)
         dType = npAvgVol.dtype
 
-        print('alignining each volume vs. reference')
         for vol in listVol:
             npVolAlign = loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
@@ -585,7 +564,6 @@ class ProtAutoBase(ProtocolBase):
             else:
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
-            print('saving rot volume %s' % vol)
             saveMrc(npVol.astype(dType), vol)
 
     def _mrcToNp(self, volList):
@@ -604,11 +582,8 @@ class ProtAutoBase(ProtocolBase):
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (i+1)
-            print('-------------saving map %s-----------------' % nameVol)
-            print('Dimensions are: ', volBase.shape)
             saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
-            print('------------map %s stored------------------' % nameVol)
         return matProj
 
     def _doPCA(self, listVol):
@@ -658,14 +633,12 @@ class ProtAutoBase(ProtocolBase):
 
     def _doSklearnKmeans(self, matProj):
         from sklearn.cluster import KMeans
-        print('projections: ', matProj.shape[1])
         kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
         return kmeans.labels_
 
     def _doSklearnAffProp(self, matProj):
         from sklearn.cluster import AffinityPropagation
         ap = AffinityPropagation(damping=0.9).fit(matProj)
-        print("cluster_centers", ap.cluster_centers_)
         return ap.labels_
 
     # def _getDistance(self, m1, m2, neg=False):
