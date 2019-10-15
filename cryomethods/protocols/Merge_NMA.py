@@ -792,10 +792,10 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
 
-        self._insertFunctionStep('convertVolumeStep')
-        self._insertFunctionStep('computeNMAStep')
-        self._insertFunctionStep('convertPdbStep')
-        self._insertFunctionStep('particleAttrStep')
+        # self._insertFunctionStep('convertVolumeStep')
+        # self._insertFunctionStep('computeNMAStep')
+        # self._insertFunctionStep('convertPdbStep')
+        # self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
@@ -1600,14 +1600,15 @@ class ProtLandscapeNMA(em.EMProtocol):
         y_proj = [item[1] for item in matProj]
         print (x_proj, "x_proj")
         print (y_proj, "y_proj")
+        area =  np.pi*3
 
 
-        # plt.hist2d(x_proj, y_proj, bins=5, c=colorList)
-
-        # plt.figure(figsize=(12, 4));plt.subplot(150)
-
-
-        plt.scatter(x_proj, y_proj, c=colorList, alpha= 0.5)
+        plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
+        # plt.figure(figsize=(12, 4))
+        # plt.subplot(133)
+        # # plt.hexbin(x, y, gridsize=30, cmap='Blues')
+        #
+        # plt.hexbin(x_proj, y_proj, gridsize=20, edgecolors= colorList)
         # plt.colorbar()
         # plt.tight_layout()
         plt.show()

@@ -23,7 +23,6 @@ from os.path import join
 from cryomethods import Plugin
 import matplotlib.pyplot as plt
 from pyworkflow.object import Float
-import xmippLib
 from cryomethods.convert import writeSetOfParticles
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
@@ -57,6 +56,7 @@ class ProtLandscapePCA(ProtocolBase):
             'outputData': self.levDir + 'output_data.star',
             'map': self.levDir + 'map_id-%(id)s.mrc',
             'avgMap': self.levDir+ 'map_average.mrc',
+            'modelFinal': self.levDir + 'model.star',
             'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
             'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
@@ -110,6 +110,9 @@ class ProtLandscapePCA(ProtocolBase):
                            'focused masks.This requires that the optimal '
                            'orientations of all particles are already '
                            'calculated.')
+        form.addParam('sampling', params.FloatParam, default=1.7,
+                      label="Sampling rate (A/px)",
+                      help='Sampling rate (Angstroms/pixel)')
         self._defineSamplingParams(form, expertLev=cons.LEVEL_NORMAL,
                                    cond='doImageAlignment')
         self._defineAdditionalParams(form)
@@ -132,7 +135,7 @@ class ProtLandscapePCA(ProtocolBase):
     def _getRefStar(self):
         return self._getExtraPath("input_references.star")
 
-    def _getAverageVol(self, listVol=[]):
+    def _getAverageVol(self,  volSet, listVol=[]):
         self._createFilenameTemplates()
         Plugin.setEnviron()
 
@@ -164,6 +167,7 @@ class ProtLandscapePCA(ProtocolBase):
         npAvgVol = np.divide(npAvgVol, len(listVol))
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
+
 
 
 
@@ -259,6 +263,10 @@ class ProtLandscapePCA(ProtocolBase):
 
         print(' this is the matrix "vhDel": ', vhDel)
 
+        mf = self._getPath('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        print (mf, "mf")
+
+
         mat_one = []
         for vol in listVol:
             volNp = loadMrc(vol, False)
@@ -349,6 +357,29 @@ class ProtLandscapePCA(ProtocolBase):
             result = int(s.group(1)) # group 1 is 2 digits class number
         return self.volDict[result]
 
+    def _fillVolSetIter(self, volSet):
+        volSet.setSamplingRate(self.inputVolumes.get().getSamplingRate())
+        self._createFilenameTemplates()
+        Plugin.setEnviron()
+        modelStar = md.MetaData('model_classes@' +
+                                self._getFileName('modelFinal'))
 
 
-
+        for row in md.iterRows(modelStar):
+            fn = row.getValue('rlnReferenceImage')
+            fnMrc = fn + ":mrc"
+            itemId = self._getClassId(fn)
+            classDistrib = row.getValue('rlnClassDistribution')
+            accurracyRot = row.getValue('rlnAccuracyRotations')
+            accurracyTras = row.getValue('rlnAccuracyTranslations')
+            resol = row.getValue('rlnEstimatedResolution')
+            if classDistrib > 0:
+                vol = em.Volume()
+                self._invertScaleVol(fnMrc)
+                vol.setFileName(self._getOutputVolFn(fnMrc))
+                vol.setObjId(itemId)
+                vol._rlnClassDistributionl = em.Float(classDistrib)
+                vol._rlnAccuracyRotations = em.Foat(accurracyRot)
+                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
+                vol._rlnEstimatedResolution = em.Float(resol)
+                volSet.append(vol)
