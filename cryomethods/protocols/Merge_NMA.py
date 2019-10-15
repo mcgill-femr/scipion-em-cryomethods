@@ -73,7 +73,7 @@ from numpy.core import transpose
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 from matplotlib import *
-
+import traceback
 
 
 
@@ -1247,61 +1247,66 @@ class ProtLandscapeNMA(em.EMProtocol):
 
     # --------------------------------convert pdb------------------------------
     def convertPdbStep(self):
+        try:
+            pdbFns = self._getExtraPath("animations", "*.pdb")
+            print(pdbFns, type(pdbFns), self._currentDir)
+            fnListl = glob(pdbFns)
+            print (fnListl, "fnlisttttttttttttttt")
+            fnList = []
+            for pdbFns in fnListl:
+                print (pdbFns, "pdbfnsssssssssss")
+                with open(pdbFns) as infile:
+                    i = 0
+                    filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
+                    outfile = open(filename, 'w')
+                    # fnList.append(filename)
+                    for line in infile:
+                        if 'TER' in line:
+                            i += 1
+                            if i == self.nframes.get():
+                                break
+                            filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
+                            outfile = open(filename, 'w')
+                            fnList.append(filename)
 
-        pdbFns = self._getExtraPath("animations", "*.pdb")
-        print(pdbFns, type(pdbFns), self._currentDir)
-        fnListl = glob(pdbFns)
-        print (fnListl, "fnlisttttttttttttttt")
-        fnList = []
-        for pdbFns in fnListl:
-            print (pdbFns, "pdbfnsssssssssss")
-            with open(pdbFns) as infile:
-                i = 0
-                filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
-                outfile = open(filename, 'w')
-                # fnList.append(filename)
-                for line in infile:
-                    if 'TER' in line:
-                        i += 1
-                        if i == self.nframes.get():
-                            break
-                        filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
-                        outfile = open(filename, 'w')
-                        fnList.append(filename)
+                        elif 'ENDMDL' not in line:
+                            outfile.write(line)
 
-                    elif 'ENDMDL' not in line:
-                        outfile.write(line)
-
-                fnList = fnList[:len(fnList)/2]
+                    fnList = fnList[:len(fnList)/2]
 
 
-        # fnListl = sorted(fnList)
-        print (fnList, "fnlist")
-        pseudoFn = 'pseudoatoms.pdb'
-        inputFn = self._getPath(pseudoFn)
-        print(inputFn, type(inputFn), self._currentDir)
-        fnList.append(inputFn)
-        inputVol = self.inputVolume.get()
-        sampling = inputVol.getSamplingRate()
-        size = inputVol.getDim()[0]
+            # fnListl = sorted(fnList)
+            print (fnList, "fnlist")
+            pseudoFn = 'pseudoatoms.pdb'
+            inputFn = self._getPath(pseudoFn)
+            print(inputFn, type(inputFn), self._currentDir)
+            fnList.append(inputFn)
+            inputVol = self.inputVolume.get()
+            sampling = inputVol.getSamplingRate()
+            size = inputVol.getDim()[0]
 
-        for fn in fnList:
-            outFile = removeExt(self._getExtraPath(replaceBaseExt(fn, "vol")))
-            fixed_Gaussian= sampling* self.pseudoAtomRadius.get()
-            args = '-i %s --sampling %f --fixed_Gaussian %f -o %s' % (fn, sampling, fixed_Gaussian, outFile)
+            for fn in fnList:
+                outFile = removeExt(self._getExtraPath(replaceBaseExt(fn, "vol")))
+                fixed_Gaussian= sampling* self.pseudoAtomRadius.get()
+                args = '-i %s --sampling %f --fixed_Gaussian %f -o %s' % (fn, sampling, fixed_Gaussian, outFile)
 
-            if self.centerPdb:
-                args += ' --centerPDB'
+                if self.centerPdb:
+                    args += ' --centerPDB'
 
-            args += ' --size %d' % size
-            print (size, "sizepdb")
+                args += ' --size %d' % size
+                print (size, "sizepdb")
 
-            self.info("Input file: " + fn)
-            self.info("Output file: " + outFile)
+                self.info("Input file: " + fn)
+                self.info("Output file: " + outFile)
 
-            program = "xmipp_volume_from_pdb"
-            self.runJob(program, args,
-                        numberOfMpi=1, numberOfThreads=1)
+                program = "xmipp_volume_from_pdb"
+                self.runJob(program, args,
+                            numberOfMpi=1, numberOfThreads=1)
+
+        except Exception:
+            print(traceback.format_exc())
+
+
 
 
     #--------------------------paticle attractor step-----------------------
@@ -1600,7 +1605,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         y_proj = [item[1] for item in matProj]
         print (x_proj, "x_proj")
         print (y_proj, "y_proj")
-        area =  np.pi*3
+
 
 
         plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
