@@ -291,8 +291,7 @@ class ProtLandscapePCA(ProtocolBase):
         volSet=[]
         mf = '/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star'
         modelFile = md.MataData(mf)
-        modelStar = md.MetaData('model_classes@' +
-                                self._getFileName(modelFile))
+        modelStar = md.MetaData('model_classes@' + modelFile)
         for row in md.iterRows(modelStar):
             fn = row.getValue('rlnReferenceImage')
 
