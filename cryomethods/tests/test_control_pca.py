@@ -1,9 +1,7 @@
-from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
 from cryomethods.protocols import ProtLandscapePCA
-from cryomethods.protocols import ProtInitialVolumeSelector
 
 class TestBase(BaseTest):
     @classmethod
@@ -47,15 +45,6 @@ class TestBase(BaseTest):
         cls.launchProtocol(protImport)
         return protImport
 
-    @classmethod
-    def runImportSingleVolume(cls, pattern, samplingRate):
-        """ Run an Import particles protocol. """
-        protImport = cls.newProtocol(ProtImportVolumes,
-                                     filesPath=pattern,
-                                     filesPattern='relion*_class001.mrc',
-                                     samplingRate=samplingRate)
-        cls.launchProtocol(protImport)
-        return protImport
 
 class ControlTestPCA(TestBase):
     """ Check the images are converted properly to spider format. """
@@ -65,7 +54,7 @@ class ControlTestPCA(TestBase):
         setupTestProject(cls)
         TestBase.setData()
         cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
-        cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
+        cls.protImportVol = cls.runImportVolumes(cls.volumes, 7.08)
 
     def testControlPCA(self):
         def _runAutoClassifier(doGpu=False, label=''):
@@ -77,15 +66,14 @@ class ControlTestPCA(TestBase):
                                                   classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
-            autoClassifierProt.setObjLabel(label)
-            autoClassifierProt.inputParticles.set(
-                self.protImport.outputParticles)
-            autoClassifierProt.inputVolumes.set(self.protImportVol.outputVolume)
+            # autoClassifierProt.setObjLabel(label)
+            autoClassifierProt.inputParticles.set(self.protImport.outputParticles)
+            autoClassifierProt.inputVolumes.set(self.protImportVol.outputVolumes)
 
-            autoClassifierProt.doGpu.set(doGpu)
+            # autoClassifierProt.doGpu.set(doGpu)
 
             self.launchProtocol(autoClassifierProt)
-            return autoClassifierProt
+            # return autoClassifierProt
 
         def _checkAsserts(relionProt):
             self.assertIsNotNone(relionProt.outputVolumes, "There was a "

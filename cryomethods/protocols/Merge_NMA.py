@@ -70,6 +70,9 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
                                  relionToLocation, loadMrc, saveMrc,
                                  alignVolumes, applyTransforms)
 from numpy.core import transpose
+from matplotlib import pyplot as plt
+import matplotlib.cm as cm
+from matplotlib import *
 
 
 
@@ -1269,7 +1272,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                     elif 'ENDMDL' not in line:
                         outfile.write(line)
 
-                # fnList = fnList[:len(fnList)/2]
+                fnList = fnList[:len(fnList)/2]
 
 
         # fnListl = sorted(fnList)
@@ -1559,29 +1562,62 @@ class ProtLandscapeNMA(em.EMProtocol):
         # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
         print (matProj, "matProj")
 #----------------------
-        mdOut = md.MetaData()
-        dictMd = {}
+        mdIn = []
+        mdClass = md.MetaData()
         for run in range(numOfRuns):
-            it = self.numberOfIterations.get()
-            modelFile = self._getFileName('model', ruNum=run, iter=it)
-            mdIn = md.MetaData('model_classes@%s' % modelFile)
-            for row in md.iterRows(mdIn, md.RLN_MLMODEL_REF_IMAGE):
-                mV = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
-                lV = row.getValue('rlnClassDistribution')
-                dictMd[lV] = mV
+            mf = (self._getExtraPath('run_%02d' % run,
+                                     'relion_it%03d_' % iter +
+                                     'model.star'))
+            print (mf, "mf")
+            # mdClass.read(mf)
+            ab= md.MetaData('model_classes@' + mf)
+
+
+
+            print (ab, "mdClass")
+
+        clsDist= []
+        # fracPar= 0
+        for row in md.iterRows(ab):
+            # cd = mdClass.getValue(xmippLib.RLN_MLMODEL_PDF_CLASS, objid)
+            classDistrib = row.getValue('rlnClassDistribution')
+            # fracPar= classDistrib + fracPar
+            clsDist.append(classDistrib)
+
+        print (clsDist, "clsDist")
+
+        imgSet = self.inputParticles.get()
+        totalPart= imgSet.getSize()
+        print (totalPart, "totalPar")
+        K = self.numOfVols.get()
+        colors = cm.rainbow(np.linspace(0, 1, totalPart))
+        colorList = []
+        for i in clsDist:
+            index = int(len(colors) * i)
+            colorList.append(colors[index])
 
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
-        # plt.hist2d(x_proj, y_proj, bins=5, cmap='Blues')
-        # plt.show()
-        plt.figure(figsize=(12, 4));plt.subplot(150)
-        plt.hexbin(x_proj, y_proj)
-        plt.colorbar();
-        plt.tight_layout()
+        print (x_proj, "x_proj")
+        print (y_proj, "y_proj")
+
+
+        # plt.hist2d(x_proj, y_proj, bins=5, c=colorList)
+
+        # plt.figure(figsize=(12, 4));plt.subplot(150)
+
+
+        plt.scatter(x_proj, y_proj, c=colorList, alpha= 0.5)
+        # plt.colorbar()
+        # plt.tight_layout()
         plt.show()
 
 
-
+    #mdClass=xmippLib.metadata()
+    #clsDist=[]
+    #for objid in mdIn:
+      #cd=mdIn.getValue(xmippLib.RLN_MLMODEL_PDF_CLASS,ObId)
+      #clsDist.append(cd)
 
 
         # print (newBaseAxis, "newBaseAxis")
@@ -1616,6 +1652,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         return self._getExtraPath('run_%02d' % self._rLev)
 
     def _createMFile(self, matrix, name='matrix.txt'):
+        print (name, "name")
         f = open(name, 'w')
         for list in matrix:
             s = "%s\n" % list
