@@ -13,21 +13,14 @@ import pyworkflow.protocol.params as params
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.convert import (loadMrc, saveMrc)
 
 from .protocol_base import ProtocolBase
 from xmipp3.convert import getImageLocation
 from os.path import join
 from cryomethods import Plugin
-import matplotlib.pyplot as plt
-from pyworkflow.object import Float
-from cryomethods.convert import writeSetOfParticles
-from matplotlib import pyplot as plt
-import matplotlib.cm as cm
+
 from matplotlib import *
-import sys
 
 
 
@@ -99,25 +92,12 @@ class ProtLandscapePCA(ProtocolBase):
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
-        self._defineInputParams(form)
-        self._defineReferenceParams(form, expertLev=cons.LEVEL_NORMAL)
-        self._defineCTFParams(form, expertLev=cons.LEVEL_NORMAL)
-        self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
-        form.addParam('doImageAlignment', params.BooleanParam, default=True,
-                      label='Perform image alignment?',
-                      help='If set to No, then rather than performing both '
-                           'alignment and classification, only classification '
-                           'will be performed. This allows the use of very '
-                           'focused masks.This requires that the optimal '
-                           'orientations of all particles are already '
-                           'calculated.')
-        form.addParam('sampling', params.FloatParam, default=1.7,
-                      label="Sampling rate (A/px)",
-                      help='Sampling rate (Angstroms/pixel)')
-        self._defineSamplingParams(form, expertLev=cons.LEVEL_NORMAL,
-                                   cond='doImageAlignment')
-        self._defineAdditionalParams(form)
-
+        form.addSection(label='Input')
+        form.addParam('inputVolumes', params.PointerParam,
+                      pointerClass='SetOfVolumes',
+                      important=True,
+                      label='Input volumes',
+                      help='Initial reference 3D maps')
 
     # --------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
@@ -289,8 +269,9 @@ class ProtLandscapePCA(ProtocolBase):
         print (matProj, "matProj")
 
         volSet=[]
-        mf = '/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star'
-        modelFile = md.MataData(mf)
+        mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        print (mf, "mf")
+        modelFile = md.MetaData(mf)
         modelStar = md.MetaData('model_classes@' + modelFile)
         for row in md.iterRows(modelStar):
             fn = row.getValue('rlnReferenceImage')
@@ -406,3 +387,8 @@ class ProtLandscapePCA(ProtocolBase):
                 vol._rlnAccuracyTranslations = em.Float(accurracyTras)
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
+
+
+    def _validate(self):
+        errors = []
+        return errors

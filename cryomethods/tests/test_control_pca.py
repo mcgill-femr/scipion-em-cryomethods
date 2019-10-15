@@ -53,7 +53,7 @@ class ControlTestPCA(TestBase):
     def setUpClass(cls):
         setupTestProject(cls)
         TestBase.setData()
-        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        # cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
         cls.protImportVol = cls.runImportVolumes(cls.volumes, 7.08)
 
     def testControlPCA(self):
@@ -66,8 +66,7 @@ class ControlTestPCA(TestBase):
                                                   classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
-            # autoClassifierProt.setObjLabel(label)
-            autoClassifierProt.inputParticles.set(self.protImport.outputParticles)
+            # autoClassifierProt.inputParticles.set(self.protImport.outputParticles)
             autoClassifierProt.inputVolumes.set(self.protImportVol.outputVolumes)
 
             # autoClassifierProt.doGpu.set(doGpu)
