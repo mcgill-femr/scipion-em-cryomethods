@@ -1624,7 +1624,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
         # ax = axs[1]
         plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
-        plt.colorbar(colorList)
+        plt.colorbar()
         plt.show()
 
     # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
