@@ -89,61 +89,15 @@ class CryoMetTestNMA(TestBase):
         cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
         cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
 
-    #def test_nma1(self):
 
-        #""" Run NMA simple workflow for both Atomic and Pseudoatoms. """
-
-        # ------------------------------------------------
-        # Case 1. Import a Pdb -> NMA
-        # ------------------------------------------------
-
-        # Import a PDB
-        #protImportPdb = self.newProtocol(ProtImportPdb, inputPdbData=1,
-        #                                 pdbFile=self.ds.getFile('pdb'))
-        #self.launchProtocol(protImportPdb)
-
-        # Launch NMA for PDB imported
-        #protNMA1 = self.newProtocol(CryoMethProtConvertToPseudoAtoms,
-         #                           cutoffMode=0)
-        #protNMA1.inputStructure.set(protImportPdb.outputPdb)
-        #self.launchProtocol(protNMA1)
-
-        # # Import the set of particles
-        # # (in this order just to be in the middle in the tree)
-        # protImportParts = self.newProtocol(ProtImportParticles,
-        #                                   filesPath=self.ds.getFile(
-        #                                        'particles'),
-        #                                    samplingRate=1.0)
-        # self.launchProtocol(protImportParts)
-        #
-        # # Launch NMA alignment, but just reading result from a previous metadata
-        # protAlignment = self.newProtocol(CryoMethProtAlignmentNMA,
-        #                                  modeList='7-9',
-        #                                   copyDeformations=self.ds.getFile(
-        #                                       'gold/pseudo_run1_images.xmd'))
-        # protAlignment.inputModes.set(protNMA1.outputModes)
-        # protAlignment.inputParticles.set(protImportParts.outputParticles)
-        # self.launchProtocol(protAlignment)
-        #
-        # # Launch Dimred after NMA alignment
-        # protDimRed = self.newProtocol(CryoMethProtDimredNMA,
-        #             dimredMethod=0,  # PCA
-        #            reducedDim=2)
-        # protDimRed.inputNMA.set(protAlignment)
-        # self.launchProtocol(protDimRed)
     def test_nma2(self):
         # ------------------------------------------------
         # Case 2. Import Vol -> Pdb -> NMA
         # ------------------------------------------------
         # Import the set of particles
         # (in this order just to be in the middle in the tree)
-        #protImportParts = self.newProtocol(ProtImportParticles,
-         #                                   filesPath=self.ds.getFile(
-         #                                       'particles'),
-         #                                   samplingRate=1.0)
-        #self.launchProtocol(protImportParts)
 
-        # Convert the Volume to Pdb
+
         protConvertVol = self.newProtocol(ProtLandscapeNMA)
         protConvertVol.inputParticles.set(self.protImport.outputParticles)
         protConvertVol.subsetSize.set(100)
@@ -153,45 +107,5 @@ class CryoMetTestNMA(TestBase):
         protConvertVol.pseudoAtomRadius.set(2.5)
         self.launchProtocol(protConvertVol)
 
-        # Import the set of particles
-        # (in this order just to be in the middle in the tree)
-
-        # # convert pdb to volume
-        #
-        #
-        # protConvert = self.newProtocol(CryoMethProtConvertPdb,
-        #                                inputPdbData=ProtImportPdb.IMPORT_FROM_FILES,
-        #                                pdbFile= self.ds.getFile( ))
-        # protConvert.pdbFile.set(protNMA2.outputModes)
-        # self.launchProtocol(protConvert)
-
-        #protAlignment = self.newProtocol(
-        #    CryoMethProtAlignmentNMA,
-        #    modeList='7-9',
-        #    copyDeformations=self.ds.getFile(
-        #        'gold/pseudo_run1_images.xmd'))
-        #protAlignment.inputModes.set(protNMA2.outputModes)
-        #protAlignment.inputParticles.set(protImportParts.outputParticles)
-        #self.launchProtocol(protAlignment)
-        #self.assertIsNotNone(protConvert.outputVolume.getFileName(),
-         #                    "There was a problem with the conversion")
-        #self.assertAlmostEqual(protConvert.outputVolume.getSamplingRate(),
-         #                      protConvert.sampling.get(), places=1,
-         #                      msg="wrong sampling rate")
-        #self.assertAlmostEqual(protConvert.outputVolume.getDim()[0],
-         #                      protConvert.size.get(), places=1,
-         #                      msg="wrong size")
-
-        # Launch NMA alignment, but just reading result from a previous metadata
-
-
-
-
-# Launch Dimred after NMA alignment
-         #protDimRed = self.newProtocol(CryoMethProtDimredNMA,
-         #                              dimredMethod=0,  # PCA
-         #                              reducedDim=2)
-         #protDimRed.inputNMA.set(protAlignment)
-         #self.launchProtocol(protDimRed)
 
 

@@ -74,7 +74,7 @@ from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 from matplotlib import *
 import traceback
-
+from matplotlib.colors import LogNorm
 
 
 
@@ -792,10 +792,10 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
 
-        self._insertFunctionStep('convertVolumeStep')
-        self._insertFunctionStep('computeNMAStep')
-        self._insertFunctionStep('convertPdbStep')
-        self._insertFunctionStep('particleAttrStep')
+        # self._insertFunctionStep('convertVolumeStep')
+        # self._insertFunctionStep('computeNMAStep')
+        # self._insertFunctionStep('convertPdbStep')
+        # self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
@@ -1251,7 +1251,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             pdbFns = self._getExtraPath("animations", "*.pdb")
             print(pdbFns, type(pdbFns), self._currentDir)
             fnListl = glob(pdbFns)
-            print (fnListl, "fnlisttttttttttttttt")
+
             fnList = []
             for pdbFns in fnListl:
                 print (pdbFns, "pdbfnsssssssssss")
@@ -1268,11 +1268,15 @@ class ProtLandscapeNMA(em.EMProtocol):
                             filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                             outfile = open(filename, 'w')
                             fnList.append(filename)
+                            if i > 5:
+                                break
+
 
                         elif 'ENDMDL' not in line:
                             outfile.write(line)
 
-                    fnList = fnList[:len(fnList)/2]
+                    # fnList = [i for i in fnList if i[1] <= 6]
+                    print (fnList, "fnlist_final")
 
 
             # fnListl = sorted(fnList)
@@ -1602,21 +1606,65 @@ class ProtLandscapeNMA(em.EMProtocol):
             colorList.append(colors[index])
 
         x_proj = [item[0] for item in matProj]
+        xmin= min(x_proj)
         y_proj = [item[1] for item in matProj]
-        print (x_proj, "x_proj")
-        print (y_proj, "y_proj")
+        ymin= min(y_proj)
+        xmax= max(x_proj)
+        ymax= max(y_proj)
+        resolution = 250
+        print (len(x_proj), "xlength")
+        print (len(y_proj), "ylength")
+        print (len(clsDist), "Clength")
+        fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
+        fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
+        ax = axs[1]
+        plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=50, bins='log', cmap='inferno')
+        # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+        # ax.set_title("With a log color scale")
+        # cb = fig.colorbar(hb, ax=ax)
+        # cb.set_label('log10(N)')
 
 
 
-        plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
+        # -----------------1st--------------------------
+        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
+        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
+        # ax = axs[1]
+        # hb = ax.hexbin(x_proj, y_proj, gridsize=50, bins='log', cmap='inferno')
+        # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+        # ax.set_title("With a log color scale")
+        # cb = fig.colorbar(hb, ax=ax)
+        # cb.set_label('log10(N)')
+        # --------------------------------------------------------------
+        # heatmap, xedges, yedges = np.histogram2d(x_proj, y_proj, bins=50)
+        # extent = [xedges[0], xedges[-1], yedges[2], yedges[3]]
+        #
+        # plt.clf()
+        # plt.imshow(heatmap.T, extent=extent, origin='lower')
+        # -----------------------------------------------
+
+        # print (x_proj, "x_proj")
+        # print (y_proj, "y_proj")
+        # plt.figure(figsize=(12, 4))
+        # plt.subplot(131)
+        # plt.hexbin(x_proj, y_proj, gridsize=50,
+        #            color=colorList, bins='log')
+        plt.colorbar()
+        plt.show()
+
+
+
+        # plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
+        # plot3d((x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
         # plt.figure(figsize=(12, 4))
         # plt.subplot(133)
         # # plt.hexbin(x, y, gridsize=30, cmap='Blues')
         #
-        # plt.hexbin(x_proj, y_proj, gridsize=20, edgecolors= colorList)
+        # plt.hexbin(x_proj, y_proj, C=colorList, cmap=cm.jet, gridsize=30, bins=50)
+        # plt.axis([x_proj.min(), x_proj.max(), y_proj.min(), y_proj.max()])
         # plt.colorbar()
         # plt.tight_layout()
-        plt.show()
+
 
 
     #mdClass=xmippLib.metadata()
