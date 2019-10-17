@@ -393,11 +393,11 @@ class ProtLandscapePCA(ProtocolBase):
         print (matProj, "matProj")
 
         volSet=[]
-        mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        mf = ('/home/satinder/ScipionUserData/projects/CryoMetTestNMA/Runs/000121_ProtLandscapeNMA/extra/run_00/relion_it002_model.star')
+        # mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
         print (mf, "mf")
         modelFile = md.MetaData(mf)
-        modelStar = md.MetaData(self._getFileName(modelFile))
-        for row in md.iterRows(modelStar):
+        for row in md.iterRows(modelFile):
             fn = row.getValue('rlnReferenceImage')
 
             itemId = self._getClassId(fn)

@@ -1887,6 +1887,13 @@ class ProtLandscapeNMA(em.EMProtocol):
         pseudoFn = 'pseudoatoms.vol'
         inputFn = self._getExtraPath(pseudoFn)
         # print (fnList, 'fnListttttttt1')
+        ih = em.ImageHandler()
+        for vol in fnListl:
+            if vol:
+                xdim = self.inputParticles.get().getXDim()
+                img = ih.read(vol)
+                img.scale(xdim, xdim, xdim)
+                img.write(vol)
 
         counter = 0
         for vol in random.sample(fnListl, sizeList):
