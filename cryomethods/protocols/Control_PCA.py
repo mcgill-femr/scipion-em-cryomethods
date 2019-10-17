@@ -21,6 +21,8 @@ from os.path import join
 from cryomethods import Plugin
 
 from matplotlib import *
+from matplotlib import pyplot as plt
+import matplotlib.cm as cm
 
 
 
@@ -392,31 +394,43 @@ class ProtLandscapePCA(ProtocolBase):
         # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
         print (matProj, "matProj")
 
-        volSet=[]
-        mf = ('/home/satinder/ScipionUserData/projects/CryoMetTestNMA/Runs/000121_ProtLandscapeNMA/extra/run_00/relion_it002_model.star')
-        # mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        classDis=[]
+
+        mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
         print (mf, "mf")
-        modelFile = md.MetaData(mf)
+        modelFile = md.MetaData('model_classes@' + mf)
         for row in md.iterRows(modelFile):
-            fn = row.getValue('rlnReferenceImage')
-
-            itemId = self._getClassId(fn)
             classDistrib = row.getValue('rlnClassDistribution')
+            classDis.append(classDistrib)
 
-            if classDistrib > 0:
-                vol = em.Volume()
-                vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                volSet.append(vol)
+        print (classDis, "clsDist")
 
-        # mf = self._getPath('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
-        print (mf, "mf")
+        # imgSet = self.inputParticles.get()
+        # totalPart = imgSet.getSize()
+        # print (totalPart, "totalPar")
+        # K = self.numOfVols.get()
+        # colors = cm.rainbow(np.linspace(0, 1, totalPart))
+        # colorList = []
+        # for i in classDis:
+        #     index = int(len(colors) * i)
+        #     colorList.append(colors[index])
+        # print (mf, "mf")
 
 
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
         print (x_proj, "x_proj")
         print (y_proj, "y_proj")
+        print (len(x_proj), "xlength")
+        print (len(y_proj), "ylength")
+        print (len(classDis), "Clength")
+        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
+        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
+        # ax = axs[1]
+        plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
+                   cmap='inferno')
+        plt.colorbar()
+        plt.show()
 
     # ------------------------------------------------------------------
 
