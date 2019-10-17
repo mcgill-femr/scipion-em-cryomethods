@@ -792,10 +792,10 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
 
-        # self._insertFunctionStep('convertVolumeStep')
-        # self._insertFunctionStep('computeNMAStep')
-        # self._insertFunctionStep('convertPdbStep')
-        # self._insertFunctionStep('particleAttrStep')
+        self._insertFunctionStep('convertVolumeStep')
+        self._insertFunctionStep('computeNMAStep')
+        self._insertFunctionStep('convertPdbStep')
+        self._insertFunctionStep('particleAttrStep')
         self._insertFunctionStep('estimatePCAStep')
 
         # self._insertFunctionStep('createOutputStep')
@@ -1476,18 +1476,20 @@ class ProtLandscapeNMA(em.EMProtocol):
         p = ['']
         ref3d = self.numOfVols.get()
         print (ref3d, "ref3d")
-        for run in range(numOfRuns):
-            for m in range(1, ref3d+1):
-                    mf = (self._getExtraPath('run_%02d' % run,
-                                             'relion_it%03d_' % iter+
-                                             'class%03d.mrc' % m))
-                    listModelStar.append(mf)
+        run = numOfRuns-1
+        for m in range(1, ref3d+1):
+            # for m in range(1, ref3d+1):
+            mf = (self._getExtraPath('run_%02d' % run,
+                                     'relion_it%03d_' % iter+
+                                     'class%03d.mrc' % m))
+            listModelStar.append(mf)
 
 
         listVol = listModelStar
         print (len(listVol), "listvol")
+        print (listVol, "listvol")
         self._getAverageVol(listVol)
-        avgVol = self._getFileName('avgMap', run=run)
+        avgVol = self._getFileName('avgMap', run= run)
         npAvgVol = loadMrc(avgVol, False)
         dType = npAvgVol.dtype
 
@@ -1606,8 +1608,11 @@ class ProtLandscapeNMA(em.EMProtocol):
             colorList.append(colors[index])
 
         x_proj = [item[0] for item in matProj]
+        print (x_proj, "x_proj")
+
         xmin= min(x_proj)
         y_proj = [item[1] for item in matProj]
+        print (y_proj, "y_proj")
         ymin= min(y_proj)
         xmax= max(x_proj)
         ymax= max(y_proj)
@@ -1615,11 +1620,14 @@ class ProtLandscapeNMA(em.EMProtocol):
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
         print (len(clsDist), "Clength")
-        fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
-        fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
-        ax = axs[1]
-        plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=50, bins='log', cmap='inferno')
-        # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
+        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
+        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
+        # ax = axs[1]
+        plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
+        plt.colorbar(colorList)
+        plt.show()
+
+    # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
         # ax.set_title("With a log color scale")
         # cb = fig.colorbar(hb, ax=ax)
         # cb.set_label('log10(N)')
@@ -1649,9 +1657,6 @@ class ProtLandscapeNMA(em.EMProtocol):
         # plt.subplot(131)
         # plt.hexbin(x_proj, y_proj, gridsize=50,
         #            color=colorList, bins='log')
-        plt.colorbar()
-        plt.show()
-
 
 
         # plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
