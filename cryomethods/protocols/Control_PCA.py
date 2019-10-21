@@ -23,6 +23,8 @@ from cryomethods import Plugin
 from matplotlib import *
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
+from scipy.interpolate import griddata
+
 
 
 
@@ -424,13 +426,46 @@ class ProtLandscapePCA(ProtocolBase):
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
         print (len(classDis), "Clength")
-        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
-        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
-        # ax = axs[1]
-        plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
-                   cmap='inferno')
-        plt.colorbar()
-        plt.show()
+        xmin = min(x_proj)
+        ymin= min(y_proj)
+
+
+        w = []
+        for i in classDis:
+            a = i * 100
+            w.append(a)
+        w = [int(i) for i in w]
+        xi = yi = np.arange(0, 1.01, 0.01)
+        xi, yi = np.meshgrid(xi, yi)
+
+        xnew = []
+        ynew = []
+        for x in x_proj:
+            a = x - xmin
+            xnew.append(a)
+        for y in y_proj:
+            z = y - ymin
+            ynew.append(z)
+        # set mask
+        mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
+
+        # interpolate
+        zi = griddata((xnew, ynew), classDis, (xi, yi), method='linear')
+        # mask out the field
+        zi[mask] = np.nan
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.contourf(xi, yi, zi, np.arange(0, 1.01, 0.01))
+        plt.plot(xnew, ynew, 'k.')
+        plt.xlabel('xi', fontsize=16)
+        plt.ylabel('yi', fontsize=16)
+        plt.savefig('interpolated.png', dpi=100)
+        plt.close(fig)
+        # ---------------------plot success--------------------------
+        # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
+        #            cmap='inferno')
+        # plt.colorbar()
+        # plt.show()
 
     # ------------------------------------------------------------------
 

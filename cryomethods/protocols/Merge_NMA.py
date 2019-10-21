@@ -75,6 +75,8 @@ import matplotlib.cm as cm
 from matplotlib import *
 import traceback
 from matplotlib.colors import LogNorm
+from scipy.interpolate import griddata
+
 
 
 
@@ -1620,13 +1622,50 @@ class ProtLandscapeNMA(em.EMProtocol):
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
         print (len(clsDist), "Clength")
-        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
-        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
-        # ax = axs[1]
-        plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
-        plt.colorbar()
-        plt.show()
+        w = []
+        for i in clsDist:
+            a = i * 100
+            w.append(a)
+        w = [int(i) for i in w]
+        xi = yi = np.arange(0, 1.01, 0.01)
+        xi, yi = np.meshgrid(xi, yi)
 
+        xnew = []
+        ynew = []
+        for x in x_proj:
+            a = x - xmin
+            xnew.append(a)
+        for y in y_proj:
+            z = y - ymin
+            ynew.append(z)
+        # set mask
+        mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
+
+        # interpolate
+        zi = griddata((xnew, ynew), clsDist, (xi, yi), method='linear')
+        # mask out the field
+        zi[mask] = np.nan
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.contourf(xi, yi, zi, np.arange(0, 1.01, 0.01))
+        plt.plot(xnew, ynew, 'k.')
+        plt.xlabel('xi', fontsize=16)
+        plt.ylabel('yi', fontsize=16)
+        plt.savefig('interpolated.png', dpi=100)
+        plt.close(fig)
+
+        # plt.figure(figsize=(12, 4))
+        # plt.subplot(133)
+        # plt.hexbin(xnew, ynew, C=clsDist, reduce_C_function=np.sum)
+        # plt.colorbar()
+        # plt.tight_layout()
+
+        plt.show()
+        # -----------------------plot success-----------------------
+        # plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
+        # plt.colorbar()
+        # plt.show()
+    #     --------------------------------------------------------------
     # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
         # ax.set_title("With a log color scale")
         # cb = fig.colorbar(hb, ax=ax)
@@ -1890,7 +1929,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         ih = em.ImageHandler()
         for vol in fnListl:
             if vol:
-                xdim = self.inputParticles.get().getXDim()
+                xdim = self._getNewDim()
                 img = ih.read(vol)
                 img.scale(xdim, xdim, xdim)
                 img.write(vol)
@@ -2031,6 +2070,9 @@ class ProtLandscapeNMA(em.EMProtocol):
         img.setFileName(newFn)
         img.setIndex(indx)
         img.setSamplingRate(self._getPixeSize())
+
+
+
 
     def _getPixeSize(self):
         partSet = self.inputParticles.get()
