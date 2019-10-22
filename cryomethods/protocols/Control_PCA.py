@@ -456,15 +456,14 @@ class ProtLandscapePCA(ProtocolBase):
         zi = griddata((xnew, ynew), classDis, (xi, yi), method='linear')
         # mask out the field
         zi[mask] = np.nan
-        plt.figure(figsize=(12,4))
-        plt.subplot(133)
-        plt.contourf(xi, zi, np.arange(xmin, xmax, 0.01))
-        plt.contourf(yi, zi, np.arange(ymin, ymax, 0.01))
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.contourf(xi, yi, zi)
         plt.hexbin(xnew, ynew, C=classDis, gridsize=20, mincnt=1, bins='log')
-        plt.xlabel('xi', fontsize=16)
-        plt.ylabel('yi', fontsize=16)
-        plt.savefig('interpolated.png', dpi=100)
-        plt.show()
+        plt.xlabel('x_pca', fontsize=16)
+        plt.ylabel('y_pca', fontsize=16)
+        plt.savefig('interpolated_controlPCA(1).png', dpi=100)
+        plt.close(fig)
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
         #            cmap='inferno')

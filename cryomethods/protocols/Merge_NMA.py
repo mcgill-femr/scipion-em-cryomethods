@@ -1627,7 +1627,8 @@ class ProtLandscapeNMA(em.EMProtocol):
             a = i * 100
             w.append(a)
         w = [int(i) for i in w]
-        xi = yi = np.arange(0, 1.01, 0.01)
+        xi = np.arange(xmin, xmax, 0.01)
+        yi = np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
 
         xnew = []
@@ -1647,11 +1648,11 @@ class ProtLandscapeNMA(em.EMProtocol):
         zi[mask] = np.nan
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        plt.contourf(xi, yi, zi, np.arange(0, 1.01, 0.01))
-        plt.plot(xnew, ynew, 'k.')
-        plt.xlabel('xi', fontsize=16)
-        plt.ylabel('yi', fontsize=16)
-        plt.savefig('interpolated.png', dpi=100)
+        plt.contourf(xi, yi, zi)
+        plt.hexbin(xnew, ynew, C=clsDist, gridsize=20, mincnt=1, bins='log')
+        plt.xlabel('x_pca', fontsize=16)
+        plt.ylabel('y_pca', fontsize=16)
+        plt.savefig('interpolated_nma.png(1)', dpi=100)
         plt.close(fig)
 
         # plt.figure(figsize=(12, 4))
@@ -1660,7 +1661,6 @@ class ProtLandscapeNMA(em.EMProtocol):
         # plt.colorbar()
         # plt.tight_layout()
 
-        plt.show()
         # -----------------------plot success-----------------------
         # plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
         # plt.colorbar()
