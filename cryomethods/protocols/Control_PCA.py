@@ -428,6 +428,8 @@ class ProtLandscapePCA(ProtocolBase):
         print (len(classDis), "Clength")
         xmin = min(x_proj)
         ymin= min(y_proj)
+        xmax = max(x_proj)
+        ymax = max(y_proj)
 
 
         w = []
@@ -435,7 +437,8 @@ class ProtLandscapePCA(ProtocolBase):
             a = i * 100
             w.append(a)
         w = [int(i) for i in w]
-        xi = yi = np.arange(0, 1.01, 0.01)
+        xi= np.arange(xmin, xmax, 0.01)
+        yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
 
         xnew = []
@@ -453,14 +456,15 @@ class ProtLandscapePCA(ProtocolBase):
         zi = griddata((xnew, ynew), classDis, (xi, yi), method='linear')
         # mask out the field
         zi[mask] = np.nan
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.contourf(xi, yi, zi, np.arange(0, 1.01, 0.01))
-        plt.plot(xnew, ynew, 'k.')
+        plt.figure(figsize=(12,4))
+        plt.subplot(133)
+        plt.contourf(xi, zi, np.arange(xmin, xmax, 0.01))
+        plt.contourf(yi, zi, np.arange(ymin, ymax, 0.01))
+        plt.hexbin(xnew, ynew, C=classDis, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('xi', fontsize=16)
         plt.ylabel('yi', fontsize=16)
         plt.savefig('interpolated.png', dpi=100)
-        plt.close(fig)
+        plt.show()
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
         #            cmap='inferno')
