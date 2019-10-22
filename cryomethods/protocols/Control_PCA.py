@@ -463,6 +463,7 @@ class ProtLandscapePCA(ProtocolBase):
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.savefig('interpolated_controlPCA(1).png', dpi=100)
+        plt.colorbar()
         plt.close(fig)
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
