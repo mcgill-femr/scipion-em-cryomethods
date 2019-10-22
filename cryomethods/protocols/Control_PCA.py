@@ -441,25 +441,25 @@ class ProtLandscapePCA(ProtocolBase):
         yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
 
-        xnew = []
-        ynew = []
-        for x in x_proj:
-            a = x - xmin
-            xnew.append(a)
-        for y in y_proj:
-            z = y - ymin
-            ynew.append(z)
+        # xnew = []
+        # ynew = []
+        # for x in x_proj:
+        #     a = x - xmin
+        #     xnew.append(a)
+        # for y in y_proj:
+        #     z = y - ymin
+        #     ynew.append(z)
         # set mask
         mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
 
         # interpolate
-        zi = griddata((xnew, ynew), classDis, (xi, yi), method='linear')
+        zi = griddata((x_proj, y_proj), classDis, (xi, yi), method='linear')
         # mask out the field
         zi[mask] = np.nan
         fig = plt.figure()
         ax = fig.add_subplot(111)
         plt.contourf(xi, yi, zi)
-        plt.hexbin(xnew, ynew, C=classDis, gridsize=20, mincnt=1, bins='log')
+        plt.hexbin(x_proj, y_proj, C=classDis, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.savefig('interpolated_controlPCA(1).png', dpi=100)
