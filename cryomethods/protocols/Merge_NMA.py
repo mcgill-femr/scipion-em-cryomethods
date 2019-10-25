@@ -1261,7 +1261,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                     i = 0
                     filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                     outfile = open(filename, 'w')
-                    # fnList.append(filename)
+                    fnList.append(filename)
                     for line in infile:
                         if 'TER' in line:
                             i += 1
@@ -1270,8 +1270,9 @@ class ProtLandscapeNMA(em.EMProtocol):
                             filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                             outfile = open(filename, 'w')
                             fnList.append(filename)
-                            if i > 5:
+                            if i > 3:
                                 break
+
 
 
                         elif 'ENDMDL' not in line:
