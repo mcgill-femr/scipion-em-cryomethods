@@ -1270,7 +1270,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                             filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                             outfile = open(filename, 'w')
                             fnList.append(filename)
-                            if i > 3:
+                            if i > 1:
                                 break
 
 
