@@ -401,22 +401,13 @@ class ProtLandscapePCA(ProtocolBase):
         mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
         print (mf, "mf")
         modelFile = md.MetaData('model_classes@' + mf)
-        for row in md.iterRows(modelFile):
-            classDistrib = row.getValue('rlnClassDistribution')
-            classDis.append(classDistrib)
+        # for row in md.iterRows(modelFile):
+        #     classDistrib = row.getValue('rlnClassDistribution')
+        #     classDis.append(classDistrib)
+        #
+        # print (classDis, "clsDist")
 
-        print (classDis, "clsDist")
-
-        # imgSet = self.inputParticles.get()
-        # totalPart = imgSet.getSize()
-        # print (totalPart, "totalPar")
-        # K = self.numOfVols.get()
-        # colors = cm.rainbow(np.linspace(0, 1, totalPart))
-        # colorList = []
-        # for i in classDis:
-        #     index = int(len(colors) * i)
-        #     colorList.append(colors[index])
-        # print (mf, "mf")
+        classDis=1
 
 
         x_proj = [item[0] for item in matProj]
@@ -441,16 +432,16 @@ class ProtLandscapePCA(ProtocolBase):
         yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
 
-        # xnew = []
-        # ynew = []
-        # for x in x_proj:
-        #     a = x - xmin
-        #     xnew.append(a)
-        # for y in y_proj:
-        #     z = y - ymin
-        #     ynew.append(z)
+
         # set mask
         mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
+        #save coordinates:
+        mat_file = 'matProj(1).txt'
+        self._createMFile(matProj, mat_file)
+        x_file = 'x_proj(1).txt'
+        self._createMFile(x_proj, x_file)
+        y_file = 'y_proj(1).txt'
+        self._createMFile(y_proj, y_file)
 
         # interpolate
         zi = griddata((x_proj, y_proj), classDis, (xi, yi), method='linear')
@@ -462,8 +453,8 @@ class ProtLandscapePCA(ProtocolBase):
         plt.hexbin(x_proj, y_proj, C=classDis, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
-        plt.savefig('interpolated_controlPCA(1).png', dpi=100)
         plt.colorbar()
+        plt.savefig('interpolated_controlPCA(2).png', dpi=100)
         plt.close(fig)
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
