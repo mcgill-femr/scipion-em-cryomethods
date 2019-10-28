@@ -288,7 +288,7 @@ class ProtAutoBase(ProtocolBase):
             prevModel = self._getFileName('rawFinalModel')
             finalModel = self._getFileName('finalModel')
             copyFile(prevData, finalData)
-            copyFile(prevModel, prevModel)
+            copyFile(prevModel, finalModel)
 
 
     def createOutputStep(self):
@@ -391,7 +391,7 @@ class ProtAutoBase(ProtocolBase):
                 claseId += 1
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 clasDist = row.getValue('rlnClassDistribution')
-                if clasDist > 0:
+                if self._getClasDistCond(clasDist):
                     print("Meth: _copyLevelMaps, clasDist: ", clasDist)
                     mapId = self._getRunLevId(rLev=claseId)
                     newFn = self._getMapById(mapId)
@@ -422,10 +422,10 @@ class ProtAutoBase(ProtocolBase):
                 clasDist = row.getValue('rlnClassDistribution')
                 classSize = clasDist * partSize
 
-                if clasDist > 0:
+                if self._getClasDistCond(clasDist):
                     mapId = self._mapsDict[fn]
                     ptcStop = self.minPartsToStop.get()
-                    if classSize < partSize:
+                    if classSize < 0.95*partSize:
                         if self.IS_3D and self.useReslog:
                             suffixSsnr = 'model_class_%d@' % clsId
                             ssnrMd = md.MetaData(suffixSsnr + modelFn)
@@ -452,6 +452,9 @@ class ProtAutoBase(ProtocolBase):
                     else:
                         self.stopDict[mapId] = False
 
+    def _getClasDistCond(self, clasDist):
+        return clasDist > 0.05
+
     def _getReslogVars(self):
         x = [k for k, v in self.stopResLog.items()]
         y = [v for k, v in self.stopResLog.items()]
@@ -474,7 +477,6 @@ class ProtAutoBase(ProtocolBase):
     def _mergeModelStar(self, rLev):
         iters = self._lastIter(rLev)
 
-
         #metadata to save all models that continues
         outModel = self._getFileName('outputModel', lev=self._level)
         outMd = self._getMetadata(outModel)
@@ -491,14 +493,17 @@ class ProtAutoBase(ProtocolBase):
         for row in md.iterRows(modelMd):
             refLabel = md.RLN_MLMODEL_REF_IMAGE
             fn = row.getValue(refLabel)
-            mapId = self._mapsDict[fn]
-            newMap = self._getMapById(mapId)
-            row.setValue(refLabel, newMap)
-            row.writeToMd(modelMd, row.getObjId())
-            if self.stopDict[mapId]:
-                row.addToMd(finalMd)
-            else:
-                row.addToMd(outMd)
+            clasDist = row.getValue('rlnClassDistribution')
+
+            if self._getClasDistCond(clasDist):
+                mapId = self._mapsDict[fn]
+                newMap = self._getMapById(mapId)
+                row.setValue(refLabel, newMap)
+                row.writeToMd(modelMd, row.getObjId())
+                if self.stopDict[mapId]:
+                    row.addToMd(finalMd)
+                else:
+                    row.addToMd(outMd)
 
         if outMd.size() != 0:
             outMd.write(outModel)

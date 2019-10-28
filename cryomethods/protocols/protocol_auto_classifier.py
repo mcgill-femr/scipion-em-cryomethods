@@ -24,6 +24,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+import os
 import numpy as np
 
 import pyworkflow.em as em
@@ -202,7 +203,6 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
     def _mergeDataStar(self, rLev):
         iters = self._lastIter(rLev)
-        print ("last iteration _mergeDataStar:", iters)
 
         #metadata to save all particles that continues
         outData = self._getFileName('outputData', lev=self._level)
@@ -211,16 +211,32 @@ class Prot3DAutoClassifier(ProtAutoBase):
         #metadata to save all final particles
         finalData = self._getFileName('rawFinalData')
         finalMd = self._getMetadata(finalData)
-
         imgStar = self._getFileName('data', iter=iters,
                                     lev=self._level, rLev=rLev)
         mdData = md.MetaData(imgStar)
 
+        def _getMap(iters, rLev, clsPart):
+            return self._getFileName('relionMap', lev=self._level,
+                                     iter=iters, ref3d=clsPart, rLev=rLev)
+
+        def _getMapId(rMap):
+            try:
+                return self._mapsDict[rMap]
+            except:
+                return None
+
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = self._getFileName('relionMap', lev=self._level,
-                                     iter=iters, ref3d=clsPart, rLev=rLev)
-            mapId = self._mapsDict[rMap]
+            rMap = _getMap(iters, rLev, clsPart)
+            mapId = _getMapId(rMap)
+
+            while mapId is None:
+                for clsPart in range(1, self.numberOfClasses.get()+1):
+                    rMap = _getMap(iters, rLev, clsPart)
+                    mapId = _getMapId(rMap)
+                    if mapId is not None:
+                        break
+
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]
                 row.setValue(md.RLN_PARTICLE_CLASS, classId)
