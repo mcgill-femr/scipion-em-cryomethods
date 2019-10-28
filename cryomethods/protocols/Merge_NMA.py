@@ -1657,7 +1657,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()
-        plt.savefig('interpolated_nma(2).png', dpi=100)
+        plt.savefig('interpolated_nma_3.png', dpi=100)
         plt.close(fig)
 
         # plt.figure(figsize=(12, 4))
