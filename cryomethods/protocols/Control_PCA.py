@@ -416,18 +416,18 @@ class ProtLandscapePCA(ProtocolBase):
         print (y_proj, "y_proj")
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
-        print (len(classDis), "Clength")
+
         xmin = min(x_proj)
         ymin= min(y_proj)
         xmax = max(x_proj)
         ymax = max(y_proj)
 
 
-        w = []
-        for i in classDis:
-            a = i * 100
-            w.append(a)
-        w = [int(i) for i in w]
+        # w = []
+        # for i in classDis:
+        #     a = i * 100
+        #     w.append(a)
+        # w = [int(i) for i in w]
         xi= np.arange(xmin, xmax, 0.01)
         yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)

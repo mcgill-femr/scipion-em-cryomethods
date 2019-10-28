@@ -1653,8 +1653,8 @@ class ProtLandscapeNMA(em.EMProtocol):
         plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
-        plt.savefig('interpolated_nma.png', dpi=100)
         plt.colorbar()
+        plt.savefig('interpolated_nma(2).png', dpi=100)
         plt.close(fig)
 
         # plt.figure(figsize=(12, 4))
