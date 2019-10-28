@@ -268,7 +268,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         form.addSection(label='Animation')
         form.addParam('amplitude', FloatParam, default=70,
                       label="Amplitude")
-        form.addParam('nframes', IntParam, default=10,
+        form.addParam('nframes', IntParam, default=3,
                       expertLevel=LEVEL_ADVANCED,
                       label='Number of frames')
         form.addParam('downsample', FloatParam, default=1,
@@ -1253,7 +1253,9 @@ class ProtLandscapeNMA(em.EMProtocol):
             pdbFns = self._getExtraPath("animations", "*.pdb")
             print(pdbFns, type(pdbFns), self._currentDir)
             fnListl = glob(pdbFns)
-
+            ter= 'TER'
+            frames= 3
+            count= 0
             fnList = []
             for pdbFns in fnListl:
                 print (pdbFns, "pdbfnsssssssssss")
@@ -1263,23 +1265,17 @@ class ProtLandscapeNMA(em.EMProtocol):
                     outfile = open(filename, 'w')
                     fnList.append(filename)
                     for line in infile:
-                        if 'TER' in line:
+                        # count += 1
+                        if ter in line:
                             i += 1
                             if i == self.nframes.get():
                                 break
                             filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
                             outfile = open(filename, 'w')
                             fnList.append(filename)
-                            if i > 1:
-                                break
-
-
-
                         elif 'ENDMDL' not in line:
                             outfile.write(line)
 
-                    # fnList = [i for i in fnList if i[1] <= 6]
-                    print (fnList, "fnlist_final")
 
 
             # fnListl = sorted(fnList)
@@ -1338,9 +1334,9 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         print (selectedVols, "selectedVols")
 
-        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
-        # numOfRuns = int(-3 / b)
-        numOfRuns= 3
+        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        numOfRuns = int(-3 / b)
+        # numOfRuns= 3
         for run in range(numOfRuns):
             self._createFilenameTemplates()
             self._createTemplates(run)
@@ -1400,9 +1396,9 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnList = glob(totalVolumes)
         sizeList = len(fnList)
         selectedVols = self.numOfVols.get()
-        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
-        # numOfRuns = int(-3 / b)
-        numOfRuns= 3
+        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        numOfRuns = int(-3 / b)
+        # numOfRuns= 3
         iter = self.numberOfIterations.get()
         listModelStar = []
         p = ['']
@@ -1471,9 +1467,9 @@ class ProtLandscapeNMA(em.EMProtocol):
         fnList = glob(totalVolumes)
         sizeList = len(fnList)
         selectedVols = self.numOfVols.get()
-        # b = np.log((1 - (float(selectedVols) / float(sizeList))))
-        # numOfRuns = int(-3 / b)
-        numOfRuns= 3
+        b = np.log((1 - (float(selectedVols) / float(sizeList))))
+        numOfRuns = int(-3 / b)
+        # numOfRuns= 3
         iter = self.numberOfIterations.get()
         listModelStar = []
         p = ['']
@@ -1620,6 +1616,13 @@ class ProtLandscapeNMA(em.EMProtocol):
         xmax= max(x_proj)
         ymax= max(y_proj)
         resolution = 250
+        mat_file = 'matProj_1_nma.txt'
+        self._createMFile(matProj, mat_file)
+        x_file = 'x_proj_1_nma.txt'
+        self._createMFile(x_proj, x_file)
+        y_file = 'y_proj_1_nma.txt'
+        self._createMFile(y_proj, y_file)
+
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
         print (len(clsDist), "Clength")
