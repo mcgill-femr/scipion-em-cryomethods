@@ -396,7 +396,7 @@ class ProtLandscapePCA(ProtocolBase):
         # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
         print (matProj, "matProj")
 
-        classDis=[]
+
 
         mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
         print (mf, "mf")
@@ -404,10 +404,11 @@ class ProtLandscapePCA(ProtocolBase):
         # for row in md.iterRows(modelFile):
         #     classDistrib = row.getValue('rlnClassDistribution')
         #     classDis.append(classDistrib)
-        #
-        # print (classDis, "clsDist")
+        # #
 
-        classDis=1
+
+
+        par_per_cls = open(os.path.join("/home/satinder/ScipionUserData/projects/Landscape_PCA", "particle_num_pca.txt"), "r")
 
 
         x_proj = [item[0] for item in matProj]
@@ -416,6 +417,7 @@ class ProtLandscapePCA(ProtocolBase):
         print (y_proj, "y_proj")
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
+
 
         xmin = min(x_proj)
         ymin= min(y_proj)
@@ -432,6 +434,7 @@ class ProtLandscapePCA(ProtocolBase):
         yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
 
+        # particles
 
         # set mask
         mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
@@ -444,17 +447,17 @@ class ProtLandscapePCA(ProtocolBase):
         self._createMFile(y_proj, y_file)
 
         # interpolate
-        zi = griddata((x_proj, y_proj), classDis, (xi, yi), method='linear')
+        zi = griddata((x_proj, y_proj), par_per_cls, (xi, yi), method='linear')
         # mask out the field
         zi[mask] = np.nan
         fig = plt.figure()
         ax = fig.add_subplot(111)
         plt.contourf(xi, yi, zi)
-        plt.hexbin(x_proj, y_proj, C=classDis, gridsize=20, mincnt=1, bins='log')
+        plt.hexbin(x_proj, y_proj, C=par_per_cls, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()
-        plt.savefig('interpolated_controlPCA(2).png', dpi=100)
+        plt.savefig('interpolated_controlPCA_3.png', dpi=100)
         plt.close(fig)
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
