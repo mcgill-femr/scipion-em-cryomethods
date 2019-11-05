@@ -192,9 +192,9 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def mergeClassesStep(self):
+
         if self.doGrouping:
             levelRuns = []
-            listMd = []
 
             makePath(self._getLevelPath(self._level))
             # matrix = self._estimatePCA()
@@ -226,7 +226,7 @@ class ProtAutoBase(ProtocolBase):
 
             #-----metadata to save all final models-------
             finalModel = self._getFileName('finalModel')
-            finalMd = self._getMetadata()
+            finalModelMd = self._getMetadata()
 
             #-----metadata to save all final particles-----
             finalData = self._getFileName('finalData')
@@ -271,7 +271,7 @@ class ProtAutoBase(ProtocolBase):
                     copyFile(fn, newMap)
                 self._mapsDict[fn] = mapId
 
-                imgRow.addToMd(finalMd)
+                imgRow.addToMd(finalModelMd)
 
                 dataFn = self._getFileName('data', iter=iters,
                                            lev=self._level, rLev=rLev)
@@ -281,7 +281,7 @@ class ProtAutoBase(ProtocolBase):
                     row.addToMd(finalDataMd)
 
             finalDataMd.write(finalData)
-            finalMd.write('model_classes@' + finalModel)
+            finalModelMd.write('model_classes@' + finalModel)
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
