@@ -1,7 +1,7 @@
 # **************************************************************************
 # *
 # * Authors:     Josue Gomez Blanco (josue.gomez-blanco@mcgill.ca)
-# *              Satinder Kaur (WRITE YOUR EMAL)
+# *              Satinder Kaur (satinder.kaur@mail.mcgill.ca)
 # *              Javier Vargas Balbuena (javier.vargasbalbuena@mcgill.ca)
 # *
 # * Department of Anatomy and Cell Biology, McGill University
