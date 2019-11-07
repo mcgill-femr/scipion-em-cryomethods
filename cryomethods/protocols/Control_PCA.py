@@ -408,8 +408,11 @@ class ProtLandscapePCA(ProtocolBase):
 
 
 
-        par_per_cls = open(os.path.join("/home/satinder/ScipionUserData/projects/Landscape_PCA", "particle_num_pca.txt"), "r")
-
+        # par_per_cls = open(os.path.join("/home/satinder/ScipionUserData/projects/Landscape_PCA", "particle_num_pca.txt"), "r")
+        filename = '/home/satinder/ScipionUserData/projects/Landscape_PCA/splic_Tes_part.txt'
+        with open(filename) as f:
+            c = f.read().splitlines()
+        z_part = map(float, c)
 
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
@@ -439,25 +442,25 @@ class ProtLandscapePCA(ProtocolBase):
         # set mask
         mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
         #save coordinates:
-        mat_file = 'matProj(1).txt'
+        mat_file = 'matProj_splic.txt'
         self._createMFile(matProj, mat_file)
-        x_file = 'x_proj(1).txt'
+        x_file = 'x_proj_splic.txt'
         self._createMFile(x_proj, x_file)
-        y_file = 'y_proj(1).txt'
+        y_file = 'y_proj_splic.txt'
         self._createMFile(y_proj, y_file)
 
         # interpolate
-        zi = griddata((x_proj, y_proj), par_per_cls, (xi, yi), method='linear')
+        zi = griddata((x_proj, y_proj), z_part, (xi, yi), method='linear')
         # mask out the field
         zi[mask] = np.nan
         fig = plt.figure()
         ax = fig.add_subplot(111)
         plt.contourf(xi, yi, zi)
-        plt.hexbin(x_proj, y_proj, C=par_per_cls, gridsize=20, mincnt=1, bins='log')
+        plt.hexbin(x_proj, y_proj, C=z_part, gridsize=20, mincnt=1, bins='log')
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()
-        plt.savefig('interpolated_controlPCA_3.png', dpi=100)
+        plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
         plt.close(fig)
         # ---------------------plot success--------------------------
         # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
