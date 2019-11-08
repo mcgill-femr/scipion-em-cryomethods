@@ -331,6 +331,7 @@ class ProtLandscapePCA(ProtocolBase):
             # Now, not using diff volume to estimate PCA
             # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
+            newBaseAxis = vhDel.T.dot(listNpVol)
 
             row = []
             b = volList - npAvgVol.reshape(lenght)
@@ -373,6 +374,16 @@ class ProtLandscapePCA(ProtocolBase):
         self._createMFile(vhDel, 'matrix_vhDel.txt')
 
         print(' this is the matrix "vhDel": ', vhDel)
+        pca_Base= []
+        for vol in listVol:
+            volNp = loadMrc(vol, False)
+            volList = volNp.reshape(lenght)
+            newBaseAxis = vhDel.T.dot(volList)
+            pca_Base.append(newBaseAxis)
+        base_file = 'Base_splic.txt'
+        self._createMFile(pca_Base, base_file)
+        x_base = [item[0] for item in pca_Base]
+        y_base = [item[1] for item in pca_Base]
 
 
         # insert at 1, 0 is the script path (or '' in REPL)
@@ -420,6 +431,14 @@ class ProtLandscapePCA(ProtocolBase):
         print (y_proj, "y_proj")
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
+        print (z_part, "z_part")
+
+        one= list(x * y for x, y in list(zip(x_proj, x_base)))
+        two= list(a * b for a, b in list(zip(y_proj, y_base)))
+        each_map= [sum(x) for x in zip(one, two)]
+        print (each_map, "each_map")
+
+
 
 
         xmin = min(x_proj)
