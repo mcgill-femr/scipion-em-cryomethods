@@ -331,7 +331,6 @@ class ProtLandscapePCA(ProtocolBase):
             # Now, not using diff volume to estimate PCA
             # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
-            newBaseAxis = vhDel.T.dot(listNpVol)
 
             row = []
             b = volList - npAvgVol.reshape(lenght)
