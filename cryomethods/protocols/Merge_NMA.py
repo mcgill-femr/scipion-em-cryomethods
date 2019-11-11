@@ -1137,51 +1137,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                 md.setValue(xmippLib.MDL_NMA_MODEFILE, fnVec, objId)
         md.write(self._getExtraPath('maxAtomShifts.xmd'))
 
-        # import shutil
-        # from shutil import copyfile
-        # makePath('extra/split_animations')
-        # splitPdb = self._getExtraPath("split_animations")
-        # pdbFns = self._getExtraPath("animations", "*.pdb")
-        # # print(splitPdb, type(splitPdb), self._currentDir, "splitPdbvvvvvvvvvvvv")
-        # fnList = glob(pdbFns)
-
-
-        # for i, pdbFns in enumerate(fnList):
-        #     print (pdbFns, "pdbfnsssssssssss")
-        #     with open(pdbFns) as infile:
-        #         outfile = open(str(i) + pdbFns, 'w')
-        #         for line in infile:
-        #             if 'TER' in line:
-        #                 outfile = open(str(i) + pdbFns, 'w')
-        #             outfile.write(line)
-
-
-
-
-
-
-
-
-
-         # with open(splitPdb, 'w') as f:
-         #    for s in fnList:
-         #        f.write((s + u'\n').encode('unicode-escape'))
-        #
-        # with open(splitPdb, 'r') as f:
-        #     splitPdb = [line.decode('unicode-escape').rstrip(u'\n') for line in
-        #                f]
-        # print (splitPdb)
-        # for fn in (fnList, self.numberOfModes.get() + 1):
-        #     pdb_split = join("extra", "split_animations", "split_animations_%03d"
-        #                        % fn)
-        #     pdb_sfile = open(pdb_split + ".pdb", 'w')
-        #     pdb_sfile.write('%s\n' % fn)
-        #     print ("splittttttttt")
-        # MyFile = open(splitPdb, 'w')
-        # for element in fnList:
-        #     MyFile.write(element)
-        #     MyFile.write('\n')
-        # MyFile.close()
 
 
 
