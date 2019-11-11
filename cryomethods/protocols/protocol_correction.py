@@ -59,7 +59,6 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._insertFunctionStep('InputVolumeStep')
         self._insertFunctionStep('anisotropicCorrectionStep')
         self._insertFunctionStep('sharpeningStep')
         self._insertFunctionStep('outputStep')
@@ -70,37 +69,14 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         """ Implemented in subclasses. """
         pass
 
+    def anisotropicCorrectionStep(self, iter):
+        self.inputvolume.get()
+        pass
+
+
     def sharpeningStep(self, iter):
-        sampling = self.inputVolume.get().getSamplingRate()
-        # params = ' --vol %s' % self.volFn
-        if (iter == 1):
-            params = ' --resolution_map %s' % self.resFn
-        else:
-            params = ' --resolution_map %s' % self._getFileName(
-                'OUTPUT_RESOLUTION_FILE')
-
-        params += ' --sampling %f' % sampling
-        params += ' -n %i' % self.numberOfThreads.get()
-        params += ' -k %f' % self.K
-        params += ' --md %s' % self._getFileName('METADATA_PARAMS_SHARPENING')
-        if (iter == 1 and self.const != 1):
-            params += ' -l %f' % self.const
-
-        if (iter == 1):
-            invol = ' --vol %s' % self.volFn
-        else:
-            invol = ' --vol %s' % self._getExtraPath(
-                'sharpenedMap_' + str(iter - 1) + '.mrc')
-
-        params += invol
-
-        self.runJob("xmipp_volume_local_sharpening  -o %s"
-                    % (self._getExtraPath(
-            'sharpenedMap_' + str(iter) + '.mrc')), params)
-        self.runJob("xmipp_image_header -i %s -s %f"
-                    % (self._getExtraPath('sharpenedMap_' + str(iter) + '.mrc'),
-                       sampling), "")
-
+        self.inputvolume.get()
+        pass
 
     def runClassifyStep(self, normalArgs, basicArgs, rLev):
         self._createIterTemplates(rLev)  # initialize files to know iterations
