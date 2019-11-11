@@ -75,7 +75,9 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
 
 
     def sharpeningStep(self, iter):
-        self.inputvolume.get()
+        output_one= self.anisotropicCorrectionStep(output)
+        if output_one is None:
+            self.inputvolume.get()
         pass
 
     def runClassifyStep(self, normalArgs, basicArgs, rLev):
