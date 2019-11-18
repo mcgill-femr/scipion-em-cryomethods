@@ -175,18 +175,28 @@ class ProtocolBase(em.EMProtocol):
                                 'a single reference by division of the data '
                                 'into random subsets during the first '
                                 'iteration.')
-            group.addParam('useReslog', params.BooleanParam,
-                           default=True,
-                           label='Use reslog as stop condition?:',
-                           help='')
-            group.addParam('doGrouping', params.BooleanParam,
-                           default=True,
-                           label='Grouping the classes:',
-                           help='')
-            group.addParam('classMethod', params.EnumParam, default=1,
-                           choices=METHOD, condition='doGrouping',
-                           label='Method to determine the classes:',
-                           help='')
+            if not self.IS_2D:
+                group.addParam('useReslog', params.BooleanParam,
+                               default=True,
+                               label='Use reslog as stop condition?:',
+                               help='')
+                group.addParam('doGrouping', params.BooleanParam,
+                               default=True,
+                               label='Grouping the classes:',
+                               help='')
+                group.addParam('classMethod', params.EnumParam, default=1,
+                               choices=METHOD, condition='doGrouping',
+                               label='Method to determine the classes:',
+                               help='')
+            else:
+                group.addHidden('useReslog', params.BooleanParam,
+                               default=False,
+                               label='Use reslog as stop condition?:',
+                               help='')
+                group.addHidden('doGrouping', params.BooleanParam,
+                               default=False,
+                               label='Grouping the classes:',
+                               help='')
 
     def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Reference 3D map')
