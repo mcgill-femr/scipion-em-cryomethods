@@ -1,33 +1,21 @@
-import os
-import re
-import copy
-import random
 import numpy as np
 from glob import glob
-from collections import Counter
+
+from glob import glob
+
+import numpy as np
+from itertools import *
+from matplotlib import *
+from matplotlib import pyplot as plt
+from scipy.interpolate import griddata
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
-import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
-
 from cryomethods import Plugin
 from cryomethods.convert import (loadMrc, saveMrc)
-
-from .protocol_base import ProtocolBase
 from xmipp3.convert import getImageLocation
-from os.path import join
-from cryomethods import Plugin
-
-from matplotlib import *
-from matplotlib import pyplot as plt
-import matplotlib.cm as cm
-from scipy.interpolate import griddata
-
-
-
-
+from .protocol_base import ProtocolBase
 
 
 class ProtLandscapePCA(ProtocolBase):
@@ -229,20 +217,9 @@ class ProtLandscapePCA(ProtocolBase):
 
     # --------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._level = 1
-        self._rLev = 1
-        self._evalIdsList = []
-        self._doneList = []
-        self._constStop = []
-        self.stopDict = {}
-        self._mapsDict = {}
-        self._clsIdDict = {}
-
-        # self._initialize()
         self._insertFunctionStep('estimatePCAStep')
+
     #-------------------------step function-----------------------------------
-    def _getRefStar(self):
-        return self._getExtraPath("input_references.star")
 
     def _getAverageVol(self,  volSet, listVol=[]):
         self._createFilenameTemplates()
@@ -277,10 +254,6 @@ class ProtLandscapePCA(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-
-
-
-
     def estimatePCAStep(self):
         self._createFilenameTemplates()
 
@@ -302,17 +275,7 @@ class ProtLandscapePCA(ProtocolBase):
             row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
             row.addToMd(refMd)
         refMd.write(self._getRefStar())
-
-
-
-
         print (fnIn, "fninn")
-
-        # for i in fnIn:
-        #     print (i, "vol")
-        #     row.setValue(md.RLN_MLMODEL_REF_IMAGE, i)
-        #     row.addToMd(refMd)
-        # refMd.write(self._getRefStar())
 
         listVol = fnIn
         self._getAverageVol(listVol)
@@ -320,17 +283,17 @@ class ProtLandscapePCA(ProtocolBase):
         avgVol = self._getFileName('avgMap')
         npAvgVol = loadMrc(avgVol, False)
         dType = npAvgVol.dtype
-        volNp = loadMrc(listVol.__getitem__(0), False)
-        dim = volNp.shape[0]
+        iniVolNp = loadMrc(listVol[0], False)
+        dim = iniVolNp.shape[0]
         lenght = dim ** 3
         cov_matrix = []
-
+        volL= []
         for vol in listVol:
             volNp = loadMrc(vol, False)
 
             # Now, not using diff volume to estimate PCA
-            # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
+            volL.append(volList)
 
             row = []
             b = volList - npAvgVol.reshape(lenght)
@@ -338,6 +301,7 @@ class ProtLandscapePCA(ProtocolBase):
             for j in listVol:
                 npVol = loadMrc(j, writable=False)
                 volList = npVol.reshape(lenght)
+                print (len(volList), "volist(1)_length")
                 volList_two = volList - npAvgVol.reshape(lenght)
                 print (volList, "vollist")
                 temp_a= np.corrcoef(volList_two, b).item(1)
@@ -373,16 +337,34 @@ class ProtLandscapePCA(ProtocolBase):
         self._createMFile(vhDel, 'matrix_vhDel.txt')
 
         print(' this is the matrix "vhDel": ', vhDel)
-        pca_Base= []
-        for vol in listVol:
-            volNp = loadMrc(vol, False)
-            volList = volNp.reshape(lenght)
-            newBaseAxis = vhDel.T.dot(volList)
-            pca_Base.append(newBaseAxis)
-        base_file = 'Base_splic.txt'
-        self._createMFile(pca_Base, base_file)
-        x_base = [item[0] for item in pca_Base]
-        y_base = [item[1] for item in pca_Base]
+        print (len(vhDel), "vhDel_length")
+        print (len(volL), "vollength")
+        volumeLength = len(volL)
+
+
+        # -------------NEWBASE_AXIS-------------------------------------------
+
+        counter = 0
+
+        for i in vhDel.T:
+            print (len(vhDel), "tpVhdel")
+            base = np.zeros(lenght)
+            for (a, b) in izip(volL,i):
+                print (len(a), "volist")
+                print (b.shape, "vhdel")
+                print ((a.shape), "i.shape")
+                base += a*b
+                volBase = base.reshape((dim, dim, dim))
+                print (volBase.shape, "volBase")
+            nameVol = 'volume_base_%02d.mrc' % (counter)
+            print (counter, "counter")
+            print('-------------saving map %s-----------------' % nameVol)
+            saveMrc(volBase.astype(dType),self._getExtraPath(nameVol))
+            counter += 1
+
+
+        x_base = [item[0] for item in volBase]
+        y_base = [item[1] for item in volBase]
 
 
         # insert at 1, 0 is the script path (or '' in REPL)
@@ -400,22 +382,70 @@ class ProtLandscapePCA(ProtocolBase):
                 matrix_two = np.dot(volList, j_trans)
                 row_one.append(matrix_two)
             mat_one.append(row_one)
+        print (len(mat_one), "len_mat_one")
+        print (len(vhDel), "len_2vhDel")
 
         matProj = np.dot(mat_one, vhDel)
-        # print (newBaseAxis, "newbase")
-        # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
-        print (matProj, "matProj")
+        print (matProj.shape, "matProj")
+
+
+        # obtaining original volumes--------------------------------------------
+        baseMrc = self._getExtraPath("*.mrc")
+        baseMrcFile = glob(baseMrc)
+        print (baseMrcFile, "base mrcfile")
+        os.makedirs(self._getExtraPath('original_vols'))
+
+        for i in matProj:
+            vol = np.zeros(lenght)
+
+            for a, b in zip(baseMrcFile, i):
+                print (a, "volist")
+                print (b, "matproj")
+                volNpo = loadMrc(a, False)
+                vol_o = volNpo.reshape(lenght)
+                print (vol_o.shape, "volList")
+                # print ((a.shape), "i.shape")
+                # print ((b.shape), "vol.shape")
+                vol += vol_o * b
+                originalVol = vol.reshape((dim, dim, dim))
+                print (originalVol.shape, "originalVol")
+            nameVol = 'volume_original_%02d.mrc' % (counter)
+            print (counter, "counter")
+            print('-------------saving original_vols %s-----------------' % nameVol)
+            saveMrc(originalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
+            counter += 1
+
+
+        # difference b/w input vol and original vol-----------------------------
+        reconstMrc = self._getExtraPath("original_vols","*.mrc")
+        reconstMrcFile = glob(reconstMrc)
+        counter=0
+        os.makedirs(self._getExtraPath('volDiff'))
+        for a, b in zip(reconstMrcFile, volL):
+            volNpo = loadMrc(a, False)
+            vol_o = volNpo.reshape(lenght)
+            volDiff= vol_o - b
+            vol3D = volDiff.reshape((dim, dim, dim))
+            print (vol3D.shape, "voldif_shape")
+            # print (volDiff, "volDiff")
+            nameVol = 'volDiff_%02d.mrc' % (counter)
+            print (counter, "counter")
+            print('-------------saving original_vols %s-----------------' % nameVol)
+            saveMrc(vol3D.astype(dType), self._getExtraPath('volDiff', nameVol))
+            counter += 1
+            # print ("THE DIFFERENCE IS %d" % volDiff)
 
 
 
-        mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
-        print (mf, "mf")
-        modelFile = md.MetaData('model_classes@' + mf)
+
+        # -----------------------PLOT---------------------------------------
+        # mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        # print (mf, "mf")
+        # modelFile = md.MetaData('model_classes@' + mf)
         # for row in md.iterRows(modelFile):
         #     classDistrib = row.getValue('rlnClassDistribution')
         #     classDis.append(classDistrib)
         # #
-
 
 
         # par_per_cls = open(os.path.join("/home/satinder/ScipionUserData/projects/Landscape_PCA", "particle_num_pca.txt"), "r")
@@ -437,20 +467,11 @@ class ProtLandscapePCA(ProtocolBase):
         each_map= [sum(x) for x in zip(one, two)]
         print (each_map, "each_map")
 
-
-
-
         xmin = min(x_proj)
         ymin= min(y_proj)
         xmax = max(x_proj)
         ymax = max(y_proj)
 
-
-        # w = []
-        # for i in classDis:
-        #     a = i * 100
-        #     w.append(a)
-        # w = [int(i) for i in w]
         xi= np.arange(xmin, xmax, 0.01)
         yi= np.arange(ymin, ymax, 0.01)
         xi, yi = np.meshgrid(xi, yi)
@@ -480,52 +501,51 @@ class ProtLandscapePCA(ProtocolBase):
         plt.colorbar()
         plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
         plt.close(fig)
-        # ---------------------plot success--------------------------
-        # plt.hexbin(x_proj, y_proj, C=classDis, gridsize=60, bins='log',
-        #            cmap='inferno')
-        # plt.colorbar()
-        # plt.show()
 
-    # ------------------------------------------------------------------
+    # -------------------------- UTILS functions ------------------------------
+    def _getVolume(self):
+        self._createFilenameTemplates()
 
-    # for run in range(numOfRuns):
-    #     mf = (self._getExtraPath('run_%02d' % run,
-    #                              'relion_it%03d_' % iter +
-    #                              'model.star'))
-    #     print (mf, "mf")
-    #     # mdClass.read(mf)
-    #     ab = md.MetaData('model_classes@' + mf)
-    #
-    #     print (ab, "mdClass")
-    #
-    # clsDist = []
-    #
-    # for row in md.iterRows(ab):
-    #     classDistrib = row.getValue('rlnClassDistribution')
-    #     clsDist.append(classDistrib)
-    #
-    # print (clsDist, "clsDist")
-    #
-    # imgSet = self.inputParticles.get()
-    # totalPart = imgSet.getSize()
-    # print (totalPart, "totalPar")
-    # K = self.numOfVols.get()
-    # colors = cm.rainbow(np.linspace(0, 1, totalPart))
-    # colorList = []
-    # for i in clsDist:
-    #     index = int(len(colors) * i)
-    #     colorList.append(colors[index])
-    #
-    # x_proj = [item[0] for item in matProj]
-    # y_proj = [item[1] for item in matProj]
-    # print (x_proj, "x_proj")
-    # print (y_proj, "y_proj")
+        Plugin.setEnviron()
 
+        row = md.Row()
+        refMd = md.MetaData()
 
+        ih = em.ImageHandler()
+        inputObj = self.inputVolumes.get()
 
-    # plt.scatter(x_proj, y_proj, c=colorList, alpha=0.5)
-    #
-    # plt.show()
+        fnIn = []
+        for i in inputObj:
+            a = getImageLocation(i).split(':')[0]
+            fnIn.append(a)
+
+        for vol in fnIn:
+            row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
+            row.addToMd(refMd)
+        refMd.write(self._getRefStar())
+
+        print (fnIn, "fninn")
+
+        listVol = fnIn
+        self._getAverageVol(listVol)
+
+        avgVol = self._getFileName('avgMap')
+        npAvgVol = loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+        volNp = loadMrc(listVol.__getitem__(0), False)
+        dim = volNp.shape[0]
+        lenght = dim ** 3
+        cov_matrix = []
+        volL = []
+        for vol in listVol:
+            volNp = loadMrc(vol, False)
+
+            volList = volNp.reshape(lenght)
+            volL.append(volList)
+
+    def _getRefStar(self):
+        return self._getExtraPath("input_references.star")
+
 
 
     def _getPathMaps(self):

@@ -210,7 +210,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         #----------------------------------NMA------------------------------
         form.addSection(label='Normal Mode Analysis')
-        form.addParam('numberOfModes', IntParam, default=20,
+        form.addParam('numberOfModes', IntParam, default=90,
                       label='Number of modes',
                       help='The maximum number of modes allowed by the method for \n'
                            'atomic normal mode analysis is 6 times the number of  \n'
@@ -230,7 +230,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       label="Cut-off distance (A)",
                       condition='cutoffMode==%d' % NMA_CUTOFF_ABS,
                       help='Atoms or pseudoatoms beyond this distance will not interact.')
-        form.addParam('rcPercentage', FloatParam, default=95,
+        form.addParam('rcPercentage', FloatParam, default=99,
                       label="Cut-off percentage",
                       condition='cutoffMode==%d' % NMA_CUTOFF_REL,
                       help='The interaction cutoff distance is calculated as the distance\n'
@@ -285,13 +285,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'threshold. '
                            'This value should be between 0 and 1.\n'
                            'A threshold of 0 implies no atom removal.')
-        group = form.addGroup('Single mode')
-        group.addParam('modeNumber', IntParam, default=7,
-                       label='Mode number')
-        group.addParam('displayVmd', LabelParam,
-                       label='Display mode animation with VMD?')
-        group.addParam('displayDistanceProfile', LabelParam, default=False,
-                       label="Plot mode distance profile?")
+
         #---------------------------convert pdb----------------------------
         form.addParam('inputPdbData', params.EnumParam,
                       choices=['id', 'object', 'file'],
@@ -856,24 +850,9 @@ class ProtLandscapeNMA(em.EMProtocol):
                         numberOfMpi=1, numberOfThreads=1)
         cleanPattern(self._getPath(pseudoatoms + '_*'))
 
-        # fn_one= self._getExtraPath()
-        # print (fnIn, "fnIn")
-        # self.runJob("xmipp_image_convert",
-        #         "-i %s -o %s/output_vol.mrc:mrc -t vol"
-        #         % (fnIn, fn_one),
-        #         numberOfMpi=1, numberOfThreads=1)
-        # fnOut= self._getExtraPath("output_vol.mrc:mrc")
-        # print (fnOut, "fnOut")
-        # outFile = self._getPath(replaceBaseExt(basename(fnIn), 'mrc'))
-        #
-        # self.info("Output file: " + outFile)
 
 
     def computeNMAStep(self):
-        # self.structureEM = self._getPath('pseudoatoms.pdb')
-        n = self.numberOfModes.get()
-
-
         # Link the input
         pseudoFn = 'pseudoatoms.pdb'
         distanceFn = 'atoms_distance.hist'
@@ -1608,7 +1587,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         plt.contourf(xi, yi, zi)
-        plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=20, mincnt=1, bins='log')
+        plt.plot(x_proj, y_proj)
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()

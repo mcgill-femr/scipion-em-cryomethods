@@ -789,7 +789,8 @@ class Prot3DAutoClassifier(ProtocolBase):
         self._createMFile(vhDel, 'matrix_vhDel.txt')
 
         print(' this is the matrix "vhDel": ', vhDel)
-
+        print (len(vhDel), "vhDel_length")
+        print (len(listNpVol), "listnpvol_length")
         newBaseAxis = vhDel.T.dot(listNpVol)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
