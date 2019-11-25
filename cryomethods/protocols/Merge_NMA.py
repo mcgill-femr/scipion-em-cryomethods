@@ -1038,6 +1038,8 @@ class ProtLandscapeNMA(em.EMProtocol):
             print (score[i], "score[i]")
             print (l, "l")
             mdOut.setValue(xmippLib.MDL_NMA_SCORE, score_i, objId)
+            mdOut.setValue(xmippLib.MDL_ENABLED, 1, objId)
+
             print (xmippLib.MDL_NMA_SCORE, "xmippLib.MDL_NMA_SCORE")
             i += 1
             print(score_i, "score_i")
@@ -1192,7 +1194,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             count= 0
             fnList = []
             for pdbFns in fnListl:
-                print (pdbFns, "pdbfnsssssssssss")
+                print (sorted(pdbFns), "pdbfnsssssssssss")
                 with open(pdbFns) as infile:
                     i = 0
                     filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
@@ -1212,8 +1214,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
 
-            # fnListl = sorted(fnList)
-            print (fnList, "fnlist")
+            print (sorted(fnList), "fnlist")
             pseudoFn = 'pseudoatoms.pdb'
             inputFn = self._getPath(pseudoFn)
             print(inputFn, type(inputFn), self._currentDir)

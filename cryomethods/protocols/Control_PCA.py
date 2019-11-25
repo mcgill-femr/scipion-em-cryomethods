@@ -90,130 +90,13 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       label='Input volumes',
                       help='Initial reference 3D maps')
-        form.addSection('Compute')
-        form.addParam('useParallelDisk', params.BooleanParam, default=True,
-                      label='Use parallel disc I/O?',
-                      help='If set to Yes, all MPI slaves will read '
-                           'their own images from disc. Otherwise, only '
-                           'the master will read images and send them '
-                           'through the network to the slaves. Parallel '
-                           'file systems like gluster of fhgfs are good '
-                           'at parallel disc I/O. NFS may break with many '
-                           'slaves reading in parallel.')
-        form.addParam('pooledParticles', params.IntParam, default=3,
-                      label='Number of pooled particles:',
-                      help='Particles are processed in individual batches '
-                           'by MPI slaves. During each batch, a stack of '
-                           'particle images is only opened and closed '
-                           'once to improve disk access times. All '
-                           'particle images of a single batch are read '
-                           'into memory together. The size of these '
-                           'batches is at least one particle per thread '
-                           'used. The nr_pooled_particles parameter '
-                           'controls how many particles are read together '
-                           'for each thread. If it is set to 3 and one '
-                           'uses 8 threads, batches of 3x8=24 particles '
-                           'will be read together. This may improve '
-                           'performance on systems where disk access, and '
-                           'particularly metadata handling of disk '
-                           'access, is a problem. It has a modest cost of '
-                           'increased RAM usage.')
+        form.addParam('thr', params.FloatParam,default=0.95,
+                        important = True,
+                         label = 'THreshold Value')
 
-        form.addParam('skipPadding', em.BooleanParam, default=False,
-                      label='Skip padding',
-                      help='If set to Yes, the calculations will not use '
-                           'padding in Fourier space for better '
-                           'interpolation in the references. Otherwise, '
-                           'references are padded 2x before Fourier '
-                           'transforms are calculated. Skipping padding '
-                           '(i.e. use --pad 1) gives nearly as good '
-                           'results as using --pad 2, but some artifacts '
-                           'may appear in the corners from signal that is '
-                           'folded back.')
 
-        form.addParam('allParticlesRam', params.BooleanParam, default=False,
-                      label='Pre-read all particles into RAM?',
-                      help='If set to Yes, all particle images will be '
-                           'read into computer memory, which will greatly '
-                           'speed up calculations on systems with slow '
-                           'disk access. However, one should of course be '
-                           'careful with the amount of RAM available. '
-                           'Because particles are read in '
-                           'float-precision, it will take \n'
-                           '( N * (box_size)^2 * 4 / (1024 * 1024 '
-                           '* 1024) ) Giga-bytes to read N particles into '
-                           'RAM. For 100 thousand 200x200 images, that '
-                           'becomes 15Gb, or 60 Gb for the same number of '
-                           '400x400 particles. Remember that running a '
-                           'single MPI slave on each node that runs as '
-                           'many threads as available cores will have '
-                           'access to all available RAM.\n\n'
-                           'If parallel disc I/O is set to No, then only '
-                           'the master reads all particles into RAM and '
-                           'sends those particles through the network to '
-                           'the MPI slaves during the refinement '
-                           'iterations.')
-        form.addParam('scratchDir', params.PathParam,
-                      condition='not allParticlesRam',
-                      label='Copy particles to scratch directory: ',
-                      help='If a directory is provided here, then the job '
-                           'will create a sub-directory in it called '
-                           'relion_volatile. If that relion_volatile '
-                           'directory already exists, it will be wiped. '
-                           'Then, the program will copy all input '
-                           'particles into a large stack inside the '
-                           'relion_volatile subdirectory. Provided this '
-                           'directory is on a fast local drive (e.g. an '
-                           'SSD drive), processing in all the iterations '
-                           'will be faster. If the job finishes '
-                           'correctly, the relion_volatile directory will '
-                           'be wiped. If the job crashes, you may want to '
-                           'remove it yourself.')
-        form.addParam('combineItersDisc', params.BooleanParam,
-                      default=False,
-                      label='Combine iterations through disc?',
-                      help='If set to Yes, at the end of every iteration '
-                           'all MPI slaves will write out a large file '
-                           'with their accumulated results. The MPI '
-                           'master will read in all these files, combine '
-                           'them all, and write out a new file with the '
-                           'combined results. All MPI salves will then '
-                           'read in the combined results. This reduces '
-                           'heavy load on the network, but increases load '
-                           'on the disc I/O. This will affect the time it '
-                           'takes between the progress-bar in the '
-                           'expectation step reaching its end (the mouse '
-                           'gets to the cheese) and the start of the '
-                           'ensuing maximisation step. It will depend on '
-                           'your system setup which is most efficient.')
-        form.addParam('doGpu', params.BooleanParam, default=True,
-                      label='Use GPU acceleration?',
-                      help='If set to Yes, the job will try to use GPU '
-                           'acceleration.')
-        form.addParam('gpusToUse', params.StringParam, default='',
-                      label='Which GPUs to use:', condition='doGpu',
-                      help='This argument is not necessary. If left empty, '
-                           'the job itself will try to allocate available '
-                           'GPU resources. You can override the default '
-                           'allocation by providing a list of which GPUs '
-                           '(0,1,2,3, etc) to use. MPI-processes are '
-                           'separated by ":", threads by ",". '
-                           'For example: "0,0:1,1:0,0:1,1"')
-        form.addParam('oversampling', params.IntParam, default=1,
-                      label="Over-sampling",
-                      help="Adaptive oversampling order to speed-up "
-                           "calculations (0=no oversampling, 1=2x, 2=4x, etc)")
-        form.addParam('extraParams', params.StringParam,
-                      default='',
-                      label='Additional parameters',
-                      help="In this box command-line arguments may be "
-                           "provided that are not generated by the GUI. This "
-                           "may be useful for testing developmental options "
-                           "and/or expert use of the program, e.g:\n"
-                           "--dont_combine_weights_via_disc\n"
-                           "--verb 1\n"
-                           "--pad 2")
-        form.addParallelSection(threads=1, mpi=4)
+
+        form.addParallelSection(threads=0, mpi=0)
 
     # --------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
@@ -221,17 +104,16 @@ class ProtLandscapePCA(ProtocolBase):
 
     #-------------------------step function-----------------------------------
 
-    def _getAverageVol(self,  volSet, listVol=[]):
+    def _getAverageVol(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
 
         inputObj = self.inputVolumes.get()
-        fnIn = []
+        listVol = []
         for i in inputObj:
 
             a = getImageLocation(i).split(':')[0]
-            fnIn.append(a)
-        listVol= fnIn
+            listVol.append(a)
 
         # listVol = self._getPathMaps() if not bool(listVol) else listVol
         print (listVol, "listVolll")
@@ -256,14 +138,11 @@ class ProtLandscapePCA(ProtocolBase):
 
     def estimatePCAStep(self):
         self._createFilenameTemplates()
-
         Plugin.setEnviron()
-        listNpVol = []
 
         row = md.Row()
         refMd = md.MetaData()
 
-        ih = em.ImageHandler()
         inputObj = self.inputVolumes.get()
 
         fnIn= []
@@ -278,7 +157,7 @@ class ProtLandscapePCA(ProtocolBase):
         print (fnIn, "fninn")
 
         listVol = fnIn
-        self._getAverageVol(listVol)
+        self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
         npAvgVol = loadMrc(avgVol, False)
@@ -287,73 +166,37 @@ class ProtLandscapePCA(ProtocolBase):
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
         cov_matrix = []
-        volL= []
         for vol in listVol:
             volNp = loadMrc(vol, False)
-
-            # Now, not using diff volume to estimate PCA
             volList = volNp.reshape(lenght)
-            volL.append(volList)
 
             row = []
+            # Now, using diff volume to estimate PCA
             b = volList - npAvgVol.reshape(lenght)
-            print (b, 'b')
             for j in listVol:
                 npVol = loadMrc(j, writable=False)
-                volList = npVol.reshape(lenght)
-                print (len(volList), "volist(1)_length")
-                volList_two = volList - npAvgVol.reshape(lenght)
-                print (volList, "vollist")
+                volList_a = npVol.reshape(lenght)
+                print (len(volList_a), "volist(1)_length")
+                volList_two = volList_a - npAvgVol.reshape(lenght)
                 temp_a= np.corrcoef(volList_two, b).item(1)
                 print (temp_a, "temp_a")
                 row.append(temp_a)
-                # b= volList_two
-                # print (corr, "corr")
             cov_matrix.append(row)
 
         print (cov_matrix, "covMatrix")
         u, s, vh = np.linalg.svd(cov_matrix)
-        cuttOffMatrix = sum(s) * 0.95
-        sCut = 0
-
-        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
-        for i in s:
-            print('cuttOffMatrix: ', cuttOffMatrix)
-            if cuttOffMatrix > 0:
-                print("Pass, i = %s " % i)
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-        print('sCut: ', sCut)
-
-        eigValsFile ='eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        print(' this is the matrix "vhDel": ', vhDel)
-        print (len(vhDel), "vhDel_length")
-        print (len(volL), "vollength")
-        volumeLength = len(volL)
-
-
+        vhDel = self._getvhDel(vh, s, self.thr.get())
         # -------------NEWBASE_AXIS-------------------------------------------
-
         counter = 0
 
         for i in vhDel.T:
-            print (len(vhDel), "tpVhdel")
             base = np.zeros(lenght)
-            for (a, b) in izip(volL,i):
+            for (a, b) in izip(listVol,i):
                 print (len(a), "volist")
+                volInp = loadMrc(a, False)
+                volInpR = volInp.reshape(lenght)
                 print (b.shape, "vhdel")
-                print ((a.shape), "i.shape")
-                base += a*b
+                base += volInpR*b
                 volBase = base.reshape((dim, dim, dim))
                 print (volBase.shape, "volBase")
             nameVol = 'volume_base_%02d.mrc' % (counter)
@@ -362,31 +205,24 @@ class ProtLandscapePCA(ProtocolBase):
             saveMrc(volBase.astype(dType),self._getExtraPath(nameVol))
             counter += 1
 
-
-        x_base = [item[0] for item in volBase]
-        y_base = [item[1] for item in volBase]
-
-
-        # insert at 1, 0 is the script path (or '' in REPL)
-
-        mat_one = []
+        matProj = []
+        baseMrc = self._getExtraPath("*.mrc")
+        baseMrcFile = glob(baseMrc)
         for vol in listVol:
             volNp = loadMrc(vol, False)
-            volList = volNp.reshape(lenght)
-            print (volList, "volList")
+            volRow = volNp.reshape(lenght)
+            volInputTwo = volRow - npAvgVol.reshape(lenght)
             row_one = []
-            for j in listVol:
+            for j in baseMrcFile:
                 npVol = loadMrc(j, writable=False)
-                volList_three = npVol.reshape(lenght)
-                j_trans = volList_three.transpose()
-                matrix_two = np.dot(volList, j_trans)
+                volBaseTwo= npVol.reshape(lenght)
+                j_trans = volBaseTwo.transpose()
+                matrix_two = np.dot(volInputTwo, j_trans)
                 row_one.append(matrix_two)
-            mat_one.append(row_one)
-        print (len(mat_one), "len_mat_one")
+            matProj.append(row_one)
+        print (len(matProj), "len_mat_one")
         print (len(vhDel), "len_2vhDel")
 
-        matProj = np.dot(mat_one, vhDel)
-        print (matProj.shape, "matProj")
 
 
         # obtaining original volumes--------------------------------------------
@@ -394,45 +230,36 @@ class ProtLandscapePCA(ProtocolBase):
         baseMrcFile = glob(baseMrc)
         print (baseMrcFile, "base mrcfile")
         os.makedirs(self._getExtraPath('original_vols'))
-
+        orignCount=0
         for i in matProj:
-            vol = np.zeros(lenght)
-
+            vol = np.zeros((dim, dim,dim))
             for a, b in zip(baseMrcFile, i):
                 print (a, "volist")
                 print (b, "matproj")
                 volNpo = loadMrc(a, False)
-                vol_o = volNpo.reshape(lenght)
-                print (vol_o.shape, "volList")
-                # print ((a.shape), "i.shape")
-                # print ((b.shape), "vol.shape")
-                vol += vol_o * b
-                originalVol = vol.reshape((dim, dim, dim))
-                print (originalVol.shape, "originalVol")
-            nameVol = 'volume_original_%02d.mrc' % (counter)
-            print (counter, "counter")
+                print (volNpo.shape, "volList")
+                vol += volNpo * b
+            finalVol= vol + npAvgVol
+            nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
-            saveMrc(originalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
-            counter += 1
+            saveMrc(finalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
+            orignCount += 1
 
 
         # difference b/w input vol and original vol-----------------------------
         reconstMrc = self._getExtraPath("original_vols","*.mrc")
         reconstMrcFile = glob(reconstMrc)
-        counter=0
+        diffCount=0
         os.makedirs(self._getExtraPath('volDiff'))
-        for a, b in zip(reconstMrcFile, volL):
-            volNpo = loadMrc(a, False)
-            vol_o = volNpo.reshape(lenght)
-            volDiff= vol_o - b
-            vol3D = volDiff.reshape((dim, dim, dim))
-            print (vol3D.shape, "voldif_shape")
+        for a, b in zip(reconstMrcFile, listVol):
+            volRec = loadMrc(a, False)
+            volInpThree = loadMrc(b, False)
+            volDiff= volRec - volInpThree
             # print (volDiff, "volDiff")
-            nameVol = 'volDiff_%02d.mrc' % (counter)
-            print (counter, "counter")
+            nameVol = 'volDiff_%02d.mrc' % (diffCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
-            saveMrc(vol3D.astype(dType), self._getExtraPath('volDiff', nameVol))
-            counter += 1
+            saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
+            diffCount += 1
             # print ("THE DIFFERENCE IS %d" % volDiff)
 
 
@@ -462,10 +289,10 @@ class ProtLandscapePCA(ProtocolBase):
         print (len(y_proj), "ylength")
         print (z_part, "z_part")
 
-        one= list(x * y for x, y in list(zip(x_proj, x_base)))
-        two= list(a * b for a, b in list(zip(y_proj, y_base)))
-        each_map= [sum(x) for x in zip(one, two)]
-        print (each_map, "each_map")
+        # one= [x * y for x, y in list(zip(x_proj, x_base))]
+        # two= [a * b for a, b in list(zip(y_proj, y_base))]
+        # each_map= [sum(x) for x in zip(one, two)]
+        # print (each_map, "each_map")
 
         xmin = min(x_proj)
         ymin= min(y_proj)
@@ -495,13 +322,12 @@ class ProtLandscapePCA(ProtocolBase):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         plt.contourf(xi, yi, zi)
-        plt.hexbin(x_proj, y_proj, C=z_part, gridsize=20, mincnt=1, bins='log')
+        plt.plot(x_proj, y_proj)
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()
         plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
         plt.close(fig)
-
     # -------------------------- UTILS functions ------------------------------
     def _getVolume(self):
         self._createFilenameTemplates()
@@ -599,6 +425,37 @@ class ProtLandscapePCA(ProtocolBase):
                 vol._rlnAccuracyTranslations = em.Float(accurracyTras)
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
+
+    def _getvhDel(self, vh, s, thr=0.95):
+        if thr < 1:
+            cuttOffMatrix = sum(s) * thr
+            sCut = 0
+
+            print('cuttOffMatrix & s: ', cuttOffMatrix, s)
+            for i in s:
+                if cuttOffMatrix > 0:
+                    print("Pass, i = %s " % i)
+                    cuttOffMatrix = cuttOffMatrix - i
+                    sCut += 1
+                else:
+                    break
+            print('sCut: ', sCut)
+
+            eigValsFile ='eigenvalues.txt'
+            self._createMFile(s, eigValsFile)
+
+            eigVecsFile = 'eigenvectors.txt'
+            self._createMFile(vh, eigVecsFile)
+
+            vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+            self._createMFile(vhDel, 'matrix_vhDel.txt')
+
+            print(' this is the matrix "vhDel": ', vhDel)
+            print (len(vhDel), "vhDel_length")
+            return vhDel
+        else:
+            return vh.T
+
 
 
     def _validate(self):
