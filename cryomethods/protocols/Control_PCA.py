@@ -266,16 +266,14 @@ class ProtLandscapePCA(ProtocolBase):
 
 
         # -----------------------PLOT---------------------------------------
-        # mf = ('/home/josuegbl/PROCESSING/MAPS_FINALE/raw_final_model.star')
+        # mf = ('/home/satinder/ScipionUserData/projects/ControlTestPCA/Runs/000099_ProtLandscapePCA/extra/raw_final_model.star')
         # print (mf, "mf")
         # modelFile = md.MetaData('model_classes@' + mf)
         # for row in md.iterRows(modelFile):
         #     classDistrib = row.getValue('rlnClassDistribution')
         #     classDis.append(classDistrib)
-        # #
 
 
-        # par_per_cls = open(os.path.join("/home/satinder/ScipionUserData/projects/Landscape_PCA", "particle_num_pca.txt"), "r")
         filename = '/home/satinder/ScipionUserData/projects/Landscape_PCA/splic_Tes_part.txt'
         with open(filename) as f:
             c = f.read().splitlines()
