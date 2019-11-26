@@ -305,12 +305,15 @@ class ProtLandscapePCA(ProtocolBase):
 
         # set mask
         mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
+
         #save coordinates:
-        mat_file = 'matProj_splic.txt'
+        os.makedirs(self._getExtraPath('Coordinates'))
+        coorPath = self._getExtraPath('Coordinates')
+        mat_file = os.path.join(coorPath,'matProj_splic.txt')
         self._createMFile(matProj, mat_file)
-        x_file = 'x_proj_splic.txt'
+        x_file = os.path.join(coorPath, 'x_proj_splic.txt')
         self._createMFile(x_proj, x_file)
-        y_file = 'y_proj_splic.txt'
+        y_file = os.path.join(coorPath, 'y_proj_splic.txt')
         self._createMFile(y_proj, y_file)
 
         # interpolate
@@ -324,7 +327,8 @@ class ProtLandscapePCA(ProtocolBase):
         plt.xlabel('x_pca', fontsize=16)
         plt.ylabel('y_pca', fontsize=16)
         plt.colorbar()
-        plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
+        heatMap= self._getExtraPath('interpolated_controlPCA_splic.png')
+        plt.savefig(heatMap, dpi=100)
         plt.close(fig)
     # -------------------------- UTILS functions ------------------------------
     def _getVolume(self):
@@ -439,14 +443,17 @@ class ProtLandscapePCA(ProtocolBase):
                     break
             print('sCut: ', sCut)
 
-            eigValsFile ='eigenvalues.txt'
+            os.makedirs(self._getExtraPath('EigenFile'))
+            eigPath = self._getExtraPath('EigenFile')
+            eigValsFile = os.path.join(eigPath, 'eigenvalues.txt')
             self._createMFile(s, eigValsFile)
 
-            eigVecsFile = 'eigenvectors.txt'
+            eigVecsFile = os.path.join(eigPath,'eigenvectors.txt')
             self._createMFile(vh, eigVecsFile)
 
             vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-            self._createMFile(vhDel, 'matrix_vhDel.txt')
+            vhdelPath= os.path.join(eigPath, 'matrix_vhDel.txt')
+            self._createMFile(vhDel, vhdelPath)
 
             print(' this is the matrix "vhDel": ', vhDel)
             print (len(vhDel), "vhDel_length")
