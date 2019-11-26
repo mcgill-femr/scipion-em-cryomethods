@@ -274,7 +274,7 @@ class ProtLandscapePCA(ProtocolBase):
         #     classDis.append(classDistrib)
 
 
-        filename = '/home/satinder/ScipionUserData/projects/Landscape_PCA/splic_Tes_part.txt'
+        filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/splic_Tes_1434.txt'
         with open(filename) as f:
             c = f.read().splitlines()
         z_part = map(float, c)
