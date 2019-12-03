@@ -68,7 +68,13 @@ class ProtAutoBase(ProtocolBase):
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
         self._iterRegex = re.compile('_it(\d{3,3})_')
-        self._classRegex = re.compile('_class(\d{2,2}).')
+
+    def _createRLevTemplates(self):
+        """ Setup the regex on how to find iterations. """
+        self._rLevTemplate = self._getFileName('input_star', lev=self._level,
+                                               rLev=0).replace('000', '???')
+        self._rLevRegex = re.compile('rLev-(\d{3,3}).')
+
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -90,6 +96,9 @@ class ProtAutoBase(ProtocolBase):
         deps = self._insertLevelSteps()
         self._insertFunctionStep('mergeClassesStep', wait=True,
                                  prerequisites=deps)
+        if self.doGrouping:
+            self._insertFunctionStep('runFinalClassifStep')
+            self._insertFunctionStep('createFinalFilesStep')
         self._insertFunctionStep('createOutputStep')
 
     def _insertLevelSteps(self):
@@ -147,29 +156,6 @@ class ProtAutoBase(ProtocolBase):
         """ Implemented in subclasses. """
         pass
 
-    def runContinueClasfStep(self, i):
-        args = {}
-
-        iters = self._lastIter(1)
-        imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
-
-        mdData = self._getMetadata(imgStar)
-        size = mdData.size()/2
-        mdAux1 = self._getMetadata()
-        mdAux2 = self._getMetadata()
-        mdAux1.randomize(mdData)
-        mdAux2.selectPart(mdAux1, 1, size)
-        mdAux2.write(imgStar)
-
-        self._setBasicArgs(args)
-        self._setContinueArgs(args, 1)
-        self._setComputeArgs(args)
-        args['--iter'] = iters+6
-
-        paramsCont = self._getParams(args)
-
-        self._runClassifyStep(paramsCont)
-
     def resLogStep(self, rLev):
         iters = self._lastIter(rLev)
         modelFn = self._getFileName('model', iter=iters,lev=self._level,
@@ -194,7 +180,6 @@ class ProtAutoBase(ProtocolBase):
     def mergeClassesStep(self):
 
         if self.doGrouping:
-            levelRuns = []
 
             makePath(self._getLevelPath(self._level))
             # matrix = self._estimatePCA()
@@ -211,7 +196,6 @@ class ProtAutoBase(ProtocolBase):
                 newClass = labels[clsPart-1] + 1
                 row.setValue(md.RLN_PARTICLE_CLASS, newClass)
                 if not newClass == clsChange:
-                    levelRuns.append(newClass)
                     if not clsChange == 0:
                         mdOutput.write(fn)
                     clsChange = newClass
@@ -221,67 +205,6 @@ class ProtAutoBase(ProtocolBase):
                 row.addToMd(mdOutput)
             mdOutput.write(fn)
 
-            mapIds = self._getFinalMapIds()
-            print("final mapIds:", mapIds)
-
-            #-----metadata to save all final models-------
-            finalModel = self._getFileName('finalModel')
-            finalModelMd = self._getMetadata()
-
-            #-----metadata to save all final particles-----
-            finalData = self._getFileName('finalData')
-            finalDataMd = self._getMetadata()
-            print('BEFORE FINAL LOOP ')
-
-            for rLev in levelRuns:
-                makePath(self._getRunPath(self._level, rLev))
-                self._rLev = rLev
-                iters = 15
-                args = {}
-
-                self._setNormalArgs(args)
-                self._setComputeArgs(args)
-
-                # if self.IS_2D:
-                args['--K'] = 1
-                args['--iter'] = iters
-
-                mapId = mapIds[rLev-1]
-                if self.IS_3D:
-                    args['--ref'] = self._getRefArg(mapId)
-
-                params = self._getParams(args)
-                self.runJob(self._getProgram(), params)
-
-                modelFn = self._getFileName('model', iter=iters,
-                                            lev=self._level, rLev=rLev)
-                modelMd = self._getMetadata('model_classes@' + modelFn)
-
-                refLabel = md.RLN_MLMODEL_REF_IMAGE
-                imgRow = md.getFirstRow(modelMd)
-                fn = imgRow.getValue(refLabel)
-
-                mapId = self._getRunLevId(rLev=rLev)
-                newMap = self._getMapById(mapId)
-                imgRow.setValue(refLabel, newMap)
-                if self.IS_2D:
-                    ih = em.ImageHandler()
-                    ih.convert(fn, newMap)
-                else:
-                    copyFile(fn, newMap)
-                self._mapsDict[fn] = mapId
-
-                imgRow.addToMd(finalModelMd)
-
-                dataFn = self._getFileName('data', iter=iters,
-                                           lev=self._level, rLev=rLev)
-                dataMd = self._getMetadata(dataFn)
-                for row in md.iterRows(dataMd):
-                    row.setValue(md.RLN_PARTICLE_CLASS, rLev)
-                    row.addToMd(finalDataMd)
-
-            finalDataMd.write(finalData)
-            finalModelMd.write('model_classes@' + finalModel)
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
@@ -290,6 +213,64 @@ class ProtAutoBase(ProtocolBase):
             copyFile(prevData, finalData)
             copyFile(prevModel, finalModel)
 
+    def runFinalClassifStep(self):
+        mapIds = self._getFinalMapIds()
+        print ("rLev list", self._getRLevList())
+        for rLev in self._getRLevList():
+            makePath(self._getRunPath(self._level, rLev))
+            self._rLev = rLev
+            iters = 15
+            args = {}
+
+            self._setNormalArgs(args)
+            self._setComputeArgs(args)
+
+            args['--K'] = 1
+            args['--iter'] = iters
+
+            mapId = mapIds[rLev - 1]
+            if self.IS_3D:
+                args['--ref'] = self._getRefArg(mapId)
+
+            params = self._getParams(args)
+            self.runJob(self._getProgram(), params)
+
+    def createFinalFilesStep(self):
+        # -----metadata to save all final models-------
+        finalModel = self._getFileName('finalModel')
+        finalModelMd = self._getMetadata()
+
+        # -----metadata to save all final particles-----
+        finalData = self._getFileName('finalData')
+        finalDataMd = self._getMetadata()
+
+        for rLev in self._getRLevList():
+            it = self._lastIter(rLev)
+            modelFn = self._getFileName('model', iter=it,
+                                        lev=self._level, rLev=rLev)
+            modelMd = self._getMetadata('model_classes@' + modelFn)
+
+            refLabel = md.RLN_MLMODEL_REF_IMAGE
+            imgRow = md.getFirstRow(modelMd)
+            fn = imgRow.getValue(refLabel)
+
+            mapId = self._getRunLevId(rLev=rLev)
+            newMap = self._getMapById(mapId)
+            imgRow.setValue(refLabel, newMap)
+            copyFile(fn, newMap)
+            self._mapsDict[fn] = mapId
+
+            imgRow.addToMd(finalModelMd)
+
+            dataFn = self._getFileName('data', iter=it,
+                                       lev=self._level, rLev=rLev)
+            dataMd = self._getMetadata(dataFn)
+            for row in md.iterRows(dataMd):
+                row.setValue(md.RLN_PARTICLE_CLASS, rLev)
+                row.addToMd(finalDataMd)
+
+        finalDataMd.write(finalData)
+        finalModelMd.write('model_classes@' + finalModel)
 
     def createOutputStep(self):
         """ Implemented in subclasses. """
@@ -722,3 +703,14 @@ class ProtAutoBase(ProtocolBase):
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
 
+    def _getRLevList(self):
+        """ Return the list of iteration files, give the rLevTemplate. """
+        self._createRLevTemplates()
+        result = []
+        files = sorted(glob(self._rLevTemplate))
+        if files:
+            for f in files:
+                s = self._rLevRegex.search(f)
+                if s:
+                    result.append(int(s.group(1)))
+        return result

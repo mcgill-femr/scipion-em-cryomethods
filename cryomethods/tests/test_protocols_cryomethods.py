@@ -147,7 +147,7 @@ class Test2DAutoClasifier(TestBase):
             return autoClassifierProt
 
         def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+            self.assertIsNotNone(relionProt.outputClasses, "There was a "
                                                            "problem")
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")

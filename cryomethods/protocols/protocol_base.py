@@ -175,18 +175,24 @@ class ProtocolBase(em.EMProtocol):
                                 'a single reference by division of the data '
                                 'into random subsets during the first '
                                 'iteration.')
-            group.addParam('useReslog', params.BooleanParam,
-                           default=True,
-                           label='Use reslog as stop condition?:',
-                           help='')
-            group.addParam('doGrouping', params.BooleanParam,
-                           default=True,
-                           label='Grouping the classes:',
-                           help='')
-            group.addParam('classMethod', params.EnumParam, default=1,
-                           choices=METHOD, condition='doGrouping',
-                           label='Method to determine the classes:',
-                           help='')
+            if not self.IS_2D:
+                group.addParam('useReslog', params.BooleanParam,
+                               default=True,
+                               label='Use reslog as stop condition?:',
+                               help='')
+                group.addParam('doGrouping', params.BooleanParam,
+                               default=True,
+                               label='Grouping the classes:',
+                               help='')
+                group.addParam('classMethod', params.EnumParam, default=1,
+                               choices=METHOD, condition='doGrouping',
+                               label='Method to determine the classes:',
+                               help='')
+            else:
+                group.addHidden('useReslog', params.BooleanParam,
+                               default=False)
+                group.addHidden('doGrouping', params.BooleanParam,
+                               default=False)
 
     def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Reference 3D map')
@@ -684,14 +690,13 @@ class ProtocolBase(em.EMProtocol):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(11, 75, 1):
-            basicArgs['--iter'] = i
-            self._setContinueArgs(basicArgs, rLev)
-            self._setComputeArgs(basicArgs)
-            paramsCont = self._getParams(basicArgs)
-
-            stop = self._stopRunCondition(rLev, i)
+        for i in range(15, 55, 5):
+            stop = self._stopRunCondition(rLev, i-5)
             if not stop:
+                basicArgs['--iter'] = i
+                self._setContinueArgs(basicArgs, rLev)
+                self._setComputeArgs(basicArgs)
+                paramsCont = self._getParams(basicArgs)
                 self._runClassifyStep(paramsCont)
             else:
                 break
@@ -1040,7 +1045,7 @@ class ProtocolBase(em.EMProtocol):
         x = np.array([])
         y = np.array([])
 
-        for i in range(iter-5, iter, 1):
+        for i in range(iter-5, iter+1, 1):
             x = np.append(x, i)
             if self.IS_AUTOCLASSIFY:
                 modelFn = self._getFileName('model', iter=i,
@@ -1052,7 +1057,7 @@ class ProtocolBase(em.EMProtocol):
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
 
         slope, _, _, _, _ = stats.linregress(x, y)
-        return True if slope <= 0.001 else False
+        return True if slope <= 0.005 else False
 
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()

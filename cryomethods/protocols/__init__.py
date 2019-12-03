@@ -26,7 +26,7 @@
 # **************************************************************************
 
 from protocol_2d_auto_classifier import Prot2DAutoClassifier
-from protocol_auto_classifier import Prot3DAutoClassifier
+from protocol_3d_auto_classifier import Prot3DAutoClassifier
 from protocol_volume_selector import ProtInitialVolumeSelector
 from protocol_correction import ProtocolMapCorrector
 
