@@ -7,7 +7,7 @@ import numpy as np
 from itertools import *
 from matplotlib import *
 from matplotlib import pyplot as plt
-from scipy.interpolate import griddata
+from scipy.interpolate import griddata, NearestNDInterpolator
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -260,7 +260,6 @@ class ProtLandscapePCA(ProtocolBase):
             print('-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
             diffCount += 1
-            # print ("THE DIFFERENCE IS %d" % volDiff)
 
 
 
@@ -274,10 +273,16 @@ class ProtLandscapePCA(ProtocolBase):
         #     classDis.append(classDistrib)
 
 
+        # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
         filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/splic_Tes_1434.txt'
-        with open(filename) as f:
-            c = f.read().splitlines()
-        z_part = map(float, c)
+
+        z_part = []
+        with open(filename, 'r') as f:
+            for y in f:
+                if y:
+                    z_part.append(float(y.strip()))
+                print (z_part, "z_part")
+        # z_part = [9366.852882, '3753.54717', '1356.278199']
 
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
@@ -298,13 +303,18 @@ class ProtLandscapePCA(ProtocolBase):
         ymax = max(y_proj)
 
         xi= np.arange(xmin, xmax, 0.01)
+        print (xi, "xi")
         yi= np.arange(ymin, ymax, 0.01)
-        xi, yi = np.meshgrid(xi, yi)
+        print (yi, "yi")
+        xiM, yiM = np.meshgrid(xi, yi)
+        print (xi, yi, "xi, yi ")
+        # points = np.array((xiM.flatten(), yiM.flatten())).T
+        # print(points.shape)
 
         # particles
 
         # set mask
-        mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
+        mask = (xiM > 0.5) & (xiM < 0.6) & (yiM > 0.5) & (yiM < 0.6)
 
         #save coordinates:
         os.makedirs(self._getExtraPath('Coordinates'))
@@ -317,7 +327,7 @@ class ProtLandscapePCA(ProtocolBase):
         self._createMFile(y_proj, y_file)
 
         # interpolate
-        zi = griddata((x_proj, y_proj), z_part, (xi, yi), method='linear')
+        zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
         # mask out the field
         zi[mask] = np.nan
         fig = plt.figure()
