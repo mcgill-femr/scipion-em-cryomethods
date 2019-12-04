@@ -8,6 +8,7 @@ from itertools import *
 from matplotlib import *
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata, NearestNDInterpolator
+from pyworkflow.protocol.params import (PointerParam, EnumParam, IntParam)
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -17,12 +18,14 @@ from cryomethods.convert import (loadMrc, saveMrc)
 from xmipp3.convert import getImageLocation
 from .protocol_base import ProtocolBase
 
+PCA_THRESHOLD = 0
+PCA_COUNT=1
+
 
 class ProtLandscapePCA(ProtocolBase):
     _label = 'Control PCA'
     IS_2D = False
     IS_AUTOCLASSIFY = True
-
     def _initialize(self):
         """ This function is mean to be called after the
         working dir for the protocol have been set.
@@ -30,6 +33,7 @@ class ProtLandscapePCA(ProtocolBase):
         """
         self._createFilenameTemplates()
         self._createIterTemplates()
+
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
@@ -90,11 +94,21 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       label='Input volumes',
                       help='Initial reference 3D maps')
-        form.addParam('thr', params.FloatParam,default=0.95,
-                        important = True,
-                         label = 'THreshold Value')
-
-
+        form.addParam('thresholdMode', EnumParam, choices=['thr', 'pcaCount'],
+                      default=PCA_THRESHOLD,
+                      label='Cut-off mode',
+                      help='Threshold value will allow you to select the\n'
+                           'principle components above this value.\n'
+                           'sCut will allow you to select number of\n'
+                           'principle components you want to select.')
+        form.addParam('thr', params.FloatParam, default=0.95,
+                      important=True,
+                      condition='thresholdMode==%d' % PCA_THRESHOLD,
+                      label='THreshold percentage')
+        form.addParam('pcaCount', params.FloatParam, default=2,
+                      label="count of PCA",
+                      condition='thresholdMode==%d' % PCA_COUNT,
+                      help='Number of PCA you want to select.')
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -185,7 +199,7 @@ class ProtLandscapePCA(ProtocolBase):
 
         print (cov_matrix, "covMatrix")
         u, s, vh = np.linalg.svd(cov_matrix)
-        vhDel = self._getvhDel(vh, s, self.thr.get())
+        vhDel = self._getvhDel(vh, s)
         # -------------NEWBASE_AXIS-------------------------------------------
         counter = 0
 
@@ -438,40 +452,50 @@ class ProtLandscapePCA(ProtocolBase):
                 vol._rlnEstimatedResolution = em.Float(resol)
                 volSet.append(vol)
 
-    def _getvhDel(self, vh, s, thr=0.95):
-        if thr < 1:
-            cuttOffMatrix = sum(s) * thr
-            sCut = 0
+    def _getvhDel(self, vh, s):
 
-            print('cuttOffMatrix & s: ', cuttOffMatrix, s)
-            for i in s:
-                if cuttOffMatrix > 0:
-                    print("Pass, i = %s " % i)
-                    cuttOffMatrix = cuttOffMatrix - i
-                    sCut += 1
-                else:
-                    break
-            print('sCut: ', sCut)
+        if self.thresholdMode == PCA_THRESHOLD:
+            thr= self.thr.get()
+            if thr < 1:
+                cuttOffMatrix = sum(s) * thr
+                sCut = 0
 
-            os.makedirs(self._getExtraPath('EigenFile'))
-            eigPath = self._getExtraPath('EigenFile')
-            eigValsFile = os.path.join(eigPath, 'eigenvalues.txt')
-            self._createMFile(s, eigValsFile)
+                print('cuttOffMatrix & s: ', cuttOffMatrix, s)
+                for i in s:
+                    if cuttOffMatrix > 0:
+                        print("Pass, i = %s " % i)
+                        cuttOffMatrix = cuttOffMatrix - i
+                        sCut += 1
+                    else:
+                        break
+                print('sCut: ', sCut)
 
-            eigVecsFile = os.path.join(eigPath,'eigenvectors.txt')
-            self._createMFile(vh, eigVecsFile)
-
-            vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-            vhdelPath= os.path.join(eigPath, 'matrix_vhDel.txt')
-            self._createMFile(vhDel, vhdelPath)
-
-            print(' this is the matrix "vhDel": ', vhDel)
-            print (len(vhDel), "vhDel_length")
-            return vhDel
+                vhDel = self._geteigen(vh, sCut)
+                return vhDel
+            else:
+                return vh.T
         else:
-            return vh.T
+            sCut= self.pcaCount.get()
 
+            vhDel = self._geteigen(vh, sCut)
+            return vhDel
 
+    def _geteigen(self, vh, sCut):
+        os.makedirs(self._getExtraPath('EigenFile'))
+        eigPath = self._getExtraPath('EigenFile')
+        eigValsFile = os.path.join(eigPath, 'eigenvalues.txt')
+        self._createMFile(s, eigValsFile)
+
+        eigVecsFile = os.path.join(eigPath, 'eigenvectors.txt')
+        self._createMFile(vh, eigVecsFile)
+
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        vhdelPath = os.path.join(eigPath, 'matrix_vhDel.txt')
+        self._createMFile(vhDel, vhdelPath)
+
+        print(' this is the matrix "vhDel": ', vhDel)
+        print (len(vhDel), "vhDel_length")
+        return vhDel
 
     def _validate(self):
         errors = []
