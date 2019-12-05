@@ -335,14 +335,24 @@ class ProtLandscapePCA(ProtocolBase):
         os.makedirs(self._getExtraPath('Coordinates'))
         coorPath = self._getExtraPath('Coordinates')
 
-        mat_file = os.path.join(coorPath,'matProj_splic.txt')
-        self._createMFile(matProj, mat_file)
 
+        mat_file = os.path.join(coorPath, 'matProj_splic')
+        np.save(mat_file, matProj)
+        matProjData = np.load(
+            self._getExtraPath('Coordinates', 'matProj_splic.npy'))
+        print (matProjData, "matProjData")
 
-        x_file = os.path.join(coorPath, 'x_proj_splic.txt')
-        self._createMFile(x_proj, x_file)
-        y_file = os.path.join(coorPath, 'y_proj_splic.txt')
-        self._createMFile(y_proj, y_file)
+        x_file = os.path.join(coorPath, 'x_proj_splic')
+        np.save(x_file, x_proj)
+        xProjData = np.load(
+            self._getExtraPath('Coordinates', 'x_proj_splic.npy'))
+        print (xProjData, "xProjData")
+
+        y_file = os.path.join(coorPath, 'y_proj_splic')
+        np.save(y_file, y_proj)
+        yProjData = np.load(
+            self._getExtraPath('Coordinates', 'y_proj_splic.npy'))
+        print (yProjData, "yProjData")
 
         # interpolate
         zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
@@ -488,15 +498,23 @@ class ProtLandscapePCA(ProtocolBase):
     def _geteigen(self, vh, sCut):
         os.makedirs(self._getExtraPath('EigenFile'))
         eigPath = self._getExtraPath('EigenFile')
-        eigValsFile = os.path.join(eigPath, 'eigenvalues.txt')
-        self._createMFile(s, eigValsFile)
+        eigValsFile = os.path.join(eigPath, 'eigenvalues')
+        np.save(eigValsFile, s)
+        eignValData = np.load(
+            self._getExtraPath('EigenFile', 'eigenvalues.npy'))
+        print (eignValData, "eignValData")
 
-        eigVecsFile = os.path.join(eigPath, 'eigenvectors.txt')
-        self._createMFile(vh, eigVecsFile)
+        eigVecsFile = os.path.join(eigPath, 'eigenvectors')
+        np.save(eigVecsFile, vh)
+        eignVecData = np.load(
+            self._getExtraPath('EigenFile', 'eigenvectors.npy'))
+        print (eignVecData, "eignVecData")
 
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        vhdelPath = os.path.join(eigPath, 'matrix_vhDel.txt')
-        self._createMFile(vhDel, vhdelPath)
+        vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
+        np.save(vhdelPath, vhDel)
+        vhDelData = np.load(self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
+        print (vhDelData, "vhDelData")
 
         print(' this is the matrix "vhDel": ', vhDel)
         print (len(vhDel), "vhDel_length")
