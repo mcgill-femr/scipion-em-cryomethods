@@ -105,7 +105,7 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       condition='thresholdMode==%d' % PCA_THRESHOLD,
                       label='THreshold percentage')
-        form.addParam('pcaCount', params.IntParam, default=2,
+        form.addParam('pcaCount', params.FloatParam, default=2,
                       label="count of PCA",
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
@@ -287,8 +287,8 @@ class ProtLandscapePCA(ProtocolBase):
         #     classDis.append(classDistrib)
 
         try:
-            # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/splic_Tes_1434.txt'
+            filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
+            # filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/splic_Tes_1434.txt'
 
             z_part = []
             with open(filename, 'r') as f:
@@ -335,20 +335,14 @@ class ProtLandscapePCA(ProtocolBase):
         os.makedirs(self._getExtraPath('Coordinates'))
         coorPath = self._getExtraPath('Coordinates')
 
-        mat_file = os.path.join(coorPath,'matProj_splic')
-        np.save(mat_file, matProj)
-        matProjData = np.load(self._getExtraPath('Coordinates', 'matProj_splic.npy'))
-        print (matProjData, "matProjData")
+        mat_file = os.path.join(coorPath,'matProj_splic.txt')
+        self._createMFile(matProj, mat_file)
 
-        x_file = os.path.join(coorPath, 'x_proj_splic')
-        np.save(x_file, x_proj)
-        xProjData = np.load(self._getExtraPath('Coordinates', 'x_proj_splic.npy'))
-        print (xProjData, "xProjData")
 
-        y_file = os.path.join(coorPath, 'y_proj_splic')
-        np.save(y_file, y_proj)
-        yProjData = np.load(self._getExtraPath('Coordinates', 'y_proj_splic.npy'))
-        print (yProjData, "yProjData")
+        x_file = os.path.join(coorPath, 'x_proj_splic.txt')
+        self._createMFile(x_proj, x_file)
+        y_file = os.path.join(coorPath, 'y_proj_splic.txt')
+        self._createMFile(y_proj, y_file)
 
         # interpolate
         zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
@@ -481,35 +475,28 @@ class ProtLandscapePCA(ProtocolBase):
                         break
                 print('sCut: ', sCut)
 
-                vhDel = self._geteigen(vh, sCut,s)
+                vhDel = self._geteigen(vh, sCut)
                 return vhDel
             else:
                 return vh.T
         else:
-            sCut= self.pcaCount.get()
+            sCut= int(self.pcaCount.get())
 
-            vhDel = self._geteigen(vh, sCut, s)
+            vhDel = self._geteigen(vh, sCut)
             return vhDel
 
-    def _geteigen(self, vh, sCut, s):
+    def _geteigen(self, vh, sCut):
         os.makedirs(self._getExtraPath('EigenFile'))
         eigPath = self._getExtraPath('EigenFile')
-        eigValsFile = os.path.join(eigPath, 'eigenvalues')
-        np.save(eigValsFile, s)
-        eignValData = np.load(self._getExtraPath('EigenFile', 'eigenvalues.npy'))
-        print (eignValData, "eignValData")
+        eigValsFile = os.path.join(eigPath, 'eigenvalues.txt')
+        self._createMFile(s, eigValsFile)
 
-        eigVecsFile = os.path.join(eigPath, 'eigenvectors')
-        np.save(eigVecsFile, vh)
-        eignVecData = np.load(self._getExtraPath('EigenFile', 'eigenvectors.npy'))
-        print (eignVecData, "eignVecData")
+        eigVecsFile = os.path.join(eigPath, 'eigenvectors.txt')
+        self._createMFile(vh, eigVecsFile)
 
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
-        np.save(vhdelPath, vhDel)
-        vhDelData = np.load(self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
-        print (vhDelData, "vhDelData")
-
+        vhdelPath = os.path.join(eigPath, 'matrix_vhDel.txt')
+        self._createMFile(vhDel, vhdelPath)
 
         print(' this is the matrix "vhDel": ', vhDel)
         print (len(vhDel), "vhDel_length")
