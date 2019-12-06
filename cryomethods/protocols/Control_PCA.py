@@ -105,7 +105,7 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       condition='thresholdMode==%d' % PCA_THRESHOLD,
                       label='THreshold percentage')
-        form.addParam('pcaCount', params.FloatParam, default=2,
+        form.addParam('pcaCount', params.IntParam, default=2,
                       label="count of PCA",
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
@@ -287,8 +287,8 @@ class ProtLandscapePCA(ProtocolBase):
         #     classDis.append(classDistrib)
 
         try:
-            filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            # filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/splic_Tes_1434.txt'
+            # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
+            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/AutoClas10076_id2173Part.txt'
 
             z_part = []
             with open(filename, 'r') as f:
@@ -485,17 +485,18 @@ class ProtLandscapePCA(ProtocolBase):
                         break
                 print('sCut: ', sCut)
 
-                vhDel = self._geteigen(vh, sCut)
+                vhDel = self._geteigen(vh, sCut, s)
                 return vhDel
             else:
+                self._geteigen(vh, s)
                 return vh.T
         else:
-            sCut= int(self.pcaCount.get())
 
-            vhDel = self._geteigen(vh, sCut)
+            sCut= self.pcaCount.get()
+            vhDel = self._geteigen(vh, sCut, s)
             return vhDel
 
-    def _geteigen(self, vh, sCut):
+    def _geteigen(self, vh, sCut, s):
         os.makedirs(self._getExtraPath('EigenFile'))
         eigPath = self._getExtraPath('EigenFile')
         eigValsFile = os.path.join(eigPath, 'eigenvalues')
