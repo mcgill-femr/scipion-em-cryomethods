@@ -105,7 +105,7 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       condition='thresholdMode==%d' % PCA_THRESHOLD,
                       label='THreshold percentage')
-        form.addParam('pcaCount', params.IntParam, default=2,
+        form.addParam('pcaCount', params.FloatParam, default=2,
                       label="count of PCA",
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
@@ -492,7 +492,7 @@ class ProtLandscapePCA(ProtocolBase):
                 return vh.T
         else:
 
-            sCut= self.pcaCount.get()
+            sCut= int(self.pcaCount.get())
             vhDel = self._geteigen(vh, sCut, s)
             return vhDel
 
