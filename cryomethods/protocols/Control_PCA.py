@@ -488,7 +488,24 @@ class ProtLandscapePCA(ProtocolBase):
                 vhDel = self._geteigen(vh, sCut, s)
                 return vhDel
             else:
-                self._geteigen(vh, s)
+                os.makedirs(self._getExtraPath('EigenFile'))
+                eigPath = self._getExtraPath('EigenFile')
+                eigValsFile = os.path.join(eigPath, 'eigenvalues')
+                np.save(eigValsFile, s)
+                eignValData = np.load(
+                    self._getExtraPath('EigenFile', 'eigenvalues.npy'))
+                print (eignValData, "eignValData")
+
+                eigVecsFile = os.path.join(eigPath, 'eigenvectors')
+                np.save(eigVecsFile, vh)
+                eignVecData = np.load(
+                    self._getExtraPath('EigenFile', 'eigenvectors.npy'))
+                print (eignVecData, "eignVecData")
+                vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
+                np.save(vhdelPath, vh.T)
+                vhDelData = np.load(
+                    self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
+                print (vhDelData, "vhDelData")
                 return vh.T
         else:
 
