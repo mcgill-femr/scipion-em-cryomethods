@@ -1,5 +1,5 @@
-import numpy as np
-from glob import glob
+import matplotlib
+
 
 from glob import glob
 
@@ -8,6 +8,8 @@ from itertools import *
 from matplotlib import *
 from matplotlib import pyplot as plt
 from scipy.interpolate import griddata, NearestNDInterpolator
+from scipy.weave import inline
+
 from pyworkflow.protocol.params import (PointerParam, EnumParam, IntParam)
 
 import pyworkflow.em as em
@@ -17,6 +19,8 @@ from cryomethods import Plugin
 from cryomethods.convert import (loadMrc, saveMrc)
 from xmipp3.convert import getImageLocation
 from .protocol_base import ProtocolBase
+import collections
+
 
 PCA_THRESHOLD = 0
 PCA_COUNT=1
@@ -56,11 +60,10 @@ class ProtLandscapePCA(ProtocolBase):
             'finalData': self._getExtraPath('final_data.star'),
             'finalAvgMap': self._getExtraPath('map_average.mrc'),
             'optimiser': self.rLevIter + 'optimiser.star',
-            'all_avgPmax_xmipp': self._getTmpPath(
-                'iterations_avgPmax_xmipp.xmd'),
+            'all_avgPmax_xmipp': self._getTmpPath('iterations_avgPmax_xmipp.xmd'),
             'all_changes_xmipp': self._getTmpPath(
-                'iterations_changes_xmipp.xmd'),
-        }
+                'iterations_changes_xmipp.xmd')
+                 }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
             key_xmipp = key + '_xmipp'
@@ -114,7 +117,7 @@ class ProtLandscapePCA(ProtocolBase):
 
     # --------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self._insertFunctionStep('estimatePCAStep')
+        self._insertFunctionStep('analyzePCAStep')
 
     #-------------------------step function-----------------------------------
 
@@ -150,7 +153,21 @@ class ProtLandscapePCA(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def estimatePCAStep(self):
+    def getParticlesPca(self):
+        try:
+            filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
+            # filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/AutoClas10076_id2173Part.txt'
+
+            z_part = []
+            with open(filename, 'r') as f:
+                for y in f:
+                    if y:
+                        z_part.append(float(y.strip()))
+            return z_part
+        except ValueError:
+            pass
+
+    def analyzePCAStep(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
 
@@ -171,6 +188,8 @@ class ProtLandscapePCA(ProtocolBase):
         print (fnIn, "fninn")
 
         listVol = fnIn
+
+        print (len(self.inputVolumes.get()), "self.inputVolumes.get()")
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
@@ -286,18 +305,7 @@ class ProtLandscapePCA(ProtocolBase):
         #     classDistrib = row.getValue('rlnClassDistribution')
         #     classDis.append(classDistrib)
 
-        try:
-            # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/AutoClas10076_id2173Part.txt'
-
-            z_part = []
-            with open(filename, 'r') as f:
-                for y in f:
-                    if y:
-                        z_part.append(float(y.strip()))
-        except ValueError:
-            pass
-            # z_part = [9366.852882, '3753.54717', '1356.278199']
+        partWeight= self.getParticlesPca()
 
         x_proj = [item[0] for item in matProj]
         y_proj = [item[1] for item in matProj]
@@ -305,31 +313,27 @@ class ProtLandscapePCA(ProtocolBase):
         print (y_proj, "y_proj")
         print (len(x_proj), "xlength")
         print (len(y_proj), "ylength")
-        print (z_part, "z_part")
+        print (partWeight, "z_part")
 
-        # one= [x * y for x, y in list(zip(x_proj, x_base))]
-        # two= [a * b for a, b in list(zip(y_proj, y_base))]
-        # each_map= [sum(x) for x in zip(one, two)]
-        # print (each_map, "each_map")
+
 
         xmin = min(x_proj)
         ymin= min(y_proj)
         xmax = max(x_proj)
         ymax = max(y_proj)
 
-        xi= np.arange(xmin, xmax, 0.01)
-        print (xi, "xi")
-        yi= np.arange(ymin, ymax, 0.01)
-        print (yi, "yi")
-        xiM, yiM = np.meshgrid(xi, yi)
-        print (xi, yi, "xi, yi ")
-        # points = np.array((xiM.flatten(), yiM.flatten())).T
-        # print(points.shape)
+        # xi= np.arange(xmin, xmax, 0.01)
+        # print (xi, "xi")
+        # yi= np.arange(ymin, ymax, 0.01)
+        # print (yi, "yi")
+        # xiM, yiM = np.meshgrid(xi, yi)
+        # print (xi, yi, "xi, yi ")
+
 
         # particles
 
         # set mask
-        mask = (xiM > 0.5) & (xiM < 0.6) & (yiM > 0.5) & (yiM < 0.6)
+        # mask = (xiM > 0.5) & (xiM < 0.6) & (yiM > 0.5) & (yiM < 0.6)
 
         #save coordinates:
         os.makedirs(self._getExtraPath('Coordinates'))
@@ -337,37 +341,43 @@ class ProtLandscapePCA(ProtocolBase):
 
 
         mat_file = os.path.join(coorPath, 'matProj_splic')
-        np.save(mat_file, matProj)
+        coordNumpy= np.save(mat_file, matProj)
         matProjData = np.load(
             self._getExtraPath('Coordinates', 'matProj_splic.npy'))
         print (matProjData, "matProjData")
+        return coordNumpy
 
-        x_file = os.path.join(coorPath, 'x_proj_splic')
-        np.save(x_file, x_proj)
-        xProjData = np.load(
-            self._getExtraPath('Coordinates', 'x_proj_splic.npy'))
-        print (xProjData, "xProjData")
 
-        y_file = os.path.join(coorPath, 'y_proj_splic')
-        np.save(y_file, y_proj)
-        yProjData = np.load(
-            self._getExtraPath('Coordinates', 'y_proj_splic.npy'))
-        print (yProjData, "yProjData")
+        # x_file = os.path.join(coorPath, 'x_proj_splic')
+        # np.save(x_file, x_proj)
+        # xProjData = np.load(
+        #     self._getExtraPath('Coordinates', 'x_proj_splic.npy'))
+        # print (xProjData, "xProjData")
+        #
+        # y_file = os.path.join(coorPath, 'y_proj_splic')
+        # np.save(y_file, y_proj)
+        # yProjData = np.load(
+        #     self._getExtraPath('Coordinates', 'y_proj_splic.npy'))
+        # print (yProjData, "yProjData")
+
+
+
+        # --------------------------------------------------------------------
 
         # interpolate
-        zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
-        # mask out the field
-        zi[mask] = np.nan
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.contourf(xi, yi, zi)
-        plt.plot(x_proj, y_proj)
-        plt.xlabel('x_pca', fontsize=16)
-        plt.ylabel('y_pca', fontsize=16)
-        plt.colorbar()
-        heatMap= self._getExtraPath('interpolated_controlPCA_splic.png')
-        plt.savefig(heatMap, dpi=100)
-        plt.close(fig)
+        # zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
+        # # mask out the field
+        # zi[mask] = np.nan
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111)
+        # plt.contourf(xi, yi, zi)
+        # plt.plot(x_proj, y_proj)
+        # plt.xlabel('x_pca', fontsize=16)
+        # plt.ylabel('y_pca', fontsize=16)
+        # plt.colorbar()
+        # heatMap= self._getExtraPath('interpolated_controlPCA_splic.png')
+        # plt.savefig(heatMap, dpi=100)
+        # plt.close(fig)
 
     # -------------------------- UTILS functions ------------------------------
     def _getVolume(self):
@@ -532,11 +542,29 @@ class ProtLandscapePCA(ProtocolBase):
         vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
         np.save(vhdelPath, vhDel)
         vhDelData = np.load(self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
-        print (vhDelData, "vhDelData")
 
         print(' this is the matrix "vhDel": ', vhDel)
         print (len(vhDel), "vhDel_length")
         return vhDel
+
+    def _getPcaCount(self, s):
+        cuttOffMatrix = sum(s) * 0.95
+        sCut = 0
+
+        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
+        for i in s:
+            print('cuttOffMatrix: ', cuttOffMatrix)
+            if cuttOffMatrix > 0:
+                print("Pass, i = %s " % i)
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+        print('sCut: ', sCut)
+        return sCut
+
+
+
 
     def _validate(self):
         errors = []

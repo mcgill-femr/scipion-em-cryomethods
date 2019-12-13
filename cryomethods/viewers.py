@@ -28,6 +28,8 @@
 import os
 from os.path import exists
 
+from sklearn import manifold
+
 import pyworkflow.em as em
 import pyworkflow.em.viewers.showj as showj
 import pyworkflow.em.metadata as md
@@ -37,6 +39,22 @@ from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .convert import relionToLocation
+
+from cryomethods.protocols import ProtLandscapePCA
+from pyworkflow.protocol.params import LabelParam, EnumParam
+from matplotlib import pyplot as plt
+import numpy as np
+from scipy import interpolate
+from scipy.interpolate import spline
+from scipy import *
+import tempfile
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
+from matplotlib.ticker import LinearLocator, FormatStrFormatter
+
+
+
+
 
 ITER_LAST = 0
 ITER_SELECTION = 1
@@ -516,3 +534,634 @@ class VolumeSelectorViewer(ProtocolViewer):
 
     def _getModelStar(self, prefix, it):
         return self.protocol._getFileName(prefix + 'model', iter=it)
+
+#     --------------------------PCA VIEWER----------------------------
+
+PCA_COUNT = 1
+PCA_THRESHOLD = 0
+MDS= 0
+LocallyLinearEmbedding= 1
+Isomap= 2
+TSNE = 3
+linear= 0,
+nearest= 1
+slinear=2
+quadratic= 3
+cubic=4
+
+
+FREQ_LABEL = 'frequency (1/A)'
+
+class PcaLandscapeViewer(ProtocolViewer):
+    _label = 'viewer resolution3D'
+    _environments = [DESKTOP_TKINTER, WEB_DJANGO]
+    _targets = [ProtLandscapePCA]
+
+
+
+    def _defineParams(self, form):
+        form.addSection(label='Results')
+        form.addParam('plotAutovalues', LabelParam,
+                      label="Display cumulative sum of eigen values")
+        group = form.addGroup('Landscape')
+        group.addParam('interpolateType', EnumParam,
+                       choices=['linear', 'nearest',
+                                'slinear', 'quadratic', 'cubic'],
+                       default=MDS,
+                       label="Interpolation Type")
+        group.addParam('linear', LabelParam,
+                       condition='interpolateType==%d' % linear,
+                       label='Linear')
+        group.addParam('nearest', LabelParam,
+                       condition='interpolateType==%d' % nearest,
+                       label='nearest')
+        group.addParam('slinear', LabelParam,
+                       condition='interpolateType==%d' % slinear,
+                       label='slinear')
+        group.addParam('quadratic', LabelParam,
+                       condition='interpolateType==%d' % quadratic,
+                       label='quadratic')
+        group.addParam('cubic', LabelParam,
+                       condition='interpolateType==%d' % cubic,
+                       label='cubic')
+
+
+        group.addParam('heatMap', EnumParam,
+                      choices=['MDS', 'LocallyLinearEmbedding', 'Isomap', 'TSNE'],
+                      default=MDS,
+                      label='Non-linear Manifold embedding',
+                      help='select')
+        group.addParam('MDS', LabelParam,
+                     condition='heatMap==%d' % MDS,
+                     label='heatMapMDS')
+        group.addParam('LocallyLinearEmbedding', LabelParam,
+                       condition='heatMap==%d' % LocallyLinearEmbedding,
+                       label='heatMapLinEmbedding')
+        group.addParam('Isomap', LabelParam,
+                       condition='heatMap==%d' % Isomap,
+                       label='heatMapIsomap')
+        group.addParam('TSNE', LabelParam,
+                       condition='heatMap==%d' % TSNE,
+                       label='heatMapTSNE')
+        group.addParam('matplotType', LabelParam,
+                       label="View matplot")
+
+
+        group.addParam('threeDMap', EnumParam,
+                       choices=['MDS', 'LocallyLinearEmbedding', 'Isomap',
+                                'TSNE'],
+                       default=MDS,
+                       label='3D Non-linear Manifold embedding',
+                       help='select')
+        # group.addParam('MDS', LabelParam,
+        #                condition='threeDMap==%d' % MDS,
+        #                label='3D Plot MDS' )
+        # group.addParam('LocallyLinearEmbedding', LabelParam,
+        #                condition='threeDMap==%d' % LocallyLinearEmbedding,
+        #                label='3D Plot LocallyLinearEmbedding')
+        # group.addParam('Isomap', LabelParam,
+        #                condition='threeDMap==%d' % Isomap,
+        #                label='3D Plot Isomap')
+        # group.addParam('TSNE', LabelParam,
+        #                condition='threeDMap==%d' % TSNE,
+        #                label= '3D Plot Isomap')
+        group.addParam('3DmatplotType', LabelParam,
+                       label="View 3D matplot")
+
+
+        group.addParam('binSize', params.IntParam, default=6,
+                       label="select bin size")
+        group.addParam('neighbourCount', params.IntParam, default=2,
+                       label="Select neighbour points")
+        group.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of PC")
+
+
+        group.addParam('selectPoints', LabelParam,
+                       label="Selct points on landscape")
+        group.addParam('chimeraView', LabelParam,
+                       label="Volumes in Chimera")
+
+
+    def _getVisualizeDict(self):
+        return {'plotAutovalues': self._plotAutovalues,
+                'matplotType': self._viewMatplot,
+                '3DmatplotType': self._get3DPlt
+
+                # 'chimeraView': self._viewChimera,
+                # 'thresholdMode': self._autovalueNumb,
+                # 'selectPoints': self._selectPoints
+                }
+
+
+    def _loadPcaCoordinates(self):
+        """ Check if the PCA data is generated and if so,
+        read the data.
+        *args and **kwargs will be passed to self._createPlot function.
+        """
+        matProjData = np.load(self.protocol._getExtraPath('Coordinates', 'matProj_splic.npy'))
+        return matProjData
+
+    def _loadPcaParticles(self):
+        try:
+            filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
+            # filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/AutoClas10076_id2173Part.txt'
+
+            z_part = []
+            with open(filename, 'r') as f:
+                for y in f:
+                    if y:
+                        z_part.append(float(y.strip()))
+            return z_part
+        except ValueError:
+            pass
+
+    def _loadPcaEigenValue(self):
+        eignValData = np.load(self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy'))
+        return eignValData
+
+
+
+    def _autovalueNumb(self):
+        # sCut = self.pcaCount.get()
+        # thr = self.thr.get()
+        dataValues = np.load(self.protocol._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
+        return dataValues
+
+    def _plotAutovalues(self, paramName=None):
+        temp_dir = '/extra'
+
+        # ac= self.protocol._getExtraPath('EigenFile')
+        autoVal= np.load(self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy'))
+        plt.plot(np.cumsum(autoVal))
+        plt.xlabel('number of components')
+        plt.ylabel('cumulative explained variance')
+        plt.show()
+
+    def _interpolateType(self):
+        if self.interpolateType.get() == linear:
+            return self.linear.get()
+        elif self.interpolateType.get() == nearest:
+            return self.nearest.get()
+        elif self.interpolateType.get() == slinear:
+            return self.slinear.get()
+        elif self.interpolateType.get() == quadratic:
+            return self.quadratic.get()
+        else:
+            return 'cubic'
+
+
+    def _viewMatplot(self,  paramName=None):
+        kinds = ('nearest', 'zero', 'linear', 'slinear', 'quadratic', 'cubic')
+
+        if self.heatMap.get() == MDS:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+            mds = man.fit_transform(self._loadPcaCoordinates())
+            counts, xedges, yedges = np.histogram2d(mds[:, 0], mds[:, 1],
+                             weights=self._loadPcaParticles(), bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+            fig = plt.figure()
+            CS = plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5,
+                             colors='k')
+            CS = plt.contourf(grid_x, grid_y, znew.T, 20, cmap=plt.cm.hot,
+                              vmax=(znew).max(), vmin=0)
+            plt.colorbar()  # draw colorbar
+            plt.show()
+
+            fig_one = plt.figure()
+            ax = fig_one.gca(projection='3d')
+            ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                            cmap='viridis', edgecolor='none')
+            plt.show()
+
+
+        elif self.heatMap.get() == LocallyLinearEmbedding:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            n_neighbors = self.neighbourCount.get() #self.protocol._inputVolLen()
+            methods = ['standard', 'ltsa', 'hessian', 'modified']
+            man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
+                                                  # eigen_solver='auto',
+                                                  # method=methods[2],
+                                                  # random_state=0)
+
+            lle = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            counts, xedges, yedges = np.histogram2d(lle[:, 0], lle[:, 1],
+                              weights=self._loadPcaParticles(), bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType()
+                                     ,bounds_error='True')
+            znew = f(a2, b2)
+            plt.figure()
+            plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5,
+                             colors='k')
+            plt.contourf(grid_x, grid_y, znew.T, 20, cmap=plt.cm.hot,
+                              vmax=(znew).max(), vmin=0)
+            plt.colorbar()  # draw colorbar
+            plt.show()
+
+        elif self.heatMap.get() == Isomap:
+
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            n_neighbors = self.neighbourCount.get()
+            iso = manifold.Isomap(n_neighbors, n_components=2)
+
+            isomap = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+
+            counts, xedges, yedges = np.histogram2d(isomap[:, 0], isomap[:, 1],
+                                weights=self._loadPcaParticles(), bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+            fig = plt.figure()
+            CS = plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5,
+                             colors='k')
+            CS = plt.contourf(grid_x, grid_y, znew.T, 20, cmap=plt.cm.hot,
+                              vmax=(znew).max(), vmin=0)
+            plt.colorbar()  # draw colorbar
+            plt.show()
+
+        else:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            man = manifold.TSNE(n_components=2, random_state=0)
+            tsne = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+
+            counts, xedges, yedges = np.histogram2d(tsne[:, 0], tsne[:, 1],
+                                                    weights=self._loadPcaParticles(),
+                                                    bins=nBins)
+
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False,
+                                         indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+            plt.figure()
+            plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5,
+                             colors='k')
+            plt.contourf(grid_x, grid_y, znew.T, 25, cmap=plt.cm.hot,
+                              vmax=(znew).max(), vmin=0)
+            plt.colorbar()  # draw colorbar
+            plt.show()
+
+    def _get3DPlt(self, paramName=None):
+        if self.threeDMap.get == MDS:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+            mds = man.fit_transform(self._loadPcaCoordinates())
+            counts, xedges, yedges = np.histogram2d(mds[:, 0], mds[:, 1],
+                                                    weights=self._loadPcaParticles(),
+                                                    bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+
+            fig = plt.figure()
+            ax = fig.gca(projection='3d')
+            ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                            cmap='viridis', edgecolor='none')
+            plt.show()
+
+        elif self.threeDMap.get == LocallyLinearEmbedding:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            n_neighbors = self.neighbourCount.get()  # self.protocol._inputVolLen()
+            methods = ['standard', 'ltsa', 'hessian', 'modified']
+            man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
+
+            lle = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            counts, xedges, yedges = np.histogram2d(lle[:, 0], lle[:, 1],
+                                                    weights=self._loadPcaParticles(),
+                                                    bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType()
+                                     , bounds_error='True')
+            znew = f(a2, b2)
+
+            fig = plt.figure()
+            ax = fig.gca(projection='3d')
+            ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                            cmap='viridis', edgecolor='none')
+            plt.show()
+
+        elif self.threeDMap.get == Isomap:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            n_neighbors = self.neighbourCount.get()
+            iso = manifold.Isomap(n_neighbors, n_components=2)
+
+            isomap = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+
+            counts, xedges, yedges = np.histogram2d(isomap[:, 0], isomap[:, 1],
+                                                    weights=self._loadPcaParticles(),
+                                                    bins=nBins)
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+
+            fig = plt.figure()
+            ax = fig.gca(projection='3d')
+            ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                            cmap='viridis', edgecolor='none')
+            plt.show()
+
+        else:
+            nPCA = self.pcaCount.get()
+            nBins = self.binSize.get()
+            man = manifold.TSNE(n_components=2, random_state=0)
+            tsne = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+
+            counts, xedges, yedges = np.histogram2d(tsne[:, 0], tsne[:, 1],
+                                                    weights=self._loadPcaParticles(),
+                                                    bins=nBins)
+
+            countsExtended = np.zeros(
+                (counts.shape[0] + 2, counts.shape[0] + 2))
+            countsExtended[1:-1, 1:-1] = counts
+
+            xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+            yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+            stepx = xedges[1] - xedges[0]
+            stepy = yedges[1] - yedges[0]
+
+            xedgesExtended = np.zeros(counts.shape[0] + 2)
+            yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+            xedgesExtended[1:-1] = xedges
+            xedgesExtended[0] = xedges[0] - stepx
+            xedgesExtended[-1] = xedges[-1] + stepx
+
+            yedgesExtended[1:-1] = yedges
+            yedgesExtended[0] = yedges[0] - stepy
+            yedgesExtended[-1] = yedges[-1] + stepy
+
+            a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                            num=countsExtended.shape[0])
+            x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+            a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                             num=100)
+            b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                             num=100)
+            grid_x, grid_y = np.meshgrid(a2, b2, sparse=False,
+                                         indexing='ij')
+            H2 = countsExtended.reshape(countsExtended.size)
+            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
+                                     bounds_error='True')
+            znew = f(a2, b2)
+
+            fig = plt.figure()
+            ax = fig.gca(projection='3d')
+            ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                            cmap='viridis', edgecolor='none')
+            plt.show()
+
+
+    # def _getDigitalData(self):
+    #
+    #
+
+
+
+
+
+
+
+
+
