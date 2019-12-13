@@ -753,7 +753,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                              num=100)
             grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
             H2 = countsExtended.reshape(countsExtended.size)
-            f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
+            f = interpolate.interp2d(a, b, H2, kind='linear',
                                      bounds_error='True')
             znew = f(a2, b2)
             fig = plt.figure()
@@ -817,7 +817,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                              num=100)
             grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
             H2 = countsExtended.reshape(countsExtended.size)
-            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType()
+            f = interpolate.interp2d(a, b, H2, kind= 'linear'
                                      ,bounds_error='True')
             znew = f(a2, b2)
             plt.figure()
@@ -873,7 +873,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                              num=100)
             grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
             H2 = countsExtended.reshape(countsExtended.size)
-            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType(),
+            f = interpolate.interp2d(a, b, H2, kind= 'linear',
                                      bounds_error='True')
             znew = f(a2, b2)
             fig = plt.figure()
@@ -928,7 +928,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             grid_x, grid_y = np.meshgrid(a2, b2, sparse=False,
                                          indexing='ij')
             H2 = countsExtended.reshape(countsExtended.size)
-            f = interpolate.interp2d(a, b, H2, kind= self._interpolateType(),
+            f = interpolate.interp2d(a, b, H2, kind= 'linear',
                                      bounds_error='True')
             znew = f(a2, b2)
             plt.figure()
@@ -1153,9 +1153,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             plt.show()
 
 
-    # def _getDigitalData(self):
-    #
-    #
+
 
 
 
