@@ -665,7 +665,7 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _loadPcaParticles(self):
         try:
             # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/ortega_ribosome.txt'
+            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/AutoClas10076_id2173Part.txt'
 
             z_part = []
             with open(filename, 'r') as f:
