@@ -56,6 +56,7 @@ class Plugin(pyworkflow.em.Plugin):
         environ = cls.getRelionEnviron()
         pythonPath = [cls.getHome('imageLib'),
                       cls.getHome('alignLib'),
+                      cls.getHome('mapRestore'),
                       cls.getHome('alignLib/frm/swig'),
                       cls.getHome('alignLib/tompy')]
 
@@ -87,6 +88,7 @@ class Plugin(pyworkflow.em.Plugin):
         environ = cls.getEnviron()
         pythonPath = [cls.getHome('imageLib'),
                       cls.getHome('alignLib'),
+                      cls.getHome('mapRestore'),
                       cls.getHome('alignLib/frm/swig'),
                       cls.getHome('alignLib/tompy')]
 

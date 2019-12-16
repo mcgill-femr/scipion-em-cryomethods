@@ -422,3 +422,13 @@ def euclidean_distances(X, Y=None, Y_norm_squared=None, squared=False,
         distances.flat[::distances.shape[0] + 1] = 0.0
 
     return distances if squared else np.sqrt(distances, out=distances)
+
+
+def correctAnisotropy(volNp, weight, q, minFreq, maxFreq):
+    from correct_anysotropy import correctAnisotropy
+    # minFreq and maxFreq are in normalized frequency (max 0.5)
+    size = volNp.shape[0]
+    minFr = int(minFreq * size)
+    maxFr = int(maxFreq * size)
+
+    return correctAnisotropy(volNp, weight, q, minFr, maxFr)
