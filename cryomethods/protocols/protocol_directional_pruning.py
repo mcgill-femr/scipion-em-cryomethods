@@ -451,8 +451,8 @@ class ProtDirectionalPruning(ProtAnalysis3D):
         particlesId: is only need to detect changes in
         input particles and cause restart from here.
         """
-        print('SWATHI')
-        print(self._getPath('input_particles.xmd'))
+
+
         imgSet = self.inputParticles.get()
 
         convXmp.writeSetOfParticles(imgSet, self._getPath(
@@ -567,7 +567,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                             if exists(fnOut):
 
                                 fnClassCount= join(fnDir, "level_%02d//class_classes.xmd"%Nlevels)
-                                print(fnClassCount)
+
                                 mdCount.read(fnClassCount)
                                 CC=[]
                                 out=[]
@@ -697,11 +697,6 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                         print("However, this classification"
                                "does not hinder the protocol to continue")
 
-                        #fnDirectional = self._getPath("directionalClasses.xmd")
-                        #mdOut.write(fnDirectional)
-                        #self.runJob("xmipp_metadata_utilities", "-i %s --set join %s ref" %
-                        #   (fnDirectional, self._getExtraPath("gallery.doc")),
-                        #     numberOfMpi=1)
 
 
             else:
@@ -747,7 +742,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                             self._splitInCTFGroups(fnRelion)
 
                         fnOut = join(fnDir, "class_")
-                        print("SAAAA", fnOut)
+
                         args = {}
                         self._setNormalArgs(args)
                         args['--i'] = fnRelion
@@ -786,7 +781,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                             if  x < self.thresholdValue.get():
 
                                 w.append(Rcd.index(x) + 1)
-                        print(w)
+
 
                         ImageId = []
                         mdData.read(fnData)
@@ -829,39 +824,12 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                               "probably because of a low number of images.")
                         print("However, this classification"
                               "does not hinder the protocol to continue")
-                        #fnDirectional = self._getPath("directionalClasses.xmd")
-                        #mdOut.write(fnDirectional)
-                        #self.runJob("xmipp_metadata_utilities", "-i %s --set join %s ref" %
-                        #           (fnDirectional, self._getExtraPath("gallery.doc")),
-                        #          numberOfMpi=1)
-        # print ("Size before remove disabled", mdClassesParticles.size())
-        # mdClassesParticles.removeDisabled()
-        # print ("Size afte remove disabled", mdClassesParticles.size())
+
         mdClassesParticles.write(fnPrunedParticles)
-
-
-
-
-
-
-
-
-
-
 
     def refineAnglesStep(self):
       if self.classMethod.get() == self.CL2D:
           pass
-            #fnDirectional = self._getPath("directionalClasses.xmd")
-            #newTs = self.targetResolution.get()*0.4
-            #self.runJob("xmipp_angular_continuous_assign2","-i %s --ref %s "
-            #                                          "--max_resolution %f "
-            #                                         "--sampling %f "
-            #                                        "--optimizeAngles "
-            #                                       "--optimizeShift"% \
-            #   (fnDirectional,self._getExtraPath("volume.vol"),
-            #   self.targetResolution.get(),newTs))
-
 
 
 
@@ -885,20 +853,15 @@ class ProtDirectionalPruning(ProtAnalysis3D):
             imgSetOut.setSamplingRate(imgSetOut.getSamplingRate())
             imgSetOut.setAlignmentProj()
             convXmp.readSetOfParticles(fnDirectional,imgSetOut)
-            print(fnDirectional)
+
             self._defineOutputs(outputParticles=imgSetOut)
             self._defineSourceRelation(self.inputParticles,imgSetOut)
             self._defineSourceRelation(self.inputVolume, imgSetOut)
         else:
             imgSetOut = self._createSetOfParticles()
             imgSetOut.copyInfo(self.inputParticles.get())
-
             imgSetOut.setSamplingRate(imgSetOut.getSamplingRate())
-
-            #imgSetOut.setAlignmentProj()
-            #readSetOfParticles(fnPrunedParticles, imgSetOut)
             self._fillDataFromIter(imgSetOut)
-
             self._defineOutputs(outputParticles=imgSetOut)
             self._defineSourceRelation(self.inputParticles, imgSetOut)
             self._defineSourceRelation(self.inputVolume, imgSetOut)
