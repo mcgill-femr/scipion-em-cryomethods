@@ -26,15 +26,15 @@
 # **************************************************************************
 
 from os.path import join, exists
-from pyworkflow.object import Float, String
-from pyworkflow.protocol.params import (PointerParam, FloatParam, IntParam,
-                                        StringParam, LEVEL_ADVANCED,
-                                        BooleanParam,LabelParam, PathParam, EnumParam)
-from pyworkflow.em.data import Volume
+import pyworkflow.protocol.params as pwparams
+import pyworkflow.protocol.constants as pwcons
+
+
 from pyworkflow.em.protocol import ProtAnalysis3D
-from pyworkflow.utils.path import moveFile, makePath, cleanPath, cleanPattern
+from pyworkflow.utils.path import makePath
 import cryomethods.convertXmp as convXmp
-from cryomethods.convert import writeSetOfParticles, readSetOfParticles,splitInCTFGroups
+from cryomethods.constants import CL2D, ML2D, RL2D
+from cryomethods.convert import writeSetOfParticles, splitInCTFGroups
 from pyworkflow.em.metadata.utils import getSize
 #
 import xmippLib
@@ -47,17 +47,10 @@ import pyworkflow.object as pwobj
 
 class ProtDirectionalPruning(ProtAnalysis3D):
     """    
-    Analyze 2D classes as assigned to the different directions
+    Analyze 2D classes as assigned to the different directions. Be more
+    creative and do better explanation about your method.
     """
-
     _label = 'directional_pruning'
-
-    CL2D = 0
-    ML2D = 1
-    RL2D = 2
-
-
-
 
     def __init__(self, *args, **kwargs):
         ProtAnalysis3D.__init__(self, *args, **kwargs)
@@ -65,76 +58,147 @@ class ProtDirectionalPruning(ProtAnalysis3D):
     #--------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         form.addSection(label='Input')
-
-        form.addParam('inputVolume', PointerParam, pointerClass='Volume',
-                      label="Input volume",
-                      help='Select the input volume.')
-        form.addParam('inputParticles', PointerParam,
+        form.addParam('inputParticles', pwparams.PointerParam,
                       pointerClass='SetOfParticles',
-                      label="Input particles",
                       pointerCondition='hasAlignmentProj',
+                      important=True,
+                      label="Input particles",
                       help='Select the input projection images with an '
                            'angular assignment.')
-        form.addParam('symmetryGroup', StringParam, default='c1',
+        form.addParam('inputVolume', pwparams.PointerParam,
+                      pointerClass='Volume', label="Input volume",
+                      important=True,
+                      help='Select the input volume.')
+        form.addParam('symmetryGroup', pwparams.StringParam, default='c1',
                       label="Symmetry group",
                       help='See [[Xmipp Symmetry][http://www2.mrc-lmb.cam.ac.uk'
                            '/Xmipp/index.php/Conventions_%26_'
                            'File_formats#Symmetry]] page for a description of '
                            'the symmetry format accepted by Xmipp')
+
         form.addSection(label='Pruning')
-        form.addParam('targetResolution', FloatParam, default=10,
-                      label='Target resolution (A)', expertLevel=LEVEL_ADVANCED)
-        form.addParam('angularSampling', FloatParam, default=5,
-                      label='Angular sampling', expertLevel=LEVEL_ADVANCED,
-                      help="In degrees")
-        form.addParam('angularDistance', FloatParam, default=10,
-                      label='Angular distance', expertLevel=LEVEL_ADVANCED,
-                      help="In degrees. An image belongs to a group if its "
-                           "distance is smaller than this value")
-        form.addParam('maxShift', FloatParam, default=15,
-                      label='Maximum shift',
-
-                      expertLevel=LEVEL_ADVANCED,
-                      help="In pixels")
-
-        form.addParam('directionalClasses', IntParam, default=2,
-                      label='Number of directional classes',
-                      expertLevel=LEVEL_ADVANCED)
-        form.addParam('classMethod', EnumParam, default=0,
+        form.addParam('classMethod', pwparams.EnumParam, default=RL2D,
                       label='Choose a method to classify',
                       choices=['CL2D', 'ML2D', 'Relion 2D'],
-                      display=EnumParam.DISPLAY_LIST,
-                      expertLevel=LEVEL_ADVANCED)
-        form.addParam('cl2dIterations', IntParam, default=5,
+                      display=pwparams.EnumParam.DISPLAY_COMBO)
+        form.addParam('targetResolution', pwparams.FloatParam, default=10,
+                       label='Target Resolution (A)',
+                       help='In order to save time, you could rescale both '
+                            'particles and maps to a pixel size = resol/2. '
+                            'If set to 0, no rescale will be applied to '
+                            'the initial references.')
+
+        group = form.addGroup('Solid Angles settings')
+        group.addParam('angularSampling', pwparams.FloatParam, default=5,
+                      label='Angular sampling',
+                      help="Angular step size, in degrees")
+        group.addParam('angularDistance', pwparams.FloatParam, default=10,
+                      label='Angular distance',
+                      help="In degrees. An image belongs to a group if its "
+                           "distance is smaller than this value")
+        group.addParam('directionalClasses', pwparams.IntParam, default=2,
+                      label='Number of directional classes',
+                      expertLevel=pwcons.LEVEL_ADVANCED)
+        group.addParam('thresholdValue', pwparams.FloatParam, default=0.25,
+                      label='DO BETTER EXPLANATION!!!!!',
+                      help='Enter a value less than 1(in decimals)')
+        group.addParam('noOfParticles', pwparams.IntParam,default=25,
+                      label='Number of Particles',
+                      help='Minimum number of particles required to do 2D'
+                           'Classification')
+
+        form.addSection(label='Methods Settings')
+        form.addParam('cl2dIterations', pwparams.IntParam, default=10,
                       label='Number of CL2D iterations',
                       condition="classMethod==0" ,
-                      expertLevel=LEVEL_ADVANCED)
-        form.addParam('refineAngles', BooleanParam, default=True,
+                      expertLevel=pwcons.LEVEL_ADVANCED)
+        form.addParam('refineAngles', pwparams.BooleanParam, default=True,
                       label='Refine angles',
                       condition="classMethod==0",
-                      expertLevel=LEVEL_ADVANCED,
+                      expertLevel=pwcons.LEVEL_ADVANCED,
                       help="Refine the angles of the classes using a"
                            " continuous angular assignment")
-
-        form.addParam('maxIters', IntParam, default=100,
-                      expertLevel=LEVEL_ADVANCED,
+        form.addParam('maxIters', pwparams.IntParam, default=100,
+                      expertLevel=pwcons.LEVEL_ADVANCED,
+                      condition='classMethod==1',
                       label='Maximum number of iterations',
                       help='If the convergence has not been reached after '
                            'this number of iterations, the process will be '
-                           'stopped.',
-                      condition='classMethod==1')
-        form.addParam('thresholdValue',FloatParam, default=0.5,
-                      expertLevel=LEVEL_ADVANCED,
-                      label='Minimum threshold Value',
-                      help='Enter a value less than 1(in decimals)')
-        form.addParam('noOfParticles',IntParam,default=25,
-                      expertLevel=LEVEL_ADVANCED,
-                      label='Number of Particles',
-                      help='minimum number of particles required to do 2D'
-                           'Classification')
-        form.addParam('numberOfIterations', IntParam, default=25,
-                      label='Number of iterations',
+                           'stopped.')
+        form.addParam('maxShift', pwparams.FloatParam, default=15,
+                      label='Maximum shift',
+                      expertLevel=pwcons.LEVEL_ADVANCED,
+                      condition='classMethod!=2',
+                      help="Provide maximum shift, In pixels")
+
+        group = form.addGroup('CTF', condition='classMethod==2')
+        group.addParam('continueMsg', pwparams.LabelParam, default=True,
                       condition='classMethod==2',
+                      label='CTF parameters are not available in continue mode')
+        group.addParam('doCTF', pwparams.BooleanParam, default=True,
+                      label='Do CTF-correction?', condition='classMethod==2',
+                      help='If set to Yes, CTFs will be corrected inside the '
+                           'MAP refinement. The resulting algorithm '
+                           'intrinsically implements the optimal linear, or '
+                           'Wiener filter. Note that input particles should '
+                           'contains CTF parameters.')
+        group.addParam('hasReferenceCTFCorrected', pwparams.BooleanParam,
+                       default=False,
+                       condition='classMethod==2',
+                       label='Has reference been CTF-corrected?',
+                       help='Set this option to Yes if the reference map '
+                            'represents CTF-unaffected density, e.g. it was '
+                            'created using Wiener filtering inside RELION or '
+                            'from a PDB. If set to No, then in the first '
+                            'iteration, the Fourier transforms of the '
+                            'reference projections are not multiplied by the '
+                            'CTFs.')
+        group.addParam('haveDataBeenPhaseFlipped', pwparams.LabelParam,
+                      condition='classMethod==2',
+                      label='Have data been phase-flipped?      '
+                            '(Don\'t answer, see help)',
+                      help='The phase-flip status is recorded and managed by '
+                           'Scipion. \n In other words, when you import or '
+                           'extract particles, \nScipion will record whether '
+                           'or not phase flipping has been done.\n\n'
+                           'Note that CTF-phase flipping is NOT a necessary '
+                           'pre-processing step \nfor MAP-refinement in '
+                           'RELION, as this can be done inside the internal\n'
+                           'CTF-correction. However, if the phases have been '
+                           'flipped, the program will handle it.')
+        group.addParam('ignoreCTFUntilFirstPeak', pwparams.BooleanParam,
+                       default=False,
+                       expertLevel=pwcons.LEVEL_ADVANCED,
+                       label='Ignore CTFs until first peak?',
+                       condition='classMethod==2',
+                       help='If set to Yes, then CTF-amplitude correction will '
+                            'only be performed from the first peak '
+                            'of each CTF onward. This can be useful if the CTF '
+                            'model is inadequate at the lowest resolution. '
+                            'Still, in general using higher amplitude contrast '
+                            'on the CTFs (e.g. 10-20%) often yields better '
+                            'results. Therefore, this option is not generally '
+                            'recommended.')
+        group.addParam('doCtfManualGroups', pwparams.BooleanParam, default=False,
+                      label='Do manual grouping ctfs?',
+                      condition='classMethod==2',
+                      help='Set this to Yes the CTFs will grouping manually.')
+        group.addParam('defocusRange', pwparams.FloatParam, default=500,
+                      label='defocus range for group creation (in Angstroms)',
+                      condition='classMethod==2 and doCtfManualGroups',
+                      help='Particles will be grouped by defocus.'
+                           'This parameter is the bin for an histogram.'
+                           'All particles assigned to a bin form a group')
+        group.addParam('numParticles', pwparams.FloatParam, default=200,
+                      label='minimum size for defocus group',
+                      condition='classMethod==2 and doCtfManualGroups',
+                      help='If defocus group is smaller than this value, '
+                           'it will be expanded until number of particles '
+                           'per defocus group is reached')
+
+        group = form.addGroup('Optimization', condition='classMethod==2')
+        group.addParam('numberOfIterations', pwparams.IntParam, default=25,
+                      label='Number of iterations', condition='classMethod==2',
                       help='Number of iterations to be performed. Note '
                            'that the current implementation does NOT '
                            'comprise a convergence criterium. Therefore, '
@@ -146,10 +210,8 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            '*Continue from iteration* is set 3 and this '
                            'param is set 25, the final iteration of the '
                            'protocol will be the 28th.')
-        form.addSection(label='Optimisation')
-        form.addParam('regularisationParamT', IntParam,
-                      default=2,
-                      label='Regularisation parameter T',
+        group.addParam('regularisationParamT', pwparams.IntParam,
+                      default=2, label='Regularisation parameter T',
                       condition='classMethod==2',
                       help='Bayes law strictly determines the relative '
                            'weight between the contribution of the '
@@ -165,30 +227,28 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'Too small values yield too-low resolution '
                            'structures; too high values result in '
                            'over-estimated resolutions and overfitting.')
-        form.addParam('copyAlignment', BooleanParam, default=True,
+        group.addParam('copyAlignment', pwparams.BooleanParam, default=True,
                       label='Consider previous alignment?',
                       condition='classMethod==2',
-
                       help='If set to Yes, then alignment information from'
                            ' input particles will be considered.')
-        form.addParam('alignmentAsPriors', BooleanParam, default=False,
-                      condition='classMethod==2',
-
-                      expertLevel=LEVEL_ADVANCED,
-                      label='Consider alignment as priors?',
-                      help='If set to Yes, then alignment information from '
+        group.addParam('alignmentAsPriors', pwparams.BooleanParam,
+                       default=False,
+                       condition='classMethod==2',
+                       expertLevel=pwcons.LEVEL_ADVANCED,
+                       label='Consider alignment as priors?',
+                       help='If set to Yes, then alignment information from '
                            'input particles will be considered as PRIORS. This '
                            'option is mandatory if you want to do local '
                            'searches')
-        form.addParam('fillRandomSubset', BooleanParam, default=False,
+        group.addParam('fillRandomSubset', pwparams.BooleanParam, default=False,
                       condition='classMethod==2',
-
-                      expertLevel=LEVEL_ADVANCED,
+                      expertLevel=pwcons.LEVEL_ADVANCED,
                       label='Consider random subset value?',
                       help='If set to Yes, then random subset value '
                            'of input particles will be put into the'
                            'star file that is generated.')
-        form.addParam('maskDiameterA', IntParam, default=-1,
+        group.addParam('maskDiameterA', pwparams.IntParam, default=-1,
                       condition='classMethod==2',
                       label='Particle mask diameter (A)',
                       help='The experimental images will be masked with a '
@@ -200,15 +260,16 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'The same diameter will also be used for a '
                            'spherical mask of the reference structures if no '
                            'user-provided mask is specified.')
-        form.addParam('referenceClassification' , BooleanParam, default=True,
-                       condition='classMethod==2',
+        group.addParam('referenceClassification' , pwparams.BooleanParam,
+                      default=True, condition='classMethod==2',
                        label='Perform reference based classification?')
-        form.addSection(label='Sampling')
-        form.addParam('doImageAlignment', BooleanParam, default=True,
+
+        group = form.addGroup('Sampling', condition='classMethod==2')
+        group.addParam('doImageAlignment', pwparams.BooleanParam, default=True,
                       label='Perform Image Alignment?',
                       condition='classMethod==2',
                       )
-        form.addParam('inplaneAngularSamplingDeg', FloatParam, default=5,
+        group.addParam('inplaneAngularSamplingDeg', pwparams.FloatParam, default=5,
                       label='In-plane angular sampling (deg)',
                       condition='classMethod==2 and doImageAlignment',
 
@@ -221,8 +282,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'value for the first \niteration(s) only, and '
                            'the sampling rate will be increased \n'
                            'automatically after that.')
-        form.addParam('offsetSearchRangePix', FloatParam, default=5,
-
+        group.addParam('offsetSearchRangePix', pwparams.FloatParam, default=5,
                       condition='classMethod==2 and doImageAlignment',
                       label='Offset search range (pix)',
                       help='Probabilities will be calculated only for '
@@ -231,8 +291,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'every iteration and is placed at the optimal '
                            'translation for each image in the previous '
                            'iteration.')
-        form.addParam('offsetSearchStepPix', FloatParam, default=1.0,
-
+        group.addParam('offsetSearchStepPix', pwparams.FloatParam, default=1.0,
                       condition='classMethod==2 and doImageAlignment',
                       label='Offset search step (pix)',
                       help='Translations will be sampled with this step-size '
@@ -241,7 +300,11 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'adaptive=1, the translations will first be '
                            'evaluated on a 2x coarser grid.')
         form.addSection(label='Compute')
-        form.addParam('allParticlesRam', BooleanParam, default=False,
+        form.addParam('noRelion', pwparams.HiddenBooleanParam,
+                      condition='classMethod!=2',
+                      label='This section is empty cause is only useful in '
+                            'case of using 2D classification Relion method')
+        form.addParam('allParticlesRam', pwparams.BooleanParam, default=False,
                       label='Pre-read all particles into RAM?',
                       condition='classMethod==2',
                       help='If set to Yes, all particle images will be '
@@ -264,8 +327,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'sends those particles through the network to '
                            'the MPI slaves during the refinement '
                            'iterations.')
-        form.addParam('scratchDir', PathParam,
-
+        form.addParam('scratchDir', pwparams.PathParam,
                       condition='classMethod==2 and not allParticlesRam',
                       label='Copy particles to scratch directory: ',
                       help='If a directory is provided here, then the job '
@@ -281,7 +343,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'correctly, the relion_volatile directory will '
                            'be wiped. If the job crashes, you may want to '
                            'remove it yourself.')
-        form.addParam('combineItersDisc', BooleanParam, default=False,
+        form.addParam('combineItersDisc', pwparams.BooleanParam, default=False,
                       label='Combine iterations through disc?',
                       condition='classMethod==2',
                       help='If set to Yes, at the end of every iteration '
@@ -298,12 +360,12 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            'gets to the cheese) and the start of the '
                            'ensuing maximisation step. It will depend on '
                            'your system setup which is most efficient.')
-        form.addParam('doGpu', BooleanParam, default=True,
+        form.addParam('doGpu', pwparams.BooleanParam, default=True,
                       label='Use GPU acceleration?',
                       condition='classMethod==2',
                       help='If set to Yes, the job will try to use GPU '
                            'acceleration.')
-        form.addParam('gpusToUse', StringParam, default='',
+        form.addParam('gpusToUse', pwparams.StringParam, default='',
                       label='Which GPUs to use:',
                       condition='classMethod==2 and doGpu',
                       help='This argument is not necessary. If left empty, '
@@ -313,7 +375,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                            '(0,1,2,3, etc) to use. MPI-processes are '
                            'separated by ":", threads by ",". '
                            'For example: "0,0:1,1:0,0:1,1"')
-        form.addParam('useParallelDisk', BooleanParam, default=True,
+        form.addParam('useParallelDisk', pwparams.BooleanParam, default=True,
                           label='Use parallel disc I/O?',
                           condition='classMethod==2',
                           help='If set to Yes, all MPI slaves will read '
@@ -323,7 +385,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                                'file systems like gluster of fhgfs are good '
                                'at parallel disc I/O. NFS may break with many '
                                'slaves reading in parallel.')
-        form.addParam('pooledParticles', IntParam, default=3,
+        form.addParam('pooledParticles', pwparams.IntParam, default=3,
                           label='Number of pooled particles:',
                           condition='classMethod==2',
                           help='Particles are processed in individual batches '
@@ -342,86 +404,13 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                                'particularly metadata handling of disk '
                                'access, is a problem. It has a modest cost of '
                                'increased RAM usage.')
-        form.addSection(label='CTF')
-        form.addParam('continueMsg', LabelParam, default=True,
-
-                      condition='classMethod==2',
-                      label='CTF parameters are not available in continue mode')
-        form.addParam('doCTF', BooleanParam, default=True,
-                      label='Do CTF-correction?', condition='classMethod==2',
-                      help='If set to Yes, CTFs will be corrected inside the '
-                           'MAP refinement. The resulting algorithm '
-                           'intrinsically implements the optimal linear, or '
-                           'Wiener filter. Note that input particles should '
-                           'contains CTF parameters.')
-        form.addParam('hasReferenceCTFCorrected', BooleanParam, default=False,
-                      condition='classMethod==2',
-                      label='Has reference been CTF-corrected?',
-                      help='Set this option to Yes if the reference map '
-                           'represents CTF-unaffected density, e.g. it was '
-                           'created using Wiener filtering inside RELION or '
-                           'from a PDB. If set to No, then in the first '
-                           'iteration, the Fourier transforms of the reference '
-                           'projections are not multiplied by the CTFs.')
-
-        form.addParam('haveDataBeenPhaseFlipped', LabelParam,
-
-                      condition='classMethod==2',
-                      label='Have data been phase-flipped?      '
-                            '(Don\'t answer, see help)',
-                      help='The phase-flip status is recorded and managed by '
-                           'Scipion. \n In other words, when you import or '
-                           'extract particles, \nScipion will record whether '
-                           'or not phase flipping has been done.\n\n'
-                           'Note that CTF-phase flipping is NOT a necessary '
-                           'pre-processing step \nfor MAP-refinement in '
-                           'RELION, as this can be done inside the internal\n'
-                           'CTF-correction. However, if the phases have been '
-                           'flipped, the program will handle it.')
-        form.addParam('ignoreCTFUntilFirstPeak', BooleanParam, default=False,
-                      expertLevel=LEVEL_ADVANCED,
-                      label='Ignore CTFs until first peak?',
-
-                      condition='classMethod==2',
-                      help='If set to Yes, then CTF-amplitude correction will '
-                           'only be performed from the first peak '
-                           'of each CTF onward. This can be useful if the CTF '
-                           'model is inadequate at the lowest resolution. '
-                           'Still, in general using higher amplitude contrast '
-                           'on the CTFs (e.g. 10-20%) often yields better '
-                           'results. Therefore, this option is not generally '
-                           'recommended.')
-        form.addParam('doCtfManualGroups', BooleanParam, default=False,
-                      label='Do manual grouping ctfs?',
-
-                      condition='classMethod==2',
-                      help='Set this to Yes the CTFs will grouping manually.')
-        form.addParam('defocusRange', FloatParam, default=1000,
-                      label='defocus range for group creation (in Angstroms)',
-
-                      condition='classMethod==2 and doCtfManualGroups',
-                      help='Particles will be grouped by defocus.'
-                           'This parameter is the bin for an histogram.'
-                           'All particles assigned to a bin form a group')
-        form.addParam('numParticles', FloatParam, default=10,
-                      label='minimum size for defocus group',
-
-                      condition='classMethod==2 and doCtfManualGroups',
-                      help='If defocus group is smaller than this value, '
-                           'it will be expanded until number of particles '
-                           'per defocus group is reached')
-
-
-
 
         form.addParallelSection(threads=1, mpi=3)
 
-
-
-
     ###TODO LIST:
     #1) ML number of iterations
-    #2) Input parameter to determine minimun number of particles to do or not to do 2D classification: line 223, 25 number
+    #2) Input parameter to determine minimun number of particles to do or not
+    # to do 2D classification: line 223, 25 number
 
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
@@ -537,7 +526,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
                 makePath(fnDir)
 
 
-            if self.classMethod.get() == self.CL2D:
+            if self.classMethod.get() == CL2D:
                 Nlevels = int(math.ceil(math.log(self.directionalClasses.get())
                                         /math.log(2)))
                 fnOut = join(fnDir, "level_%02d/class_classes.stk"%Nlevels)
