@@ -135,7 +135,7 @@ class Test2DAutoClasifier(TestBase):
             print label
             autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
                                                   numberOfIterations=10,
-                                                  minPartsToStop=200,
+                                                  minPartsToStop=700,
                                                   classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
@@ -149,7 +149,7 @@ class Test2DAutoClasifier(TestBase):
             return autoClassifierProt
 
         def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+            self.assertIsNotNone(relionProt.outputClasses, "There was a "
                                                            "problem")
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
@@ -168,7 +168,6 @@ class TestVolumeSelector(TestBase):
         def _runVolumeSelector(doGpu=False, label=''):
             volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
                                                targetResol=28.32,
-                                               numberOfIterations=15,
                                                numOfVols=2,
                                                numberOfMpi=3, numberOfThreads=1)
 
