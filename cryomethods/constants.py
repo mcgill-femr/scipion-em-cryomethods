@@ -63,5 +63,4 @@ CRYOMETHODS_HOME = 'CRYOMETHODS_HOME'
 
     # methods
 CL2D = 0
-ML2D = 1
-RL2D = 2
+RL2D = 1
