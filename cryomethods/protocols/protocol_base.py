@@ -27,13 +27,14 @@
 import re
 from glob import glob
 from os.path import exists
+import numpy as np
+from scipy import stats
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
-from pyworkflow.utils.path import cleanPath, replaceBaseExt
+from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
-from cryomethods import Plugin
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
 import cryomethods.convert as conv
@@ -115,6 +116,27 @@ class ProtocolBase(em.EMProtocol):
                            'better when filling the solvent area with random '
                            'noise, some classifications go better when using '
                            'zeros.')
+        form.addParam('copyAlignment', params.BooleanParam, default=False,
+                      label='Consider previous alignment?',
+                      help='If set to Yes, then alignment information from'
+                           ' input particles will be considered.')
+        form.addParam('alignmentAsPriors', params.BooleanParam,
+                      default=False,
+                      condition='copyAlignment',
+                      expertLevel=em.LEVEL_ADVANCED,
+                      label='Consider alignment as priors?',
+                      help='If set to Yes, then alignment information from '
+                           'input particles will be considered as PRIORS. '
+                           'This option is mandatory if you want to do '
+                           'local searches')
+        form.addParam('fillRandomSubset', params.BooleanParam,
+                      default=False, condition='copyAlignment',
+                      expertLevel=em.LEVEL_ADVANCED,
+                      label='Consider random subset value?',
+                      help='If set to Yes, then random subset value '
+                           'of input particles will be put into the'
+                           'star file that is generated.')
+
         if self.IS_2D:
             form.addParam('referenceAverages', params.PointerParam,
                           pointerClass='SetOfAverages', allowsNull=True,
@@ -138,47 +160,39 @@ class ProtocolBase(em.EMProtocol):
                                 'particles and maps to a pisel size = resol/2. '
                                 'If set to 0, no rescale will be applied to '
                                 'the initial references.')
-        else:
+        elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
-            group.addParam('resolToStop', params.FloatParam, default=10,
-                           label='Resolution to stop',
-                           help='Resolution to not go further')
+
             group.addParam('minPartsToStop', params.FloatParam, default=5000,
                            label='min particles to stop',
                            help='Minimum number of particles per class that is '
                                 'needed to do another classification step')
             group.addParam('numberOfClasses', params.IntParam, default=2,
                            label='Number of classes:',
-                           help='The number of classes (K) for a multi-reference '
-                                'refinement. These classes will be made in an '
-                                'unsupervised manner from a single reference by '
-                                'division of the data into random subsets during '
-                                'the first iteration.')
-            group.addParam('classMethod', params.EnumParam,
-                           default=1, choices=METHOD,
-                           label='Method to determine the classes:',
-                           help='')
-
-            form.addParam('copyAlignment', params.BooleanParam, default=False,
-                          label='Consider previous alignment?',
-                          help='If set to Yes, then alignment information from'
-                               ' input particles will be considered.')
-            form.addParam('alignmentAsPriors', params.BooleanParam,
-                          default=False,
-                          condition='copyAlignment',
-                          expertLevel=em.LEVEL_ADVANCED,
-                          label='Consider alignment as priors?',
-                          help='If set to Yes, then alignment information from '
-                               'input particles will be considered as PRIORS. '
-                               'This option is mandatory if you want to do '
-                               'local searches')
-            form.addParam('fillRandomSubset', params.BooleanParam,
-                          default=False, condition='copyAlignment',
-                          expertLevel=em.LEVEL_ADVANCED,
-                          label='Consider random subset value?',
-                          help='If set to Yes, then random subset value '
-                               'of input particles will be put into the'
-                               'star file that is generated.')
+                           help='The number of classes (K) for a '
+                                'multi-reference refinement. These classes '
+                                'will be made in an unsupervised manner from '
+                                'a single reference by division of the data '
+                                'into random subsets during the first '
+                                'iteration.')
+            if not self.IS_2D:
+                group.addParam('useReslog', params.BooleanParam,
+                               default=True,
+                               label='Use reslog as stop condition?:',
+                               help='')
+                group.addParam('doGrouping', params.BooleanParam,
+                               default=True,
+                               label='Grouping the classes:',
+                               help='')
+                group.addParam('classMethod', params.EnumParam, default=1,
+                               choices=METHOD, condition='doGrouping',
+                               label='Method to determine the classes:',
+                               help='')
+            else:
+                group.addHidden('useReslog', params.BooleanParam,
+                               default=False)
+                group.addHidden('doGrouping', params.BooleanParam,
+                               default=False)
 
     def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Reference 3D map')
@@ -194,9 +208,10 @@ class ProtocolBase(em.EMProtocol):
                       important=True,
                       label=referenceLabel,
                       help='Initial reference 3D map(s)')
-        form.addParam('numOfVols', params.IntParam,
-                      default=10,  label='Number of Volumes',
-                      help='Select Volumes to work with.')
+        if self.IS_VOLSELECTOR:
+            form.addParam('numOfVols', params.IntParam,
+                          default=5,  label='Number of Volumes',
+                          help='Select Volumes to work with.')
         form.addParam('referenceMask', params.PointerParam,
                       pointerClass='VolumeMask', expertLevel=expertLev,
                       label='Reference mask (optional)', allowsNull=True,
@@ -215,7 +230,7 @@ class ProtocolBase(em.EMProtocol):
                            'select another volume mask')
         form.addParam('solventMask', params.PointerParam,
                       pointerClass='VolumeMask',
-                      expertLevel=expertLev, allowsNull=True,
+                      expertLevel=em.LEVEL_ADVANCED, allowsNull=True,
                       label='Second reference mask (optional)',
                       help='For all white (value 1) pixels in this second '
                            'mask the corresponding pixels in the '
@@ -227,7 +242,7 @@ class ProtocolBase(em.EMProtocol):
                            'zero-values in the capsid and the solvent '
                            'areas.')
         form.addParam('solventFscMask', params.BooleanParam, default=False,
-                      expertLevel=expertLev,
+                      expertLevel=em.LEVEL_ADVANCED,
                       label='Use solvent-flattened FSCs?',
                       help='If set to Yes, then instead of using '
                            'unmasked maps to calculate the gold-standard '
@@ -373,17 +388,8 @@ class ProtocolBase(em.EMProtocol):
                            'Too small values yield too-low resolution '
                            'structures; too high values result in '
                            'over-estimated resolutions and overfitting.')
-        if self.IS_VOLSELECTOR:
-            form.addParam('numberOfIterations', params.IntParam, default=25,
-                          expertLevel=expertLev,
-                          label='Number of iterations',
-                          help='Number of iterations to be performed. Note '
-                               'that the current implementation does NOT '
-                               'comprise a convergence criterium. Therefore, '
-                               'the calculations will need to be stopped '
-                               'by the user if further iterations do not yield '
-                               'improvements in resolution or classes.')
-        else:
+
+        if not self.IS_VOLSELECTOR:
             form.addParam('doSubsets', params.BooleanParam, default=False,
                           label='Use subsets for initial updates?',
                           help='If set to True, multiple maximization updates '
@@ -443,13 +449,25 @@ class ProtocolBase(em.EMProtocol):
                            'in the range of 7-12 Angstroms have proven '
                            'useful.')
 
-    def _defineSamplingParams(self, form,
-                              expertLev=em.LEVEL_ADVANCED, cond='True'):
+    def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Sampling')
+        if self.IS_AUTOCLASSIFY:
+            form.addParam('doImageAlignment', params.BooleanParam, default=True,
+                          label='Perform image alignment?',
+                          help='If set to No, then rather than performing '
+                               'both alignment and classification, only '
+                               'classification will be performed. This allows '
+                               'the use of very focused masks.This requires '
+                               'that the optimal orientations of all '
+                               'particles are already calculated.')
+        else:
+            form.addHidden('doImageAlignment', params.BooleanParam,
+                           default=True)
+
         if self.IS_3D:
             form.addParam('angularSamplingDeg', params.EnumParam, default=1,
                           choices=ANGULAR_SAMPLING_LIST,
-                          expertLevel=expertLev, condition=cond,
+                          expertLevel=expertLev, condition='doImageAlignment',
                           label='Angular sampling interval (deg)',
                           help='There are only a few discrete angular samplings'
                                ' possible because we use the HealPix library to'
@@ -473,7 +491,8 @@ class ProtocolBase(em.EMProtocol):
                                'automatically after that.')
 
         form.addParam('offsetSearchRangePix', params.FloatParam,
-                      default=5, expertLevel=expertLev, condition=cond,
+                      default=5, expertLevel=expertLev,
+                      condition='doImageAlignment',
                       label='Offset search range (pix)',
                       help='Probabilities will be calculated only for '
                            'translations in a circle with this radius (in '
@@ -482,7 +501,8 @@ class ProtocolBase(em.EMProtocol):
                            'translation for each image in the previous '
                            'iteration.')
         form.addParam('offsetSearchStepPix', params.FloatParam,
-                      default=1.0, expertLevel=expertLev, condition=cond,
+                      default=1.0, expertLevel=expertLev,
+                      condition='doImageAlignment',
                       label='Offset search step (pix)',
                       help='Translations will be sampled with this step-size '
                            '(in pixels). Translational sampling is also done '
@@ -491,7 +511,8 @@ class ProtocolBase(em.EMProtocol):
                            'evaluated on a 2x coarser grid.')
         if self.IS_3D:
             form.addParam('localAngularSearch', params.BooleanParam,
-                          default=False, expertLevel=expertLev, condition=cond,
+                          default=False, expertLevel=expertLev,
+                          condition='doImageAlignment',
                           label='Perform local angular search?',
                           help='If set to Yes, then rather than performing '
                                'exhaustive angular searches, local searches '
@@ -501,7 +522,8 @@ class ProtocolBase(em.EMProtocol):
                                'and with a stddev of 1/3 of the range given '
                                'below will be enforced.')
             form.addParam('localAngularSearchRange', params.FloatParam,
-                          default=5.0, expertLevel=expertLev, condition=cond,
+                          default=5.0, expertLevel=expertLev,
+                          condition='doImageAlignment and localAngularSearch',
                           label='Local angular search range',
                           help='Local angular searches will be performed '
                                'within +/- the given amount (in degrees) from '
@@ -639,72 +661,53 @@ class ProtocolBase(em.EMProtocol):
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
-        self.volDict = {}
-        self._initialize()
-        self._insertFunctionStep('convertInputStep', self._getResetDeps())
-        self._insertClassifyStep()
-        self._insertFunctionStep('createOutputStep')
+        #already implemented in subclasses
+        pass
 
-    def _insertClassifyStep(self):
+    def _insertClassifyStep(self, **kwargs):
         """ Prepare the command line arguments before calling Relion. """
         # Join in a single line all key, value pairs of the args dict
-        args = {}
+        normalArgs = {}
+        basicArgs = {}
+        self._setNormalArgs(normalArgs)
+        self._setBasicArgs(basicArgs)
+        if kwargs:
+            for key, value in kwargs.items():
+                newKey = '--%s' % key
+                normalArgs[newKey] = value
 
-        self._setNormalArgs(args)
-        self._setComputeArgs(args)
-        params = self._getParams(args)
-        return self._insertFunctionStep('runClassifyStep', params)
+        return self._insertFunctionStep('runClassifyStep', normalArgs,
+                                        basicArgs, self._rLev)
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
-        """ Create the input file in STAR format as expected by Relion.
-        If the input particles comes from Relion, just link the file.
-        Params:
-            particlesId: use this parameters just to force redo of convert if
-                the input particles are changed.
-        """
-        imgSet = self._getInputParticles()
-        imgStar = self._getFileName('input_star')
+        """ Implemented in subclasses. """
+        pass
 
-        self.info("Converting set from '%s' into '%s'" %
-                  (imgSet.getFileName(), imgStar))
+    def runClassifyStep(self, normalArgs, basicArgs, rLev):
+        self._createIterTemplates(rLev)  # initialize files to know iterations
+        self._setComputeArgs(normalArgs)
+        params = self._getParams(normalArgs)
+        self._runClassifyStep(params)
 
-        # Pass stack file as None to avoid write the images files
-        # If copyAlignment is set to False pass alignType to ALIGN_NONE
-        alignType = imgSet.getAlignment() if copyAlignment \
-            else em.ALIGN_NONE
-        hasAlign = alignType != em.ALIGN_NONE
-        fillRandomSubset = hasAlign and getattr(self, 'fillRandomSubset',
-                                                False)
+        for i in range(15, 55, 5):
+            stop = self._stopRunCondition(rLev, i-5)
+            if not stop:
+                basicArgs['--iter'] = i
+                self._setContinueArgs(basicArgs, rLev)
+                self._setComputeArgs(basicArgs)
+                paramsCont = self._getParams(basicArgs)
+                self._runClassifyStep(paramsCont)
+            else:
+                break
 
-        conv.writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
-                                 alignType=alignType,
-                                 postprocessImageRow=self._postprocessParticleRow,
-                                 fillRandomSubset=fillRandomSubset)
-
-        alignToPrior = hasAlign and getattr(self, 'alignmentAsPriors',
-                                            False)
-
-        if alignToPrior:
-            self._copyAlignAsPriors(imgStar, alignType)
-
-        if self.doCtfManualGroups:
-            self._splitInCTFGroups(imgStar)
-
-        if self._getRefArg():
-            self._convertRef()
-
-    def runClassifyStep(self, params):
+    def _runClassifyStep(self, params):
         """ Execute the relion steps with the give params. """
         self.runJob(self._getProgram(), params)
 
     def createOutputStep(self):
-        # create a SetOfVolumes and define its relations
-        volumes = self._createSetOfVolumes()
-        self._fillVolSetFromIter(volumes, self._lastIter())
-
-        self._defineOutputs(outputVolumes=volumes)
-        self._defineSourceRelation(self.inputVolumes, volumes)
+        """ Implemented in subclasses. """
+        pass
 
     # --------------------------- INFO functions -------------------------------
     def _validate(self):
@@ -730,23 +733,7 @@ class ProtocolBase(em.EMProtocol):
         return cites
 
     def _summary(self):
-        self._initialize()
-
-        lastIter = self._lastIter()
-
-        if lastIter is not None:
-            iterMsg = 'Iteration %d' % lastIter
-            if self.hasAttribute('numberOfIterations'):
-                iterMsg += '/%d' % self._getnumberOfIters()
-        else:
-            iterMsg = 'No iteration finished yet.'
-        summary = [iterMsg]
-
-        if self._getInputParticles().isPhaseFlipped():
-            flipMsg = "Your input images are ctf-phase flipped"
-            summary.append(flipMsg)
-
-        summary += self._summaryNormal()
+        summary = self._summaryNormal()
         return summary
 
     def _summaryNormal(self):
@@ -812,6 +799,14 @@ class ProtocolBase(em.EMProtocol):
         if self.ignoreCTFUntilFirstPeak:
             args['--ctf_intact_first_peak'] = ''
 
+    def _setSubsetArgs(self, args):
+        if self._doSubsets():
+            args['--write_subsets'] = 1
+            args['--subset_size'] = self.subsetSize.get()
+            args['--max_subsets'] = self.subsetUpdates.get()
+            if self._useFastSubsets():
+                args['--fast_subsets'] = ''
+
     def _setBasicArgs(self, args):
         """ Return a dictionary with basic arguments. """
         self._defineOutput(args)
@@ -821,21 +816,13 @@ class ProtocolBase(em.EMProtocol):
                      '--oversampling': self.oversampling.get(),
                      '--tau2_fudge': self.regularisationParamT.get()
                      })
-        args['--iter'] = self._getnumberOfIters() if self.IS_VOLSELECTOR else 6
+        args['--iter'] = 10
 
         if not self.IS_VOLSELECTOR:
             self._setSubsetArgs(args)
 
         self._setSamplingArgs(args)
         self._setMaskArgs(args)
-
-    def _setSubsetArgs(self, args):
-        if self._doSubsets():
-            args['--write_subsets'] = 1
-            args['--subset_size'] = self.subsetSize.get()
-            args['--max_subsets'] = self.subsetUpdates.get()
-            if self._useFastSubsets():
-                args['--fast_subsets'] = ''
 
     def _setSamplingArgs(self, args):
         """Should be overwritten in subclasses"""
@@ -878,6 +865,15 @@ class ProtocolBase(em.EMProtocol):
             args['--gpu'] = self.gpusToUse.get()
         args['--j'] = self.numberOfThreads.get()
 
+    def _setContinueArgs(self, args, rLev):
+        continueIter = self._lastIter(rLev)
+        if self.IS_AUTOCLASSIFY:
+            args['--continue'] = self._getFileName('optimiser', lev=self._level,
+                                                   rLev=rLev, iter=continueIter)
+        else:
+            args['--continue'] = self._getFileName('optimiser', ruNum=rLev,
+                                                   iter=continueIter)
+
     def _getParams(self, args):
         return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
 
@@ -901,7 +897,6 @@ class ProtocolBase(em.EMProtocol):
         """ Return the list of iteration files, give the iterTemplate. """
         result = None
         files = sorted(glob(self._iterTemplate))
-        print("files to know Iters: ", files)
         if files:
             f = files[index]
             s = self._iterRegex.search(f)
@@ -910,7 +905,8 @@ class ProtocolBase(em.EMProtocol):
                 # number
         return result
 
-    def _lastIter(self):
+    def _lastIter(self, rLev=None):
+        self._createIterTemplates(rLev)
         return self._getIterNumber(-1)
 
     def _firstIter(self):
@@ -925,23 +921,6 @@ class ProtocolBase(em.EMProtocol):
 
     def _getnumberOfIters(self):
         return self.numberOfIterations.get()
-
-    def _getIterVolumes(self, it, clean=False):
-        """ Return a volumes .sqlite file for this iteration.
-        If the file doesn't exists, it will be created by
-        converting from this iteration data.star file.
-        """
-        sqlteVols = self._getFileName('volumes_scipion', iter=it)
-
-        if clean:
-            cleanPath(sqlteVols)
-
-        if not exists(sqlteVols):
-            volSet = self.OUTPUT_TYPE(filename=sqlteVols)
-            self._fillVolSetFromIter(volSet, it)
-            volSet.write()
-            volSet.close()
-        return sqlteVols
 
     def _fillVolSetFromIter(self, volSet, it):
         volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
@@ -976,9 +955,6 @@ class ProtocolBase(em.EMProtocol):
             inputObj = self.inputVolumes.get()
             if isinstance(inputObj, em.SetOfVolumes):
                 # input SetOfVolumes as references
-                return self._getRefStar()
-        else:  # 2D
-            if self.referenceAverages.get():
                 return self._getRefStar()
         return None  # No --ref should be used at this point
 
@@ -1065,6 +1041,24 @@ class ProtocolBase(em.EMProtocol):
         moveFile(self._getFileName('preprocess_parts'),
                  self._getTmpPath('particles_subset.mrcs'))
 
+    def _stopRunCondition(self, rLev, iter):
+        x = np.array([])
+        y = np.array([])
+
+        for i in range(iter-5, iter+1, 1):
+            x = np.append(x, i)
+            if self.IS_AUTOCLASSIFY:
+                modelFn = self._getFileName('model', iter=i,
+                                            lev=self._level, rLev=rLev)
+            else:
+                modelFn = self._getFileName('model', iter=i, ruNum=rLev)
+
+            modelMd = md.RowMetaData('model_general@' + modelFn)
+            y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
+
+        slope, _, _, _, _ = stats.linregress(x, y)
+        return True if slope <= 0.005 else False
+
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()
         outputFn = self._getOutputVolFn(fn)
@@ -1074,7 +1068,7 @@ class ProtocolBase(em.EMProtocol):
         img.write(outputFn)
 
     def _getOutputVolFn(self, fn):
-        return self._getExtraPath(replaceBaseExt(fn, '_origSize.mrc'))
+        return replaceExt(fn, '_origSize.mrc')
 
     def _postprocessImageRow(self, img, imgRow):
         partId = img.getParticleId()
