@@ -33,12 +33,14 @@ from sklearn import manifold
 import pyworkflow.em as em
 import pyworkflow.em.viewers.showj as showj
 import pyworkflow.em.metadata as md
+from pyworkflow import gui
+from pyworkflow.em.viewers import ChimeraView
 from pyworkflow.em.viewers.plotter import EmPlotter
 import pyworkflow.protocol.params as params
 from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
-from .convert import relionToLocation
+from .convert import relionToLocation, loadMrc
 
 from cryomethods.protocols import ProtLandscapePCA
 from pyworkflow.protocol.params import LabelParam, EnumParam
@@ -51,10 +53,17 @@ import tempfile
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 from matplotlib.ticker import LinearLocator, FormatStrFormatter
-
-
-
-
+from pyworkflow.em import ImageHandler
+from pyworkflow.utils import getExt, removeExt
+from os.path import abspath, exists
+from xmipp3.convert import getImageLocation
+from xmipp3.protocols.nma.data import PathData
+import Tkinter as tk
+import pyworkflow.gui.dialog as dialog
+from pyworkflow.gui.widgets import Button, HotButton
+from pyworkflow.utils.properties import Icon
+from glob import glob
+from pyworkflow.gui.matplotlib_image import FigureFrame
 
 ITER_LAST = 0
 ITER_SELECTION = 1
@@ -548,6 +557,18 @@ nearest= 1
 slinear=2
 quadratic= 3
 cubic=4
+OUTPUT_RESOLUTION_FILE_CHIMERA = 'MG_Chimera_resolution.vol'
+
+OUTPUT_VARIANCE_FILE_CHIMERA = 'MG_Chimera_resolution.vol'
+CHIMERA_CMD_DOA = 'chimera_DoA.cmd'
+CHIMERA_CMD_VARIANCE = 'chimera_Variance.cmd'
+CHIMERA_CMD_SPH = 'chimera_Sph.cmd'
+CHIMERA_ELLIP = 'ellipsoid.vol'
+#TODO: prepare volumes for chimera
+OUTPUT_VARIANCE_FILE_CHIMERA = 'varResolution_Chimera.vol'
+# OUTPUT_DOA_FILE_CHIMERA = 'original_vols','*.mrc'
+OUTPUT_RESOLUTION_MEAN_CHIMERA = 'mean_volume_Chimera.vol'
+
 
 
 FREQ_LABEL = 'frequency (1/A)'
@@ -613,6 +634,8 @@ class PcaLandscapeViewer(ProtocolViewer):
                        default=MDS,
                        label='3D Non-linear Manifold embedding',
                        help='select')
+        group.addParam('doShowChimera', LabelParam,
+            label="Show DoA map in Chimera")
         # group.addParam('MDS', LabelParam,
         #                condition='threeDMap==%d' % MDS,
         #                label='3D Plot MDS' )
@@ -646,8 +669,8 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _getVisualizeDict(self):
         return {'plotAutovalues': self._plotAutovalues,
                 'matplotType': self._viewMatplot,
-                '3DmatplotType': self._get3DPlt
-
+                '3DmatplotType': self._get3DPlt,
+                'selectPoints': self._viewpoint,
                 # 'chimeraView': self._viewChimera,
                 # 'thresholdMode': self._autovalueNumb,
                 # 'selectPoints': self._selectPoints
@@ -664,8 +687,8 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _loadPcaParticles(self):
         try:
-            # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/ortega_ribosome.txt'
+            filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
+            # filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/ortega_ribosome.txt'
 
             z_part = []
             with open(filename, 'r') as f:
@@ -769,6 +792,14 @@ class PcaLandscapeViewer(ProtocolViewer):
             ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
                             cmap='viridis', edgecolor='none')
             plt.show()
+
+            pts = plt.ginput(10, timeout=-1)
+            pts.getPoint(0).setX(x[0])
+            pts.getPoint(0).setY(y[0])
+            pts.getPoint(1).setX(x[1])
+            pts.getPoint(1).setY(y[1])
+            print(pts)
+            plt.plot(pts)
 
 
         elif self.heatMap.get() == LocallyLinearEmbedding:
@@ -1151,6 +1182,296 @@ class PcaLandscapeViewer(ProtocolViewer):
             ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
                             cmap='viridis', edgecolor='none')
             plt.show()
+
+    def _loadData(self):
+        from xmipp3.protocols.nma.data import PathData
+        data = PathData(dim=2)
+        bfactorFile = self._loadPcaCoordinates()
+        for values in np.ndenumerate(bfactorFile):
+
+            p1 = data.createEmptyPoint()
+            p1.setX(values[0])
+            p1.setY(values[1])
+            data.addPoint(p1)
+            p2 = data.createEmptyPoint()
+            p2.setX(values[2])
+            p2.setY(values[3])
+            data.addPoint(p2)
+            data.bfactor = values[4]
+        else:
+            data.bfactor = 0
+        print (data, 'data')
+        return data
+
+
+
+
+    def _viewpoint(self, paramName=None):
+
+
+
+        win = self.tkWindow(pointSelectionWindow,
+                            title='Clustering Tool',
+                            callback=self._plot()
+                            )
+        plotter = self._plot()
+        # self.path = PointPath(plotter.getLastSubPlot(), self._loadPcaCoordinates(),
+        #                       callback=self._plot(),
+        #                       tolerance=0.1)
+
+        return [win]
+
+
+
+    def _plot(self):
+        nPCA = self.pcaCount.get()
+        nBins = self.binSize.get()
+        man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+        mds = man.fit_transform(self._loadPcaCoordinates())
+        counts, xedges, yedges = np.histogram2d(mds[:, 0], mds[:, 1],
+                                                weights=self._loadPcaParticles(),
+                                                bins=nBins)
+        countsExtended = np.zeros(
+            (counts.shape[0] + 2, counts.shape[0] + 2))
+        countsExtended[1:-1, 1:-1] = counts
+
+        xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
+        yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
+
+        stepx = xedges[1] - xedges[0]
+        stepy = yedges[1] - yedges[0]
+
+        xedgesExtended = np.zeros(counts.shape[0] + 2)
+        yedgesExtended = np.zeros(counts.shape[0] + 2)
+
+        xedgesExtended[1:-1] = xedges
+        xedgesExtended[0] = xedges[0] - stepx
+        xedgesExtended[-1] = xedges[-1] + stepx
+
+        yedgesExtended[1:-1] = yedges
+        yedgesExtended[0] = yedges[0] - stepy
+        yedgesExtended[-1] = yedges[-1] + stepy
+        a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                        num=countsExtended.shape[0])
+        b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                        num=countsExtended.shape[0])
+        x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
+
+        a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
+                         num=100)
+        b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
+                         num=100)
+        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+        H2 = countsExtended.reshape(countsExtended.size)
+        f = interpolate.interp2d(a, b, H2, kind='linear',
+                                 bounds_error='True')
+        znew = f(a2, b2)
+        fig = plt.figure()
+        CS = plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5,
+                         colors='k')
+        CS = plt.contourf(grid_x, grid_y, znew.T, 20, cmap=plt.cm.hot,
+                          vmax=(znew).max(), vmin=0)
+
+        original_vols = glob(
+            self.protocol._getExtraPath('original_vols', '*mrc'))
+
+        data = PathData(dim=2)
+        values= (x, y)
+        p1 = plt.ginput(100, timeout=-1)
+        p1.setX(values[0])
+        p1.setY(values[1])
+        data.addPoint(p1)
+
+        p2 = plt.ginput(100, timeout=-1)
+        p2.setX(values[2])
+        p2.setY(values[3])
+        data.addPoint(p2)
+
+        # original_vols.__getitem__(p1, p2)
+
+
+
+
+
+
+        # pts.setX(x[0])
+        # pts.getPoint(0).setY(y[0])
+        # pts.getPoint(1).setX(x[1])
+        # pts.getPoint(1).setY(y[1])
+        # print(pts)
+        # plt.plot(pts)
+
+
+
+class pointSelectionWindow(gui.Window):
+    """ This class creates a Window that will display Bfactor plot
+    to adjust two points to fit B-factor.
+    It will also contain a button to apply the B-factor to
+    the volume and produce a new volumen that can be registered.
+    """
+
+    def __init__(self, **kwargs):
+        gui.Window.__init__(self, **kwargs)
+
+        self.dim = kwargs.get('dim')
+        self.data = kwargs.get('data')
+        self.callback = kwargs.get('callback', None)
+        self.plotter = None
+
+        content = tk.Frame(self.root)
+        # self._createContent(content)
+        content.grid(row=0, column=0, sticky='news')
+        content.columnconfigure(0, weight=1)
+        # content.rowconfigure(1, weight=1)
+
+    def _createContent(self):
+        self._createFigureBox(self._plot())
+
+    def _createFigureBox(self, content):
+        figFrame = FigureFrame(content, figsize=(6, 6))
+        figFrame.grid(row=0, column=0, padx=5, columnspan=2)
+        self.figure = figFrame.figure
+
+        applyBtn = HotButton(content, text='Apply Selected Points',
+                             command=self._onApplyBfactorClick)
+        applyBtn.grid(row=1, column=0, sticky='ne', padx=5, pady=5)
+
+        closeBtn = Button(content, text='Close', imagePath=Icon.ACTION_CLOSE,
+                          command=self.close)
+        closeBtn.grid(row=1, column=1, sticky='ne', padx=5, pady=5)
+
+    def _onApplyBfactorClick(self, e=None):
+        # self._runBeforePreWhitening(self.prot)
+        dialog.FlashMessage(self.root, "Selected Points...",
+                            func=self.callback)
+
+    def _onClosing(self):
+        if self.plotter:
+            self.plotter.close()
+        gui.Window._onClosing(self)
+
+    def _plot(self):
+        self._plot()
+
+
+STATE_NO_POINTS = 0  # on points have been selected, double-click will add first one
+STATE_DRAW_POINTS = 1  # still adding points, double-click will set the last one
+STATE_ADJUST_POINTS = 2  # no more points will be added, just adjust the current ones
+
+class PointPath():
+    """ Graphical manager based on Matplotlib to handle mouse
+    events to create a path of points.
+    It also allow to modify the point positions on the path.
+    """
+
+    def __init__(self, ax, pathData, callback=None, tolerance=3,
+                 maxPoints=2):
+        self.ax = ax
+        self.callback = callback
+
+        self.dragIndex = None
+        self.tolerance = tolerance
+        self.maxPoints = maxPoints
+
+        self.cidpress = ax.figure.canvas.mpl_connect('button_press_event',
+                                                     self.onClick)
+        self.cidrelease = ax.figure.canvas.mpl_connect(
+            'button_release_event', self.onRelease)
+        self.cidmotion = ax.figure.canvas.mpl_connect('motion_notify_event',
+                                                      self.onMotion)
+
+        self.pathData = pathData
+
+        if pathData.getSize() == maxPoints:  # this means there is a path
+            self.setState(STATE_ADJUST_POINTS)
+            self.plotPath()
+        else:
+            self.setState(STATE_DRAW_POINTS)
+            self.path_line = None
+            self.path_points = None
+
+    def setState(self, state, notify=False):
+        self.drawing = state
+
+        if state == STATE_DRAW_POINTS:
+            self.ax.set_title('Click to add two points.')
+        elif state == STATE_ADJUST_POINTS:
+            self.ax.set_title(
+                'Drag points to adjust line, current Bfactor = %0.3f' % self.pathData.bfactor)
+        else:
+            raise Exception("Invalid PointPath state: %d" % state)
+
+        if notify and self.callback:
+            self.callback(self.pathData)
+
+    def onClick(self, event):
+        if event.inaxes != self.ax:
+            return
+        points= []
+        global points
+        ex = event.xdata
+        ey = event.ydata
+
+        if self.drawing == STATE_DRAW_POINTS:
+            point = self.pathData.createEmptyPoint()
+            point.setX(ex)
+            point.setY(ey)
+            self.pathData.addPoint(point)
+
+            if self.pathData.getSize() == 1:  # first point is added
+                self.plotPath()
+            else:
+                xs, ys = self.getXYData()
+                self.path_line.set_data(xs, ys)
+                points.append(self.path_points.set_data(xs, ys))
+
+            if self.pathData.getSize() == self.maxPoints:
+                self.setState(STATE_ADJUST_POINTS)
+
+            self.ax.figure.canvas.draw()
+
+        elif self.drawing == STATE_ADJUST_POINTS:  # Points moving state
+            self.dragIndex = None
+            for i, point in enumerate(self.pathData):
+                x = point.getX()
+                y = point.getY()
+                if sqrt((ex - x) ** 2 + (ey - y) ** 2) < self.tolerance:
+                    self.dragIndex = i
+                    break
+
+    def getXYData(self):
+        xs = self.pathData.getXData()
+        ys = self.pathData.getYData()
+        return xs, ys
+
+    def plotPath(self):
+        xs, ys = self.getXYData()
+        self.path_line, = self.ax.plot(xs, ys, alpha=0.75, color='blue')
+        self.path_points, = self.ax.plot(xs, ys, 'o',
+                                         color='red')  # 5 points tolerance, mark line points
+
+    def onMotion(self, event):
+        if self.dragIndex is None or self.drawing < 2:
+            return
+
+        ex, ey = event.xdata, event.ydata
+        point = self.pathData.getPoint(self.dragIndex)
+        point.setX(ex)
+        point.setY(ey)
+        self.update()
+
+    def onRelease(self, event):
+        self.dragIndex = None
+        if self.drawing == STATE_ADJUST_POINTS:
+            self.setState(STATE_ADJUST_POINTS, notify=True)
+        self.update()
+
+    def update(self):
+        xs, ys = self.getXYData()
+        self.path_line.set_data(xs, ys)
+        self.path_points.set_data(xs, ys)
+        self.ax.figure.canvas.draw()
+
 
 
 
