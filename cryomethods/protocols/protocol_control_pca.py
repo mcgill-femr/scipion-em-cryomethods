@@ -153,20 +153,6 @@ class ProtLandscapePCA(ProtocolBase):
         print('saving average volume')
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def getParticlesPca(self):
-        try:
-            # filename = '/home/satinder/Desktop/NMA_MYSYS/splic_Tes_amrita.txt'
-            filename = '/home/satinder/scipion_tesla_2.0/scipion-em-cryomethods/ortega_ribosome.txt'
-
-            z_part = []
-            with open(filename, 'r') as f:
-                for y in f:
-                    if y:
-                        z_part.append(float(y.strip()))
-            return z_part
-        except ValueError:
-            pass
-
     def analyzePCAStep(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
@@ -294,47 +280,6 @@ class ProtLandscapePCA(ProtocolBase):
             saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
             diffCount += 1
 
-
-
-
-        # -----------------------PLOT---------------------------------------
-        # mf = ('/home/satinder/ScipionUserData/projects/ControlTestPCA/Runs/000099_ProtLandscapePCA/extra/raw_final_model.star')
-        # print (mf, "mf")
-        # modelFile = md.MetaData('model_classes@' + mf)
-        # for row in md.iterRows(modelFile):
-        #     classDistrib = row.getValue('rlnClassDistribution')
-        #     classDis.append(classDistrib)
-
-        partWeight= self.getParticlesPca()
-
-        x_proj = [item[0] for item in matProj]
-        y_proj = [item[1] for item in matProj]
-        print (x_proj, "x_proj")
-        print (y_proj, "y_proj")
-        print (len(x_proj), "xlength")
-        print (len(y_proj), "ylength")
-        print (partWeight, "z_part")
-
-
-
-        xmin = min(x_proj)
-        ymin= min(y_proj)
-        xmax = max(x_proj)
-        ymax = max(y_proj)
-
-        # xi= np.arange(xmin, xmax, 0.01)
-        # print (xi, "xi")
-        # yi= np.arange(ymin, ymax, 0.01)
-        # print (yi, "yi")
-        # xiM, yiM = np.meshgrid(xi, yi)
-        # print (xi, yi, "xi, yi ")
-
-
-        # particles
-
-        # set mask
-        # mask = (xiM > 0.5) & (xiM < 0.6) & (yiM > 0.5) & (yiM < 0.6)
-
         #save coordinates:
         os.makedirs(self._getExtraPath('Coordinates'))
         coorPath = self._getExtraPath('Coordinates')
@@ -342,42 +287,6 @@ class ProtLandscapePCA(ProtocolBase):
 
         mat_file = os.path.join(coorPath, 'matProj_splic')
         coordNumpy= np.save(mat_file, matProj)
-        matProjData = np.load(
-            self._getExtraPath('Coordinates', 'matProj_splic.npy'))
-        print (matProjData, "matProjData")
-        return coordNumpy
-
-
-        # x_file = os.path.join(coorPath, 'x_proj_splic')
-        # np.save(x_file, x_proj)
-        # xProjData = np.load(
-        #     self._getExtraPath('Coordinates', 'x_proj_splic.npy'))
-        # print (xProjData, "xProjData")
-        #
-        # y_file = os.path.join(coorPath, 'y_proj_splic')
-        # np.save(y_file, y_proj)
-        # yProjData = np.load(
-        #     self._getExtraPath('Coordinates', 'y_proj_splic.npy'))
-        # print (yProjData, "yProjData")
-
-
-
-        # --------------------------------------------------------------------
-
-        # interpolate
-        # zi = griddata((x_proj, y_proj), z_part, (xiM, yiM), method='linear')
-        # # mask out the field
-        # zi[mask] = np.nan
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111)
-        # plt.contourf(xi, yi, zi)
-        # plt.plot(x_proj, y_proj)
-        # plt.xlabel('x_pca', fontsize=16)
-        # plt.ylabel('y_pca', fontsize=16)
-        # plt.colorbar()
-        # heatMap= self._getExtraPath('interpolated_controlPCA_splic.png')
-        # plt.savefig(heatMap, dpi=100)
-        # plt.close(fig)
 
     # -------------------------- UTILS functions ------------------------------
     def _getVolume(self):
