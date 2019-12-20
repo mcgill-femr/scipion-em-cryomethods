@@ -794,10 +794,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             plt.show()
 
             pts = plt.ginput(10, timeout=-1)
-            pts.getPoint(0).setX(x[0])
-            pts.getPoint(0).setY(y[0])
-            pts.getPoint(1).setX(x[1])
-            pts.getPoint(1).setY(y[1])
+
             print(pts)
             plt.plot(pts)
 
@@ -1183,47 +1180,9 @@ class PcaLandscapeViewer(ProtocolViewer):
                             cmap='viridis', edgecolor='none')
             plt.show()
 
-    def _loadData(self):
-        from xmipp3.protocols.nma.data import PathData
-        data = PathData(dim=2)
-        bfactorFile = self._loadPcaCoordinates()
-        for values in np.ndenumerate(bfactorFile):
-
-            p1 = data.createEmptyPoint()
-            p1.setX(values[0])
-            p1.setY(values[1])
-            data.addPoint(p1)
-            p2 = data.createEmptyPoint()
-            p2.setX(values[2])
-            p2.setY(values[3])
-            data.addPoint(p2)
-            data.bfactor = values[4]
-        else:
-            data.bfactor = 0
-        print (data, 'data')
-        return data
 
 
-
-
-    def _viewpoint(self, paramName=None):
-
-
-
-        win = self.tkWindow(pointSelectionWindow,
-                            title='Clustering Tool',
-                            callback=self._plot()
-                            )
-        plotter = self._plot()
-        # self.path = PointPath(plotter.getLastSubPlot(), self._loadPcaCoordinates(),
-        #                       callback=self._plot(),
-        #                       tolerance=0.1)
-
-        return [win]
-
-
-
-    def _plot(self):
+    def _plot(self,event):
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
         man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
@@ -1275,31 +1234,13 @@ class PcaLandscapeViewer(ProtocolViewer):
         original_vols = glob(
             self.protocol._getExtraPath('original_vols', '*mrc'))
 
-        data = PathData(dim=2)
-        values= (x, y)
-        p1 = plt.ginput(100, timeout=-1)
-        p1.setX(values[0])
-        p1.setY(values[1])
-        data.addPoint(p1)
-
-        p2 = plt.ginput(100, timeout=-1)
-        p2.setX(values[2])
-        p2.setY(values[3])
-        data.addPoint(p2)
-
-        # original_vols.__getitem__(p1, p2)
+        plt.ginput(100, timeout=-1)
+        def _callback(event):
+            print event.x, event.y
 
 
 
 
-
-
-        # pts.setX(x[0])
-        # pts.getPoint(0).setY(y[0])
-        # pts.getPoint(1).setX(x[1])
-        # pts.getPoint(1).setY(y[1])
-        # print(pts)
-        # plt.plot(pts)
 
 
 
@@ -1365,7 +1306,7 @@ class PointPath():
     """
 
     def __init__(self, ax, pathData, callback=None, tolerance=3,
-                 maxPoints=2):
+                 maxPoints=5):
         self.ax = ax
         self.callback = callback
 
@@ -1375,102 +1316,36 @@ class PointPath():
 
         self.cidpress = ax.figure.canvas.mpl_connect('button_press_event',
                                                      self.onClick)
-        self.cidrelease = ax.figure.canvas.mpl_connect(
-            'button_release_event', self.onRelease)
-        self.cidmotion = ax.figure.canvas.mpl_connect('motion_notify_event',
-                                                      self.onMotion)
 
-        self.pathData = pathData
 
-        if pathData.getSize() == maxPoints:  # this means there is a path
-            self.setState(STATE_ADJUST_POINTS)
-            self.plotPath()
-        else:
-            self.setState(STATE_DRAW_POINTS)
-            self.path_line = None
-            self.path_points = None
+        # self.pathData = pathData
+        #
+        # if pathData.getSize() == maxPoints:  # this means there is a path
+        #     self.setState(STATE_ADJUST_POINTS)
+        #     self.plotPath()
+        # else:
+        #     self.setState(STATE_DRAW_POINTS)
+        #     self.path_line = None
+        #     self.path_points = None
 
-    def setState(self, state, notify=False):
-        self.drawing = state
 
-        if state == STATE_DRAW_POINTS:
-            self.ax.set_title('Click to add two points.')
-        elif state == STATE_ADJUST_POINTS:
-            self.ax.set_title(
-                'Drag points to adjust line, current Bfactor = %0.3f' % self.pathData.bfactor)
-        else:
-            raise Exception("Invalid PointPath state: %d" % state)
 
-        if notify and self.callback:
-            self.callback(self.pathData)
+    def callback(event):
+        return event.x, event.y
 
     def onClick(self, event):
         if event.inaxes != self.ax:
             return
+        self.callback.get()
         points= []
         global points
         ex = event.xdata
         ey = event.ydata
+        return (ex, ey)
 
-        if self.drawing == STATE_DRAW_POINTS:
-            point = self.pathData.createEmptyPoint()
-            point.setX(ex)
-            point.setY(ey)
-            self.pathData.addPoint(point)
 
-            if self.pathData.getSize() == 1:  # first point is added
-                self.plotPath()
-            else:
-                xs, ys = self.getXYData()
-                self.path_line.set_data(xs, ys)
-                points.append(self.path_points.set_data(xs, ys))
 
-            if self.pathData.getSize() == self.maxPoints:
-                self.setState(STATE_ADJUST_POINTS)
 
-            self.ax.figure.canvas.draw()
-
-        elif self.drawing == STATE_ADJUST_POINTS:  # Points moving state
-            self.dragIndex = None
-            for i, point in enumerate(self.pathData):
-                x = point.getX()
-                y = point.getY()
-                if sqrt((ex - x) ** 2 + (ey - y) ** 2) < self.tolerance:
-                    self.dragIndex = i
-                    break
-
-    def getXYData(self):
-        xs = self.pathData.getXData()
-        ys = self.pathData.getYData()
-        return xs, ys
-
-    def plotPath(self):
-        xs, ys = self.getXYData()
-        self.path_line, = self.ax.plot(xs, ys, alpha=0.75, color='blue')
-        self.path_points, = self.ax.plot(xs, ys, 'o',
-                                         color='red')  # 5 points tolerance, mark line points
-
-    def onMotion(self, event):
-        if self.dragIndex is None or self.drawing < 2:
-            return
-
-        ex, ey = event.xdata, event.ydata
-        point = self.pathData.getPoint(self.dragIndex)
-        point.setX(ex)
-        point.setY(ey)
-        self.update()
-
-    def onRelease(self, event):
-        self.dragIndex = None
-        if self.drawing == STATE_ADJUST_POINTS:
-            self.setState(STATE_ADJUST_POINTS, notify=True)
-        self.update()
-
-    def update(self):
-        xs, ys = self.getXYData()
-        self.path_line.set_data(xs, ys)
-        self.path_points.set_data(xs, ys)
-        self.ax.figure.canvas.draw()
 
 
 
