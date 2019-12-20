@@ -24,8 +24,6 @@ import collections
 
 PCA_THRESHOLD = 0
 PCA_COUNT=1
-ADD_WEIGHTS =0
-NO_WEIGHTS =1
 
 
 class ProtLandscapePCA(ProtocolBase):
@@ -116,9 +114,8 @@ class ProtLandscapePCA(ProtocolBase):
                       help='Number of PCA you want to select.')
 
         form.addParam('addWeights', params.FileParam, label="Weight File path",
-
                       allowsNull=True,
-                      help='Specify a path to weights for volume.')
+                      help='Specify a path to weights for volumes.')
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -293,25 +290,6 @@ class ProtLandscapePCA(ProtocolBase):
             saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
             diffCount += 1
 
-
-
-
-        # -----------------------PLOT---------------------------------------
-        # mf = ('/home/satinder/ScipionUserData/projects/ControlTestPCA/Runs/000099_ProtLandscapePCA/extra/raw_final_model.star')
-        # print (mf, "mf")
-        # modelFile = md.MetaData('model_classes@' + mf)
-        # for row in md.iterRows(modelFile):
-        #     classDistrib = row.getValue('rlnClassDistribution')
-        #     classDis.append(classDistrib)
-
-        partWeight= self.getParticlesPca()
-
-        x_proj = [item[0] for item in matProj]
-        y_proj = [item[1] for item in matProj]
-
-
-
-
         #save coordinates:
         os.makedirs(self._getExtraPath('Coordinates'))
         coorPath = self._getExtraPath('Coordinates')
@@ -319,13 +297,6 @@ class ProtLandscapePCA(ProtocolBase):
 
         mat_file = os.path.join(coorPath, 'matProj_splic')
         coordNumpy= np.save(mat_file, matProj)
-        matProjData = np.load(
-            self._getExtraPath('Coordinates', 'matProj_splic.npy'))
-        print (matProjData, "matProjData")
-
-        return coordNumpy
-
-
 
     # -------------------------- UTILS functions ------------------------------
     def _getVolume(self):

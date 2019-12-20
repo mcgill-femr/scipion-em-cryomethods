@@ -31,9 +31,8 @@ import numpy
 from collections import OrderedDict
 from itertools import izip
 
+import pyworkflow as pw
 from pyworkflow.object import ObjectWrap, String, Integer
-from pyworkflow.utils.path import (createLink, copyFile, replaceBaseExt,
-                                   getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 
@@ -735,9 +734,9 @@ def copyOrLinkFileName(imgRow, prefixDir, outputDir, copyFiles=False):
     newName = os.path.join(outputDir, baseName)
     if not os.path.exists(newName):
         if copyFiles:
-            copyFile(os.path.join(prefixDir, imgPath), newName)
+            pw.utils.copyFile(os.path.join(prefixDir, imgPath), newName)
         else:
-            createLink(os.path.join(prefixDir, imgPath), newName)
+            pw.utils.createLink(os.path.join(prefixDir, imgPath), newName)
 
     imgRow.setValue(md.RLN_IMAGE_NAME, locationToRelion(index, newName))
 
@@ -774,14 +773,19 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
     """
     filesDict = {}
     ih = em.ImageHandler()
+    outputRoot = os.path.join(outputDir, 'input')
+    # Get the extension without the dot
+    stackFiles = imgSet.getFiles()
+    ext = pw.utils.getExt(next(iter(stackFiles)))[1:]
+    rootDir = pw.utils.commonPath(stackFiles)
 
     def getUniqueFileName(fn, extension):
         """ Get an unique file for either link or convert files.
         It is possible that the base name overlap if they come
-        from different runs. (like partices.mrcs after relion preprocess)
+        from different runs. (like particles.mrcs after relion preprocess)
         """
-        newFn = join(outputDir, replaceBaseExt(fn, extension))
-        newRoot = removeExt(newFn)
+        newFn = join(outputRoot, pw.utils.replaceBaseExt(fn, extension))
+        newRoot = pw.utils.removeExt(newFn)
 
         values = filesDict.values()
         counter = 1
@@ -797,7 +801,9 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
         that it is a binary stack file and not a volume.
         """
         newFn = getUniqueFileName(fn, extension)
-        createLink(fn, newFn)
+        if not os.path.exists(newFn):
+            pw.utils.createLink(fn, newFn)
+            print("   %s -> %s" % (newFn, fn))
         return newFn
 
     def convertStack(fn):
@@ -806,29 +812,35 @@ def convertBinaryFiles(imgSet, outputDir, extension='mrcs'):
         """
         newFn = getUniqueFileName(fn, 'stk')
         ih.convertStack(fn, newFn)
+        print("   %s -> %s" % (newFn, fn))
         return newFn
 
-    ext = getExt(imgSet.getFirstItem().getFileName())[
-          1:]  # remove dot in extension
+    def replaceRoot(fn):
+        """ Link create to the root folder, so just replace that
+        in the name, no need to do anything else.
+        """
+        return fn.replace(rootDir, outputRoot)
 
     if ext == extension:
-        mapFunc = createBinaryLink
-        print "convertBinaryFiles: creating soft links."
+        print("convertBinaryFiles: creating soft links.")
+        print("   Root: %s -> %s" % (outputRoot, rootDir))
+        mapFunc = replaceRoot
+        pw.utils.createLink(rootDir, outputRoot)
     elif ext == 'mrc' and extension == 'mrcs':
+        print("convertBinaryFiles: creating soft links (mrcs -> mrc).")
         mapFunc = createBinaryLink
-        print "convertBinaryFiles: creating soft links (mrcs -> mrc)."
     elif ext.endswith('hdf'):  # assume eman .hdf format
+        print("convertBinaryFiles: converting stacks. (%s -> %s)"
+              % (extension, ext))
         mapFunc = convertStack
-        print "convertBinaryFiles: converting stacks. (%s -> %s)" % (
-        extension, ext)
     else:
         mapFunc = None
 
     if mapFunc is not None:
-        for fn in imgSet.getFiles():
+        pw.utils.makePath(outputRoot)
+        for fn in stackFiles:
             newFn = mapFunc(fn)  # convert or link
             filesDict[fn] = newFn  # map new filename
-            print "   %s -> %s" % (newFn, fn)
 
     return filesDict
 
@@ -851,7 +863,7 @@ def convertBinaryVol(vol, outputDir):
         """ Convert from a format that is not read by Relion
         to mrc format.
         """
-        newFn = join(outputDir, replaceBaseExt(fn, 'mrc'))
+        newFn = join(outputDir, pw.utils.replaceBaseExt(fn, 'mrc'))
         ih.convert(fn, newFn)
         return newFn
 
@@ -877,7 +889,7 @@ def convertMask(img, outputDir):
 
     ih = em.ImageHandler()
     imgFn = getImageLocation(img.getLocation())
-    newFn = join(outputDir, replaceBaseExt(imgFn, 'mrc'))
+    newFn = join(outputDir, pw.utils.replaceBaseExt(imgFn, 'mrc'))
 
     ih.truncateMask(imgFn, newFn)
 

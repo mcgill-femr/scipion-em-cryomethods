@@ -25,32 +25,24 @@
 # *
 # **************************************************************************
 import os
-import re
-import copy
-import random
 import numpy as np
-from glob import glob
-from collections import Counter
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
-from pyworkflow.em.convert import ImageHandler
 import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
+from pyworkflow.utils import (makePath, copyFile)
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.convert import writeSetOfParticles, loadMrc
 
 from .protocol_auto_base import ProtAutoBase
 
 
-class Prot2DAutoClassifier(ProtAutoBase):
-    _label = '2D auto classifier'
-    IS_2D = True
+class Prot3DAutoClassifier(ProtAutoBase):
+    _label = '3D auto classifier'
+    IS_2D = False
     IS_AUTOCLASSIFY = True
+
 
     def __init__(self, **args):
         ProtAutoBase.__init__(self, **args)
@@ -62,21 +54,21 @@ class Prot2DAutoClassifier(ProtAutoBase):
         self.rLevIter = self.rLevDir + 'relion_it%(iter)03d_'
         # add to keys, data.star, optimiser.star and sampling.star
         myDict = {
-            'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
-            'outputData': self.levDir + 'output_data.star',
-            'image': self.levDir + 'image_id-%(id)s.mrc',
-            'avgMap': self.levDir + 'map_average.mrc',
-            'relionImage': '%(clsImg)06d@' + self.rLevDir +
-                           'relion_it%(iter)03d_classes.mrcs',
-            'outputModel': self.levDir + 'output_model.star',
-            'data': self.rLevIter + 'data.star',
-            'rawFinalModel': self._getExtraPath('raw_final_model.star'),
-            'rawFinalData': self._getExtraPath('raw_final_data.star'),
-            'finalModel': self._getExtraPath('final_model.star'),
-            'finalData': self._getExtraPath('final_data.star'),
-            'finalAvgMap': self._getExtraPath('map_average.mrc'),
-            'optimiser': self.rLevIter + 'optimiser.star',
-        }
+                'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
+                'outputData': self.levDir + 'output_data.star',
+                'map': self.levDir + 'map_id-%(id)s.mrc',
+                'avgMap': self.levDir + 'map_average.mrc',
+                'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
+                'outputModel': self.levDir + 'output_model.star',
+                'model': self.rLevIter + 'model.star',
+                'data': self.rLevIter + 'data.star',
+                'rawFinalModel': self._getExtraPath('raw_final_model.star'),
+                'rawFinalData': self._getExtraPath('raw_final_data.star'),
+                'finalModel': self._getExtraPath('final_model.star'),
+                'finalData': self._getExtraPath('final_data.star'),
+                'finalAvgMap': self._getExtraPath('map_average.mrc'),
+                'optimiser': self.rLevIter + 'optimiser.star',
+                  }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
             key_xmipp = key + '_xmipp'
@@ -84,71 +76,49 @@ class Prot2DAutoClassifier(ProtAutoBase):
         # add other keys that depends on prefixes
         for p in self.PREFIXES:
             myDict['%smodel' % p] = self.rLevIter + '%smodel.star' % p
-            myDict[
-                '%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
+            myDict['%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
 
         self._updateFilenamesDict(myDict)
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         self._defineInputParams(form)
+        self._defineReferenceParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineCTFParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineSamplingParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineAdditionalParams(form)
-
-    # -------------------------- INSERT steps functions ------------------------
-    def _insertLevelSteps(self):
-        deps = []
-        levelRuns = self._getLevRuns(self._level)
-
-        self._insertFunctionStep('convertInputStep',
-                                 self._getResetDeps(),
-                                 self.copyAlignment,
-                                 prerequisites=deps)
-
-        for rLev in levelRuns:
-            clsDepList = []
-            self._rLev = rLev  # Just to generate the proper input star file.
-            classDep = self._insertClassifyStep()
-            clsDepList.append(classDep)
-            self._setNewEvalIds()
-
-        evStep = self._insertEvaluationStep(clsDepList)
-        deps.append(evStep)
-        return deps
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
-        imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
-
-        if self._level == 1:
+        if self._level == 0:
             makePath(self._getRunPath(self._level, 1))
-            imgSet = self._getInputParticles()
-            self.info("Converting set from '%s' into '%s'" %
-                      (imgSet.getFileName(), imgStar))
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
+            self._convertStar(copyAlignment, imgStar)
+            mdInput = self._getMetadata(imgStar)
+            mdSize = mdInput.size()
+            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
 
-            # Pass stack file as None to avoid write the images files
-            # If copyAlignment is set to False pass alignType to ALIGN_NONE
-            alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
+            for i in range(2, 10, 1):
+                makePath(self._getRunPath(self._level, i))
+                mStar = self._getFileName('input_star', lev=self._level, rLev=i)
+                size = 10000 * i if mdSize >= 100000 else mdSize * i / 10
+                mdAux1 = self._getMetadata()
+                mdAux2 = self._getMetadata()
+                mdAux1.randomize(mdInput)
+                mdAux2.selectPart(mdAux1, 1, size)
+                mdAux2.write(mStar)
 
-            hasAlign = alignType != em.ALIGN_NONE
-            alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr(
-                'fillRandomSubset')
+        elif self._level == 1:
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
+            makePath(self._getRunPath(self._level, 1))
+            self._convertStar(copyAlignment, imgStar)
 
-            writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
-                                alignType=alignType,
-                                postprocessImageRow=self._postprocessParticleRow,
-                                fillRandomSubset=fillRandomSubset)
-            if alignToPrior:
-                self._copyAlignAsPriors(imgStar, alignType)
-
-            if self.doCtfManualGroups:
-                self._splitInCTFGroups(imgStar)
+            # find a clever way to avoid volume conversion if its already done.
+            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
 
         else:
             lastCls = None
@@ -182,40 +152,57 @@ class Prot2DAutoClassifier(ProtAutoBase):
         self._copyLevelMaps()
         self._evalStop()
         self._mergeMetaDatas()
+        self._getAverageVol()
+        self._alignVolumes()
         print('Finishing evaluation step')
 
     def createOutputStep(self):
         partSet = self.inputParticles.get()
 
-        classes2D = self._createSetOfClasses2D(partSet)
-        self._fillClassesFromIter(classes2D)
+        classes3D = self._createSetOfClasses3D(partSet)
+        self._fillClassesFromIter(classes3D)
 
-        self._defineOutputs(outputClasses=classes2D)
-        self._defineSourceRelation(self.inputParticles, classes2D)
+        self._defineOutputs(outputClasses=classes3D)
+        self._defineSourceRelation(self.inputParticles, classes3D)
+
+        # create a SetOfVolumes and define its relations
+        volumes = self._createSetOfVolumes()
+        volumes.setSamplingRate(partSet.getSamplingRate())
+
+        for class3D in classes3D:
+            vol = class3D.getRepresentative()
+            vol.setObjId(class3D.getObjId())
+            volumes.append(vol)
+
+        self._defineOutputs(outputVolumes=volumes)
+        self._defineSourceRelation(self.inputParticles, volumes)
+
+        self._defineSourceRelation(self.inputVolumes, classes3D)
+        self._defineSourceRelation(self.inputVolumes, volumes)
 
     # -------------------------- UTILS functions -------------------------------
     def _setSamplingArgs(self, args):
         """ Set sampling related params. """
-        # Sampling stuff
         if self.doImageAlignment:
+            args['--healpix_order'] = self.angularSamplingDeg.get()
             args['--offset_range'] = self.offsetSearchRangePix.get()
-            args['--offset_step']  = (self.offsetSearchStepPix.get() *
-                                      self._getSamplingFactor())
-            args['--psi_step'] = (self.inplaneAngularSamplingDeg.get() *
-                                  self._getSamplingFactor())
+            args['--offset_step'] = (self.offsetSearchStepPix.get() *
+                                     self._getSamplingFactor())
+            if self.localAngularSearch:
+                args['--sigma_ang'] = self.localAngularSearchRange.get() / 3.
         else:
             args['--skip_align'] = ''
 
     def _getResetDeps(self):
-        return "%s" % (self._getInputParticles().getObjId())
+        return "%s, %s" % (self._getInputParticles().getObjId(),
+                           self.inputVolumes.get().getObjId())
 
     def _getMapById(self, mapId):
         level = int(mapId.split('.')[0])
-        return self._getFileName('image', lev=level, id=mapId)
+        return self._getFileName('map', lev=level, id=mapId)
 
     def _mergeDataStar(self, rLev):
         iters = self._lastIter(rLev)
-        print ("last iteration _mergeDataStar:", iters)
 
         #metadata to save all particles that continues
         outData = self._getFileName('outputData', lev=self._level)
@@ -224,17 +211,32 @@ class Prot2DAutoClassifier(ProtAutoBase):
         #metadata to save all final particles
         finalData = self._getFileName('rawFinalData')
         finalMd = self._getMetadata(finalData)
-
         imgStar = self._getFileName('data', iter=iters,
                                     lev=self._level, rLev=rLev)
         mdData = md.MetaData(imgStar)
 
+        def _getMap(iters, rLev, clsPart):
+            return self._getFileName('relionMap', lev=self._level,
+                                     iter=iters, ref3d=clsPart, rLev=rLev)
+
+        def _getMapId(rMap):
+            try:
+                return self._mapsDict[rMap]
+            except:
+                return None
+
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = self._getFileName('relionImage', lev=self._level,
-                                     iter=iters,
-                                     clsImg=clsPart, rLev=rLev)
-            mapId = self._mapsDict[rMap]
+            rMap = _getMap(iters, rLev, clsPart)
+            mapId = _getMapId(rMap)
+
+            while mapId is None:
+                for clsPart in range(1, self.numberOfClasses.get()+1):
+                    rMap = _getMap(iters, rLev, clsPart)
+                    mapId = _getMapId(rMap)
+                    if mapId is not None:
+                        break
+
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]
                 row.setValue(md.RLN_PARTICLE_CLASS, classId)
@@ -250,23 +252,56 @@ class Prot2DAutoClassifier(ProtAutoBase):
         if outMd.size() != 0:
             outMd.write(outData)
 
+    def _doAverageMaps(self, listVol):
+        for vol in listVol:
+            npVol = loadMrc(vol, False)
+            if vol == listVol[0]:
+                dType = npVol.dtype
+                npAvgVol = np.zeros(npVol.shape)
+            npAvgVol += npVol
+
+        npAvgVol = np.divide(npAvgVol, len(listVol))
+        return npAvgVol, dType
+
+    def _getArea(self, modelMd):
+        resolution = []
+        ssnr = []
+        for row in md.iterRows(modelMd):
+            resolution.append(row.getValue('rlnResolution'))
+            ssnr.append(row.getValue('rlnSsnrMap'))
+
+        area = np.trapz(ssnr, resolution)
+        return area
+
     def _mrcToNp(self, volList):
         listNpVol = []
         for vol in volList:
             volNp = loadMrc(vol, False)
-            dim = volNp.shape[1]
-            lenght = dim**2
+            dim = volNp.shape[0]
+            lenght = dim**3
             volList = volNp.reshape(lenght)
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
 
-    def _updateParticle(self, item, row):
-        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_2D))
+    def _convertStar(self, copyAlignment, imgStar):
+        imgSet = self._getInputParticles()
+        self.info("Converting set from '%s' into '%s'" %
+                  (imgSet.getFileName(), imgStar))
 
-        item._rlnLogLikeliContribution = em.Float(
-            row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
-            row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+        # Pass stack file as None to avoid write the images files
+        # If copyAlignment is set to False pass alignType to ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
 
+        hasAlign = alignType != em.ALIGN_NONE
+        alignToPrior = hasAlign and self.alignmentAsPriors.get()
+        fillRandomSubset = hasAlign and self.fillRandomSubset.get()
+
+        writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+                            alignType=alignType,
+                            postprocessImageRow=self._postprocessParticleRow,
+                            fillRandomSubset=fillRandomSubset)
+        if alignToPrior:
+            self._copyAlignAsPriors(imgStar, alignType)
+
+        if self.doCtfManualGroups:
+            self._splitInCTFGroups(imgStar)
