@@ -28,23 +28,22 @@
 import os
 from os.path import exists
 import numpy as np
-# from matplotlib import pyplot
 import Tkinter as tk
 from sklearn import manifold
 import scipy as sc
+import matplotlib.pyplot as plt
 
+import pyworkflow.utils.properties as pwprop
 from pyworkflow.gui.widgets import Button, HotButton
 import pyworkflow.em as em
 import pyworkflow.gui as gui
 import pyworkflow.em.viewers.showj as showj
-import pyworkflow.em.metadata as md
 from pyworkflow.em.viewers.plotter import EmPlotter
 import pyworkflow.protocol.params as params
 from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_control_pca import ProtLandscapePCA
-from .convert import relionToLocation
 
 RUN_LAST = 0
 RUN_SELECTION = 1
@@ -55,7 +54,7 @@ VOLUME_CHIMERA = 1
 CHIMERADATAVIEW = 0
 
 
-class CryoMPlotter(EmPlotter):
+class CryoMethodsPlotter(EmPlotter):
     """ Class to create several plots with Xmipp utilities"""
     def __init__(self, x=1, y=1, mainTitle="", **kwargs):
         EmPlotter.__init__(self, x, y, mainTitle, **kwargs)
@@ -311,6 +310,8 @@ class PcaLandscapeViewer(ProtocolViewer):
                        condition="heatMap==1 or heatMap==2")
         group.addParam('pcaCount', params.IntParam, default=10,
                        label="Select number of principal components")
+        group.addParam('points', params.IntParam, default=5,
+                       label="Select number of volumes you want to show")
         group.addParam('dimensionality', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
@@ -337,11 +338,9 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _plotAutovalues(self, paramName=None):
         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
         autoVal = np.load(fn)
-
-        pyplot.plot(np.cumsum(autoVal))
-        pyplot.xlabel('number of components')
-        pyplot.ylabel('cumulative explained variance')
-        pyplot.show()
+        vals = (np.cumsum(autoVal))
+        plt.plot(vals)
+        plt.show()
 
     def _viewHeatMap(self,paramName=None):
         if self.dimensionality.get() == 0:
@@ -393,16 +392,28 @@ class PcaLandscapeViewer(ProtocolViewer):
                             title='Heat Map',
                             callback=self._getMaps
                             )
-        plotter = self._createPlot("Heat Map", "", "", grid_x, grid_y,
+        plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
                                    znew, figure=win.figure)
-        self.path = PointPath(plotter.getLastSubPlot(), self._loadData(),
-                              callback=self._adjustPoints,
-                              tolerance=0.1)
-
-        return [win]
+        points = self.points.get()
+        self.path = PointPath(plotter.getLastSubPlot(), self._loadData())
+        win.show()
 
     def _getMaps(self):
-        pass
+        coordMaps = self._getCoordMapFiles()
+        f = open(coordMaps)
+        f.close()
+
+
+
+        # volSet = self.protocol._createSetOfVolumes()
+        # volSet.setSamplingRate(pixelSize)
+        # newVol = vol.clone()
+        # newVol.setObjId(None)
+        # newVol.setLocation(volOut)
+        # volSet.append(newVol)
+        # volSet.write()
+        #
+        # self.objectView(volSet).show()
 
     def _loadPcaCoordinates(self):
         """ Check if the PCA data is generated and if so,
@@ -415,6 +426,25 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _loadPcaWeights(self):
         pass
+
+    def _loadData(self):
+        data = PathData(dim=2)
+        maPoints = self._getCoordMapFiles()
+        if os.path.exists(maPoints):
+            f = open(maPoints)
+            values = map(float, f.readline().split())
+            f.close()
+            noPoints = self.points.get()
+            for i in range(1, noPoints + 1):
+                p = data.createEmptyPoint()
+                p.setX(values[0])
+                p.setY(values[1])
+                data.addPoint(p)
+                # data.bfactor = values[4]
+        else:
+            data.bfactor = 0
+
+        return data
 
     def _loadPcaEigenValue(self):
         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
@@ -443,11 +473,14 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xedgesExtended, yedgesExtended, countsExtended
 
     def _createPlot(self, title, xTitle, yTitle, x, y, weights, figure=None):
-        xplotter = CryoMPlotter(figure=figure)
+        xplotter = CryoMethodsPlotter(figure=figure)
         xplotter.plot_title_fontsize = 11
         img = xplotter.createSubPlot(title, xTitle, yTitle, 1, 1)
         xplotter.plotHeatMap(img, x,y,weights)
         return xplotter
+
+    def _getCoordMapFiles(self):
+        return self.protocol._getExtraPath('new_map_coordinates.txt')
 
     # def _get3DPlt(self, paramName=None):
     #     if self.threeDMap.get == MDS:
@@ -669,45 +702,28 @@ class PointPath():
         It also allow to modify the point positions on the path.
         """
 
-        def __init__(self, ax, pathData, callback=None, tolerance=3,
-                     maxPoints=2):
+        def __init__(self, ax, pathData):
             self.ax = ax
-            self.callback = callback
 
             self.dragIndex = None
-            self.tolerance = tolerance
-            self.maxPoints = maxPoints
 
             self.cidpress = ax.figure.canvas.mpl_connect('button_press_event',
                                                          self.onClick)
             self.cidrelease = ax.figure.canvas.mpl_connect(
-                'button_release_event', self.onRelease)
-            self.cidmotion = ax.figure.canvas.mpl_connect('motion_notify_event',
-                                                          self.onMotion)
+                              'button_release_event', self.onRelease)
 
             self.pathData = pathData
-
-            if pathData.getSize() == maxPoints:  # this means there is a path
-                self.setState(STATE_ADJUST_POINTS)
-                self.plotPath()
-            else:
-                self.setState(STATE_DRAW_POINTS)
-                self.path_line = None
-                self.path_points = None
+            self.setState(0)
+            self.path_line = None
+            self.path_points = None
 
         def setState(self, state, notify=False):
             self.drawing = state
 
-            if state == STATE_DRAW_POINTS:
-                self.ax.set_title('Click to add two points.')
-            elif state == STATE_ADJUST_POINTS:
-                self.ax.set_title(
-                    'Drag points to adjust line, current Bfactor = %0.3f' % self.pathData.bfactor)
+            if state == 0:
+                self.ax.set_title('Click to add points.')
             else:
                 raise Exception("Invalid PointPath state: %d" % state)
-
-            if notify and self.callback:
-                self.callback(self.pathData)
 
         def onClick(self, event):
             if event.inaxes != self.ax:
@@ -716,7 +732,7 @@ class PointPath():
             ex = event.xdata
             ey = event.ydata
 
-            if self.drawing == STATE_DRAW_POINTS:
+            if self.drawing == 0:
                 point = self.pathData.createEmptyPoint()
                 point.setX(ex)
                 point.setY(ey)
@@ -729,19 +745,7 @@ class PointPath():
                     self.path_line.set_data(xs, ys)
                     self.path_points.set_data(xs, ys)
 
-                if self.pathData.getSize() == self.maxPoints:
-                    self.setState(STATE_ADJUST_POINTS)
-
                 self.ax.figure.canvas.draw()
-
-            elif self.drawing == STATE_ADJUST_POINTS:  # Points moving state
-                self.dragIndex = None
-                for i, point in enumerate(self.pathData):
-                    x = point.getX()
-                    y = point.getY()
-                    if sqrt((ex - x) ** 2 + (ey - y) ** 2) < self.tolerance:
-                        self.dragIndex = i
-                        break
 
         def getXYData(self):
             xs = self.pathData.getXData()
@@ -752,7 +756,7 @@ class PointPath():
             xs, ys = self.getXYData()
             self.path_line, = self.ax.plot(xs, ys, alpha=0.75, color='blue')
             self.path_points, = self.ax.plot(xs, ys, 'o',
-                                             color='red')  # 5 points tolerance, mark line points
+                                             color='red')
 
         def onMotion(self, event):
             if self.dragIndex is None or self.drawing < 2:
@@ -766,8 +770,6 @@ class PointPath():
 
         def onRelease(self, event):
             self.dragIndex = None
-            if self.drawing == STATE_ADJUST_POINTS:
-                self.setState(STATE_ADJUST_POINTS, notify=True)
             self.update()
 
         def update(self):
@@ -807,17 +809,17 @@ class HeatMapWindow(gui.Window):
         figFrame.grid(row=0, column=0, padx=5, columnspan=2)
         self.figure = figFrame.figure
 
-        applyBtn = HotButton(content, text='Apply B-factor',
-                             command=self._onApplyBfactorClick)
+        applyBtn = HotButton(content, text='Obtain Maps',
+                             command=self._onMapEstimationClick)
         applyBtn.grid(row=1, column=0, sticky='ne', padx=5, pady=5)
 
-        closeBtn = Button(content, text='Close', imagePath=Icon.ACTION_CLOSE,
+        closeBtn = Button(content, text='Close',
+                          imagePath=pwprop.Icon.ACTION_CLOSE,
                           command=self.close)
         closeBtn.grid(row=1, column=1, sticky='ne', padx=5, pady=5)
 
-    def _onApplyBfactorClick(self, e=None):
-        # self._runBeforePreWhitening(self.prot)
-        dialog.FlashMessage(self.root, "Applying B-factor...",
+    def _onMapEstimationClick(self, e=None):
+        gui.dialog.FlashMessage(self.root, "Calculating maps...",
                             func=self.callback)
 
     def _onClosing(self):
@@ -826,30 +828,141 @@ class HeatMapWindow(gui.Window):
         gui.Window._onClosing(self)
 
 
+class Point():
+    """ Return x, y 2d coordinates and some other properties
+    such as weight and state.
+    """
+    # Selection states
+    DISCARDED = -1
+    NORMAL = 0
+    SELECTED = 1
+
+    def __init__(self, pointId, data, weight, state=0):
+        self._id = pointId
+        self._data = data
+        self._weight = weight
+        self._state = state
+        self._container = None
+
+    def getId(self):
+        return self._id
+
+    def getX(self):
+        return self._data[self._container.XIND]
+
+    def setX(self, value):
+        self._data[self._container.XIND] = value
+
+    def getY(self):
+        return self._data[self._container.YIND]
+
+    def setY(self, value):
+        self._data[self._container.YIND] = value
+
+    def getZ(self):
+        return self._data[self._container.ZIND]
+
+    def setZ(self, value):
+        self._data[self._container.ZIND] = value
+
+    def getWeight(self):
+        return self._weight
+
+    def getState(self):
+        return self._state
+
+    def setState(self, newState):
+        self._state = newState
+
+    def eval(self, expression):
+        localDict = {}
+        for i, x in enumerate(self._data):
+            localDict['x%d' % (i + 1)] = x
+        return eval(expression, {"__builtins__": None}, localDict)
+
+    def setSelected(self):
+        self.setState(Point.SELECTED)
+
+    def isSelected(self):
+        return self.getState() == Point.SELECTED
+
+    def setDiscarded(self):
+        self.setState(Point.DISCARDED)
+
+    def isDiscarded(self):
+        return self.getState() == Point.DISCARDED
+
+    def getData(self):
+        return self._data
 
 
+class Data():
+    """ Store data points. """
+
+    def __init__(self, **kwargs):
+        # Indexes of data
+        self._dim = kwargs.get('dim')  # The points dimensions
+        self.clear()
+
+    def addPoint(self, point, position=None):
+        point._container = self
+        if position is None:
+            self._points.append(point)
+        else:
+            self._points.insert(position, point)
+
+    def getPoint(self, index):
+        return self._points[index]
+
+    def __iter__(self):
+        for point in self._points:
+            if not point.isDiscarded():
+                yield point
+
+    def iterAll(self):
+        """ Iterate over all points, including the discarded ones."""
+        return iter(self._points)
+
+    def getXData(self):
+        return [p.getX() for p in self]
+
+    def getYData(self):
+        return [p.getY() for p in self]
+
+    def getZData(self):
+        return [p.getZ() for p in self]
+
+    def getWeights(self):
+        return [p.getWeight() for p in self]
+
+    def getSize(self):
+        return len(self._points)
+
+    def getSelectedSize(self):
+        return len([p for p in self if p.isSelected()])
+
+    def getDiscardedSize(self):
+        return len([p for p in self.iterAll() if p.isDiscarded()])
+
+    def clear(self):
+        self.XIND = 0
+        self.YIND = 1
+        self.ZIND = 2
+        self._points = []
 
 
+class PathData(Data):
+    """ Just contains two list of x and y coordinates. """
 
+    def __init__(self, **kwargs):
+        Data.__init__(self, **kwargs)
 
+    def createEmptyPoint(self):
+        data = [0.] * self._dim  # create 0, 0...0 point
+        point = Point(0, data, 0)
+        point._container = self
 
+        return point
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def removeLastPoint(self):
+        del self._points[-1]
