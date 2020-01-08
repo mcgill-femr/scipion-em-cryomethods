@@ -26,6 +26,7 @@
 # **************************************************************************
 
 import os
+from itertools import izip
 from os.path import exists
 import numpy as np
 import Tkinter as tk
@@ -351,24 +352,24 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _view2DHeatMap(self):
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
-
+        matProj = self._loadPcaCoordinates()
         if self.heatMap.get() == MDS:
             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
-            coords = man.fit_transform(self._loadPcaCoordinates())
+            coords = man.fit_transform(matProj[:, 0:nPCA])
 
         elif self.heatMap.get() == LLEMBEDDING:
             n_neighbors = self.neighbourCount.get()
             man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
-            coords = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = man.fit_transform(matProj[:, 0:nPCA])
 
         elif self.heatMap.get() == Isomap:
             n_neighbors = self.neighbourCount.get()
             iso = manifold.Isomap(n_neighbors, n_components=2)
-            coords = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = iso.fit_transform(matProj[:, 0:nPCA])
 
         else:
             man = manifold.TSNE(n_components=2, random_state=0)
-            coords = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = man.fit_transform(matProj[:, 0:nPCA])
 
         xedges, yedges, counts = self._getEdges(coords, nBins)
 
@@ -387,24 +388,23 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
-
+        print(coords)
+        print(matProj)
         win = self.tkWindow(HeatMapWindow,
                             title='Heat Map',
                             callback=self._getMaps
                             )
         plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
                                    znew, figure=win.figure)
-        points = self.points.get()
-        self.path = PointPath(plotter.getLastSubPlot(), self._loadData())
+        self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
         win.show()
 
     def _getMaps(self):
         coordMaps = self._getCoordMapFiles()
         f = open(coordMaps)
+        for l in f:
+            value = map(float, l.split())
         f.close()
-
-
-
         # volSet = self.protocol._createSetOfVolumes()
         # volSet.setSamplingRate(pixelSize)
         # newVol = vol.clone()
@@ -414,6 +414,16 @@ class PcaLandscapeViewer(ProtocolViewer):
         # volSet.write()
         #
         # self.objectView(volSet).show()
+
+
+    def _getPoints(self, data):
+        xData = data.getXData()
+        yData = data.getYData()
+
+        f = open(self._getCoordMapFiles(), 'w')
+        for x, y in izip (xData, yData):
+            print >> f, x, y
+        f.close()
 
     def _loadPcaCoordinates(self):
         """ Check if the PCA data is generated and if so,
@@ -429,21 +439,6 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _loadData(self):
         data = PathData(dim=2)
-        maPoints = self._getCoordMapFiles()
-        if os.path.exists(maPoints):
-            f = open(maPoints)
-            values = map(float, f.readline().split())
-            f.close()
-            noPoints = self.points.get()
-            for i in range(1, noPoints + 1):
-                p = data.createEmptyPoint()
-                p.setX(values[0])
-                p.setY(values[1])
-                data.addPoint(p)
-                # data.bfactor = values[4]
-        else:
-            data.bfactor = 0
-
         return data
 
     def _loadPcaEigenValue(self):
@@ -702,9 +697,9 @@ class PointPath():
         It also allow to modify the point positions on the path.
         """
 
-        def __init__(self, ax, pathData):
+        def __init__(self, ax, callback=None):
             self.ax = ax
-
+            self.callback = callback
             self.dragIndex = None
 
             self.cidpress = ax.figure.canvas.mpl_connect('button_press_event',
@@ -712,7 +707,7 @@ class PointPath():
             self.cidrelease = ax.figure.canvas.mpl_connect(
                               'button_release_event', self.onRelease)
 
-            self.pathData = pathData
+            self.pathData = PathData(dim=2)
             self.setState(0)
             self.path_line = None
             self.path_points = None
@@ -746,6 +741,9 @@ class PointPath():
                     self.path_points.set_data(xs, ys)
 
                 self.ax.figure.canvas.draw()
+
+            if self.callback:
+                self.callback(self.pathData)
 
         def getXYData(self):
             xs = self.pathData.getXData()
