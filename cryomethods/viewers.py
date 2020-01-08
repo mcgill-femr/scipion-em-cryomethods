@@ -435,10 +435,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return matProjData
 
     def _loadPcaWeights(self):
-        part= self.protocol.addWeights.get()
-        weights = np.load(part)
-        return weights
-
+        pass
 
     def _loadData(self):
         data = PathData(dim=2)
@@ -451,7 +448,6 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _getEdges(self, crds, nBins):
         counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
-                                                weights=self._loadPcaWeights(),
                                                 bins=nBins)
         shapeCounts = counts.shape[0] + 2
         countsExtended = np.zeros((shapeCounts, shapeCounts))
