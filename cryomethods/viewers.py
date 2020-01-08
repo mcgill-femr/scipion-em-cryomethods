@@ -803,7 +803,7 @@ class HeatMapWindow(gui.Window):
 
     def _createFigureBox(self, content):
         from pyworkflow.gui.matplotlib_image import FigureFrame
-        figFrame = FigureFrame(content, figsize=(6, 6))
+        figFrame = FigureFrame(content, figsize=(13, 13))
         figFrame.grid(row=0, column=0, padx=5, columnspan=2)
         self.figure = figFrame.figure
 
