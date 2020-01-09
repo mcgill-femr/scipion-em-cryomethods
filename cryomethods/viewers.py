@@ -477,7 +477,52 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _getCoordMapFiles(self):
         return self.protocol._getExtraPath('new_map_coordinates.txt')
 
-    # def _get3DPlt(self, paramName=None):
+    def _view3DHeatMap(self):
+        nPCA = self.pcaCount.get()
+        nBins = self.binSize.get()
+        matProj = self._loadPcaCoordinates()
+        if self.heatMap.get() == MDS:
+            man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+            coords = man.fit_transform(matProj[:, 0:nPCA])
+
+        elif self.heatMap.get() == LLEMBEDDING:
+            n_neighbors = self.neighbourCount.get()
+            man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
+            coords = man.fit_transform(matProj[:, 0:nPCA])
+
+        elif self.heatMap.get() == Isomap:
+            n_neighbors = self.neighbourCount.get()
+            iso = manifold.Isomap(n_neighbors, n_components=2)
+            coords = iso.fit_transform(matProj[:, 0:nPCA])
+
+        else:
+            man = manifold.TSNE(n_components=2, random_state=0)
+            coords = man.fit_transform(matProj[:, 0:nPCA])
+
+        xedges, yedges, counts = self._getEdges(coords, nBins)
+
+        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+
+        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+        H2 = counts.reshape(counts.size)
+        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+
+        if self.interpolateType == LINEAR:
+            intType = 'linear'
+        else:
+            intType = 'cubic'
+        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+                                    bounds_error='True')
+        znew = f(a2, b2)
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
+                        cmap='viridis', edgecolor='none')
+        plt.show()
+
+
     #     if self.threeDMap.get == MDS:
     #         nPCA = self.pcaCount.get()
     #         nBins = self.binSize.get()
