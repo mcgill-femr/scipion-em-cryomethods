@@ -812,8 +812,7 @@ class HeatMapWindow(gui.Window):
     def __init__(self, **kwargs):
         gui.Window.__init__(self, **kwargs)
 
-        self.dim = kwargs.get('dim')
-        self.data = kwargs.get('data')
+        self.coords = kwargs.get('coords')
         self.callback = kwargs.get('callback', None)
         self.plotter = None
 
@@ -843,7 +842,7 @@ class HeatMapWindow(gui.Window):
 
     def _onMapEstimationClick(self, e=None):
         gui.dialog.FlashMessage(self.root, "Calculating maps...",
-                            func=self.callback)
+                            func=self.callback(self.coords))
 
     def _onClosing(self):
         if self.plotter:
