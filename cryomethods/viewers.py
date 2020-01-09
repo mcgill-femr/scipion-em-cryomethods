@@ -34,6 +34,7 @@ from sklearn import manifold
 import scipy as sc
 import matplotlib.pyplot as plt
 
+from cryomethods import Plugin
 import pyworkflow.utils.properties as pwprop
 from pyworkflow.gui.widgets import Button, HotButton
 import pyworkflow.em as em
@@ -45,6 +46,7 @@ from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_control_pca import ProtLandscapePCA
+from convert import loadMrc, saveMrc
 
 RUN_LAST = 0
 RUN_SELECTION = 1
@@ -388,10 +390,9 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
-        print(coords)
-        print(matProj)
         win = self.tkWindow(HeatMapWindow,
                             title='Heat Map',
+                            coords=coords,
                             callback=self._getMaps
                             )
         plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
@@ -399,11 +400,28 @@ class PcaLandscapeViewer(ProtocolViewer):
         self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
         win.show()
 
-    def _getMaps(self):
+    def _getMaps(self, coords):
+        Plugin.setEnviron()
+        print(coords)
         coordMaps = self._getCoordMapFiles()
         f = open(coordMaps)
-        for l in f:
-            value = map(float, l.split())
+        for i, l in enumerate(f):
+            fn = self.protocol._getPath("volume_%02d.mrc" %i)
+            weigths = []
+            for coord in coords:
+                value = map(float, l.split())
+                weigths.append(self._getDistanceWeigth(value, coord))
+
+            inputMaps = self.protocol.inputVolumes.get()
+            for j, (v, w) in enumerate(izip(inputMaps, weigths)):
+                vol = v.getFileName()
+                npVol = loadMrc(vol, False)
+                if j == 0:
+                    dType = npVol.dtype
+                    newMap = np.zeros(npVol.shape)
+                newMap += (w*npVol/sum(weigths))
+            saveMrc(newMap.astype(dType), fn)
+
         f.close()
         # volSet = self.protocol._createSetOfVolumes()
         # volSet.setSamplingRate(pixelSize)
@@ -414,7 +432,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         # volSet.write()
         #
         # self.objectView(volSet).show()
-
 
     def _getPoints(self, data):
         xData = data.getXData()
@@ -476,6 +493,11 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _getCoordMapFiles(self):
         return self.protocol._getExtraPath('new_map_coordinates.txt')
+
+    def _getDistanceWeigth(self, p1, p2):
+        d = -1*((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
+        w = np.exp(d)
+        return w
 
     # def _get3DPlt(self, paramName=None):
     #     if self.threeDMap.get == MDS:
@@ -787,8 +809,7 @@ class HeatMapWindow(gui.Window):
     def __init__(self, **kwargs):
         gui.Window.__init__(self, **kwargs)
 
-        self.dim = kwargs.get('dim')
-        self.data = kwargs.get('data')
+        self.coords = kwargs.get('coords')
         self.callback = kwargs.get('callback', None)
         self.plotter = None
 
@@ -818,7 +839,7 @@ class HeatMapWindow(gui.Window):
 
     def _onMapEstimationClick(self, e=None):
         gui.dialog.FlashMessage(self.root, "Calculating maps...",
-                            func=self.callback)
+                            func=self.callback(self.coords))
 
     def _onClosing(self):
         if self.plotter:
