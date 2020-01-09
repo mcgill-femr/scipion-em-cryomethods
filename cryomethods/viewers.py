@@ -388,6 +388,17 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
+
+
+        coord_file = self.__getCoordMapFiles()
+        np.savetxt(coord_file, coords)
+        f = open(coord_file)
+        for l in f:
+            value = map(float, l.split())
+        f.close()
+
+
+
         print(coords)
         print(matProj)
         win = self.tkWindow(HeatMapWindow,
@@ -476,6 +487,11 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _getCoordMapFiles(self):
         return self.protocol._getExtraPath('new_map_coordinates.txt')
+
+    def __getCoordMapFiles(self):
+        return self.protocol._getExtraPath('all_map_coordinates.txt')
+
+
 
     def _view3DHeatMap(self):
         if self.interpolateType == LINEAR:
