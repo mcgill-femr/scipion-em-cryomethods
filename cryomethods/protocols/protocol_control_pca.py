@@ -12,7 +12,7 @@ import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
 from cryomethods import Plugin
 from cryomethods.convert import (loadMrc, saveMrc)
-from xmipp3.convert import getImageLocation
+# from xmipp3.convert import getImageLocation
 from .protocol_base import ProtocolBase
 import collections
 
@@ -21,10 +21,8 @@ PCA_THRESHOLD = 0
 PCA_COUNT=1
 
 
-class ProtLandscapePCA(ProtocolBase):
+class ProtLandscapePCA(em.EMProtocol):
     _label = 'Control PCA'
-    IS_2D = False
-    IS_AUTOCLASSIFY = True
     def _initialize(self):
         """ This function is mean to be called after the
         working dir for the protocol have been set.
@@ -32,7 +30,6 @@ class ProtLandscapePCA(ProtocolBase):
         """
         self._createFilenameTemplates()
         self._createIterTemplates()
-
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
@@ -70,17 +67,6 @@ class ProtLandscapePCA(ProtocolBase):
                 '%svolume' % p] = self.rLevDir + p + 'class%(ref3d)03d.mrc:mrc'
 
         self._updateFilenamesDict(myDict)
-
-    def _createIterTemplates(self, rLev=None):
-        """ Setup the regex on how to find iterations. """
-        rLev = self._rLev if rLev is None else rLev
-        self._iterTemplate = self._getFileName('data', lev=self._level,
-                                               rLev=rLev,
-                                               iter=0).replace('000', '???')
-        # Iterations will be identify by _itXXX_ where XXX is the iteration
-        # number and is restricted to only 3 digits.
-        self._iterRegex = re.compile('_it(\d{3,3})_')
-        self._classRegex = re.compile('_class(\d{2,2}).')
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
