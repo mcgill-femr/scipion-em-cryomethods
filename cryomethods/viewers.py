@@ -402,7 +402,6 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _getMaps(self, coords):
         Plugin.setEnviron()
-        print(coords)
         coordMaps = self._getCoordMapFiles()
         f = open(coordMaps)
         for i, l in enumerate(f):
@@ -412,10 +411,10 @@ class PcaLandscapeViewer(ProtocolViewer):
                 value = map(float, l.split())
                 weigths.append(self._getDistanceWeigth(value, coord))
 
-            inputMaps = self.protocol.inputVolumes.get()
+            inputMaps = self.protocol._getMrcVolumes()
             for j, (v, w) in enumerate(izip(inputMaps, weigths)):
-                vol = v.getFileName()
-                npVol = loadMrc(vol, False)
+
+                npVol = loadMrc(v, False)
                 if j == 0:
                     dType = npVol.dtype
                     newMap = np.zeros(npVol.shape)
