@@ -201,56 +201,9 @@ class Prot3DAutoClassifier(ProtAutoBase):
         level = int(mapId.split('.')[0])
         return self._getFileName('map', lev=level, id=mapId)
 
-    def _mergeDataStar(self, rLev):
-        iters = self._lastIter(rLev)
-
-        #metadata to save all particles that continues
-        outData = self._getFileName('outputData', lev=self._level)
-        outMd = self._getMetadata(outData)
-
-        #metadata to save all final particles
-        finalData = self._getFileName('rawFinalData')
-        finalMd = self._getMetadata(finalData)
-        imgStar = self._getFileName('data', iter=iters,
-                                    lev=self._level, rLev=rLev)
-        mdData = md.MetaData(imgStar)
-
-        def _getMap(iters, rLev, clsPart):
-            return self._getFileName('relionMap', lev=self._level,
+    def _getRelionFn(self, iters, rLev, clsPart):
+        return self._getFileName('relionMap', lev=self._level,
                                      iter=iters, ref3d=clsPart, rLev=rLev)
-
-        def _getMapId(rMap):
-            try:
-                return self._mapsDict[rMap]
-            except:
-                return None
-
-        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = _getMap(iters, rLev, clsPart)
-            mapId = _getMapId(rMap)
-
-            while mapId is None:
-                for clsPart in range(1, self.numberOfClasses.get()+1):
-                    rMap = _getMap(iters, rLev, clsPart)
-                    mapId = _getMapId(rMap)
-                    if mapId is not None:
-                        break
-
-            if self.stopDict[mapId]:
-                classId = self._clsIdDict[mapId]
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(finalMd)
-            else:
-                classId = int(mapId.split('.')[1])
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(outMd)
-
-        if finalMd.size() != 0:
-            finalMd.write(finalData)
-
-        if outMd.size() != 0:
-            outMd.write(outData)
 
     def _doAverageMaps(self, listVol):
         for vol in listVol:
