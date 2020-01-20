@@ -75,7 +75,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
                            'the symmetry format accepted by Xmipp')
 
         form.addSection(label='Pruning')
-        form.addParam('classMethod', pwparams.EnumParam, default=cmcons.RL2D,
+        form.addParam('classMethod', pwparams.EnumParam, default=cmcons.CL2D,
                       label='Choose a method to classify',
                       choices=['CL2D', 'Relion 2D'],
                       display=pwparams.EnumParam.DISPLAY_COMBO)
@@ -789,7 +789,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
           x = self._getInputParticles().getDim()[0]
           maskDiameter = self._getInputParticles().getSamplingRate() * x
 
-          args.update({'--particle_diameter': maskDiameter,
+        args.update({'--particle_diameter': maskDiameter,
                      '--angpix': newTs,
                      })
 
