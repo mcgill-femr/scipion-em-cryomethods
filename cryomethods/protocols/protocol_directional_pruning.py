@@ -551,67 +551,8 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         paramGeo = "-i %s_alignment.xmd --apply_transform" % fnAlignRoot
         self.runJob("xmipp_transform_geometry", paramGeo , numberOfMpi=1)
 
-    def _runMl2dStep(self, fnBlock, fnDir, imgNo, fnGallery):
-        params = "-i %s --oroot %s --nref %d --fast --mirror --iter %d" \
-                 % (fnBlock,
-                    fnOut,
-                    self.directionalClasses.get(),
-                    self.maxIters.get())
-
-        self.runJob("xmipp_ml_align2d", params)
-
-        fnOrig = join(fnDir, "class_classes.stk")
-        fnAlign = join(fnDir, "class_align")
-
-        self.runJob("xmipp_image_align",
-                    "-i %s --ref %s@%s --oroot %s --iter 1" %
-                    (fnOrig, imgNo, fnGallery, fnAlign),
-                    numberOfMpi=1)
-
-        self.runJob("xmipp_transform_geometry",
-                    "-i %s_alignment.xmd --apply_transform" %
-                    fnAlign, numberOfMpi=1)
-
-        if exists(fnDir):
-            fnClassClasses = fnDir + '/class_classes.xmd'
-
-            mdClasses.read(fnClassClasses)
-            WeightsArray = []
-
-            for i in range(self.directionalClasses.get()):
-                WeightsArray.append(
-                    mdClasses.getValue(xmippLib.MDL_WEIGHT, i + 1))
-                n = sum(WeightsArray)
-                out = np.divide(WeightsArray, n)
-                lowest = out < self.thresholdValue.get()
-
-                objId = mdOut.addObject()
-                mdOut.setValue(xmippLib.MDL_REF, int(imgNo),
-                               objId)
-                mdOut.setValue(xmippLib.MDL_IMAGE,
-                               "%d@%s" % (i + 1, fnOrig), objId)
-
-            itemIdInput = []
-
-            for objId in mdClassesParticles:
-                itemIdInput.append(
-                    mdClassesParticles.getValue(xmippLib.MDL_ITEM_ID,
-                                                objId))
-
-            for indx, block in enumerate(
-                    xmippLib.getBlocksInMetaDataFile(fnClassClasses)[
-                    2:]):
-                if lowest[indx]:
-                    fnBlock = '%s@%s' % (block, fnClassClasses)
-                    mdClassesClass.read(fnBlock)
-                    for objId in mdClassesClass:
-                        itemIdPart = mdClassesClass.getValue(
-                            xmippLib.MDL_ITEM_ID, objId)
-                        idx = itemIdInput.index(itemIdPart) + 1
-                        mdClassesParticles.setValue(
-                            xmippLib.MDL_ENABLED, -1, idx)
-
-    def _runRelionStep(self):
+    def _runRelionStep(self, fnOut, fnBlock, fnDir, imgNo, fnGallery):
+        relPart = em.SetOfParticles()
         convXmp.readSetOfParticles(fnBlock, relPart)
 
         if self.copyAlignment.get():
@@ -620,9 +561,9 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         else:
             alignType = em.ALIGN_NONE
 
-        alignToPrior = getattr(self, 'alignmentAsPriors',
-                               True)
+        alignToPrior = getattr(self, 'alignmentAsPriors', False)
         fillRandomSubset = getattr(self, 'fillRandomSubset', False)
+        fnRelion = 'aa'
 
         writeSetOfParticles(relPart, fnRelion, self._getExtraPath(),
                             alignType=alignType,
