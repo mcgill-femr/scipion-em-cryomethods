@@ -196,7 +196,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
         return self._getFileName('relionImage', lev=self._level,
                                  iter=iters, clsImg=clsPart, rLev=rLev)
 
-    def _mrcToNp(self, volList):
+    def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []
         for vol in volList:
             volNp = loadMrc(vol, False)

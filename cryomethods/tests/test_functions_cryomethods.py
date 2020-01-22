@@ -124,11 +124,12 @@ class TestAlignVolumes(TestBase):
         groupDict = {}
         prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
-        matrix, _ = self._mrcToNp(volList)
-        # matrixProj, _ = prot._doPCA(volList)
+        npAvgMap, _ = prot._doAverageMaps(volList)
+        matrix, _ = prot._mrcToNp(volList, npAvgMap)
+        # matrix, _ = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
-            f = open('method_%s.txt' % 1, 'w')
+            f = open('volumes_clustered.txt', 'w')
             for vol, label in izip (volList, labels):
                 dictNames[vol] = label
 
@@ -136,7 +137,8 @@ class TestAlignVolumes(TestBase):
                 groupDict.setdefault(value, []).append(key)
 
             for key, value in groupDict.iteritems():
-                line = '%s %s\n' % (key, value)
+                valueStr = ' '.join(value)
+                line = '%s %s\n' % (key, valueStr)
                 f.write(line)
             f.close()
 
@@ -200,25 +202,17 @@ class TestAlignVolumes(TestBase):
         # mapIds = self._getFinalMapIds()
         # claseId = 0
 
-
-    def _getAverageVol(self, volList):
-        print('creating average map')
-        avgVol = ('average_map.mrc')
-        print('alignining each volume vs. reference')
-        for vol in volList:
-            npVol = loadMrc(vol, False)
-            if vol == volList[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
-
-        npAvgVol = np.divide(npAvgVol, len(volList))
-        print('saving average volume')
-        saveMrc(npAvgVol.astype(dType), avgVol)
-
     def _getVolList(self):
-        f =open('/home/josuegbl/file.txt')
-        volList = f.read().splitlines()
+        volList = []
+        fixedPath = '/home/josuegbl/PROCESSING/TESLA/projects/Spliceosome_Tesla/'
+        filePath = 'Runs/001594_Prot3DAutoClassifier/extra/raw_final_model.star'
+        wholePath = fixedPath + filePath
+        mdModel = md.MetaData(wholePath)
+        for row in md.iterRows(mdModel):
+            volFn = row.getValue('rlnReferenceImage')
+            fullVolFn = fixedPath + volFn
+            volList.append(fullVolFn)
+        print
         return volList
 
     def _reconstructMap(self, matProj):
@@ -234,16 +228,6 @@ class TestAlignVolumes(TestBase):
             volNp = npVolT.reshape((dim, dim, dim))
             nameVol = 'volume_reconstructed_%02d.mrc' % (i + 1)
             saveMrc(volNp.astype(dType), nameVol)
-
-    def _mrcToNp(self, volList):
-        listNpVol = []
-        for vol in volList:
-            volNp = loadMrc(vol, False)
-            dim = volNp.shape[0]
-            lenght = dim**3
-            volList = volNp.reshape(lenght)
-            listNpVol.append(volList)
-        return listNpVol, listNpVol[0].dtype
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')

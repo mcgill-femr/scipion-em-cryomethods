@@ -215,7 +215,7 @@ class ProtAutoBase(ProtocolBase):
 
     def runFinalClassifStep(self):
         mapIds = self._getFinalMapIds()
-        print ("rLev list", self._getRLevList())
+        print ("runFinalClassifStep rLev list: ", self._getRLevList())
         for rLev in self._getRLevList():
             makePath(self._getRunPath(self._level, rLev))
             self._rLev = rLev
@@ -566,7 +566,7 @@ class ProtAutoBase(ProtocolBase):
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
 
-        npAvgVol = np.divide(npAvgVol, len(listVol))
+        npAvgVol = npAvgVol / len(listVol)
         return npAvgVol, dType
 
     def _getFunc(self, modelMd):
@@ -608,7 +608,7 @@ class ProtAutoBase(ProtocolBase):
 
             saveMrc(npVol.astype(dType), vol)
 
-    def _mrcToNp(self, volList):
+    def _mrcToNp(self, volList, avgVol=None):
         """ Implemented in subclasses. """
         pass
 
@@ -631,11 +631,11 @@ class ProtAutoBase(ProtocolBase):
     def _doPCA(self, listVol):
         npAvgVol, _ = self._doAverageMaps(listVol)
 
-        listNpVol, _ = self._mrcToNp(listVol)
+        listNpVol, _ = self._mrcToNp(listVol, avgVol=npAvgVol)
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) *0.95
+        cuttOffMatrix = sum(s) * 1
         sCut = 0
 
         for i in s:
@@ -658,6 +658,7 @@ class ProtAutoBase(ProtocolBase):
         matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
         projFile = 'projection_matrix.txt'
         self._createMFile(matProj, projFile)
+        print("How many PCA eigenvalues: ", sCut)
         return matProj, newBaseAxis
 
     def _getFinalMaps(self):
@@ -680,7 +681,7 @@ class ProtAutoBase(ProtocolBase):
 
     def _doSklearnAffProp(self, matProj):
         from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(damping=0.9).fit(matProj)
+        ap = AffinityPropagation(damping=0.5).fit(matProj)
         return ap.labels_
 
     # def _getDistance(self, m1, m2, neg=False):
