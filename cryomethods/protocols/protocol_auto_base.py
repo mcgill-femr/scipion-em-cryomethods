@@ -568,7 +568,7 @@ class ProtAutoBase(ProtocolBase):
 
         npAvgVol = npAvgVol / len(listVol)
         avgVolFn = self._getPath('map_average.mrc')
-        saveMrc(npAvgVol.astype(dType), avgVolFn)
+        saveMrc(npAvgVol.astype('float32'), avgVolFn)
         return npAvgVol, dType
 
     def _getVolNp(self, vol):
