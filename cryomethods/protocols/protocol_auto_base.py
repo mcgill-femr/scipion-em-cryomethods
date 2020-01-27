@@ -560,7 +560,7 @@ class ProtAutoBase(ProtocolBase):
 
     def _doAverageMaps(self, listVol):
         for vol in listVol:
-            npVol = loadMrc(vol, False)
+            npVol = self._getVolNp(vol)
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
@@ -568,6 +568,13 @@ class ProtAutoBase(ProtocolBase):
 
         npAvgVol = npAvgVol / len(listVol)
         return npAvgVol, dType
+
+    def _getVolNp(self, vol):
+        volNp = loadMrc(vol, False)
+        std = 3 * volNp.std()
+        npMask = 1 * (volNp > std)
+        mapNp = volNp * npMask
+        return mapNp
 
     def _getFunc(self, modelMd):
         resolution = []
@@ -635,7 +642,7 @@ class ProtAutoBase(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) * 1
+        cuttOffMatrix = sum(s) * 0.95
         sCut = 0
 
         for i in s:

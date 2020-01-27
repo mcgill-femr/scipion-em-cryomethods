@@ -218,7 +218,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
     def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []
         for vol in volList:
-            volNp = loadMrc(vol, False)
+            volNp = self._getVolNp(vol)
             dim = volNp.shape[0]
             lenght = dim**3
             if avgVol is None:
