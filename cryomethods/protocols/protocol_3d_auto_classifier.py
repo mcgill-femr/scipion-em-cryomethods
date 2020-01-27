@@ -222,12 +222,14 @@ class Prot3DAutoClassifier(ProtAutoBase):
             dim = volNp.shape[0]
             lenght = dim**3
             if avgVol is None:
-                volList = volNp.reshape(lenght)
+                volNpList = volNp.reshape(lenght)
             else:
-                avgVolOneD = avgVol.reshape(lenght)
-                volNpOneD = volNp.reshape(lenght)
-                volList = np.subtract(volNpOneD, avgVolOneD)
-            listNpVol.append(volList)
+                volNpSub = np.subtract(volNp, avgVol)
+                npMask = 1 * (volNpSub > 0)
+                volNpSub *= npMask
+                volNpList = volNpSub.reshape(lenght)
+
+            listNpVol.append(volNpList)
         return listNpVol, listNpVol[0].dtype
 
     def _convertStar(self, copyAlignment, imgStar):

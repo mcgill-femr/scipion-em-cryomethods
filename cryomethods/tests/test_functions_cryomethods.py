@@ -125,8 +125,8 @@ class TestAlignVolumes(TestBase):
         prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         npAvgMap, _ = prot._doAverageMaps(volList)
-        # matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        matrix, _ = prot._doPCA(volList)
+        matrix, _ = prot._mrcToNp(volList, npAvgMap)
+        # matrix, _ = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
             f = open('volumes_clustered.txt', 'w')
