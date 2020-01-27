@@ -125,8 +125,8 @@ class TestAlignVolumes(TestBase):
         prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         npAvgMap, _ = prot._doAverageMaps(volList)
-        matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        # matrix, _ = prot._doPCA(volList)
+        # matrix, _ = prot._mrcToNp(volList, npAvgMap)
+        matrix, _ = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
             f = open('volumes_clustered.txt', 'w')
@@ -138,7 +138,8 @@ class TestAlignVolumes(TestBase):
 
             for key, value in groupDict.iteritems():
                 valueStr = ' '.join(value)
-                line = '%s %s\n' % (key, valueStr)
+                valueStr.replace('ScipionUserData', 'PROCESSING/TESLA')
+                line = 'chimera %s\n' % valueStr
                 f.write(line)
             f.close()
 
@@ -203,16 +204,15 @@ class TestAlignVolumes(TestBase):
         # claseId = 0
 
     def _getVolList(self):
-        volList = []
-        fixedPath = '/home/josuegbl/PROCESSING/TESLA/projects/Spliceosome_Tesla/'
-        filePath = 'Runs/001594_Prot3DAutoClassifier/extra/raw_final_model.star'
-        wholePath = fixedPath + filePath
-        mdModel = md.MetaData(wholePath)
-        for row in md.iterRows(mdModel):
-            volFn = row.getValue('rlnReferenceImage')
-            fullVolFn = fixedPath + volFn
-            volList.append(fullVolFn)
-        print
+        volList = glob('/home/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/MAPS/*_fil20.mrc')
+#        fixedPath = '/mnt/tesla/data/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/'
+#        filePath = 'Runs/001594_Prot3DAutoClassifier/extra/raw_final_model.star'
+#        wholePath = fixedPath + filePath
+#        mdModel = md.MetaData(wholePath)
+#        for row in md.iterRows(mdModel):
+#            volFn = row.getValue('rlnReferenceImage')
+#            fullVolFn = fixedPath + volFn
+#            volList.append(fullVolFn)
         return volList
 
     def _reconstructMap(self, matProj):

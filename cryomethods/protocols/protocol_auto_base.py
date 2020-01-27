@@ -561,6 +561,8 @@ class ProtAutoBase(ProtocolBase):
     def _doAverageMaps(self, listVol):
         for vol in listVol:
             npVol = loadMrc(vol, False)
+            npMask = 1*(npVol > 0.008)
+            npVol = npVol*npMask
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
@@ -635,7 +637,7 @@ class ProtAutoBase(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) * 1
+        cuttOffMatrix = sum(s) * 0.95
         sCut = 0
 
         for i in s:
