@@ -561,21 +561,24 @@ class ProtAutoBase(ProtocolBase):
     def _doAverageMaps(self, listVol):
         for vol in listVol:
             npVol = self._getVolNp(vol)
+            std = 3 * npVol.std()
+            npMask = 1 * (npVol > std)
+
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
+            npAvgVol += npMask
 
         npAvgVol = npAvgVol / len(listVol)
-        avgVolFn = self._getPath('map_average.mrc')
-        saveMrc(npAvgVol.astype('float32'), avgVolFn)
+        npAvgMask = 1 * (npAvgVol >= 0.99)
+        npAvgVol *= npAvgMask
         return npAvgVol, dType
 
     def _getVolNp(self, vol):
-        volNp = loadMrc(vol, False)
-        std = 3 * volNp.std()
-        npMask = 1 * (volNp > std)
-        mapNp = volNp * npMask
+        mapNp = loadMrc(vol, False)
+        # std = 3 * volNp.std()
+        # npMask = 1 * (volNp > std)
+        # mapNp = volNp * npMask
         return mapNp
 
     def _getFunc(self, modelMd):
