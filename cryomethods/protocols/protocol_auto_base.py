@@ -570,9 +570,9 @@ class ProtAutoBase(ProtocolBase):
             npAvgVol += npMask
 
         npAvgVol = npAvgVol / len(listVol)
-        npAvgMask = 1 * (npAvgVol >= 0.99)
-        npAvgVol *= npAvgMask
-        return npAvgVol, dType
+        npAvgMask = 1 * (npAvgVol < 0.99)
+        # npAvgVol *= npAvgMask
+        return npAvgMask, dType
 
     def _getVolNp(self, vol):
         mapNp = loadMrc(vol, False)

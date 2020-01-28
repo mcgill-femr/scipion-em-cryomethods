@@ -224,7 +224,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
             if avgVol is None:
                 volNpList = volNp.reshape(lenght)
             else:
-                volNpSub = np.subtract(volNp, avgVol)
+                volNpSub = volNp * avgVol
                 npMask = 1 * (volNpSub > 0)
                 volNpSub *= npMask
                 volNpList = volNpSub.reshape(lenght)
