@@ -6,18 +6,13 @@ from glob import glob
 import numpy as np
 from itertools import *
 from matplotlib import *
-from matplotlib import pyplot as plt
-from scipy.interpolate import griddata, NearestNDInterpolator
-from scipy.weave import inline
-
-from pyworkflow.protocol.params import (PointerParam, EnumParam, IntParam)
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
 from cryomethods import Plugin
 from cryomethods.convert import (loadMrc, saveMrc)
-from xmipp3.convert import getImageLocation
+# from xmipp3.convert import getImageLocation
 from .protocol_base import ProtocolBase
 import collections
 
@@ -26,10 +21,8 @@ PCA_THRESHOLD = 0
 PCA_COUNT=1
 
 
-class ProtLandscapePCA(ProtocolBase):
+class ProtLandscapePCA(em.EMProtocol):
     _label = 'Control PCA'
-    IS_2D = False
-    IS_AUTOCLASSIFY = True
     def _initialize(self):
         """ This function is mean to be called after the
         working dir for the protocol have been set.
@@ -37,7 +30,6 @@ class ProtLandscapePCA(ProtocolBase):
         """
         self._createFilenameTemplates()
         self._createIterTemplates()
-
 
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
@@ -76,19 +68,6 @@ class ProtLandscapePCA(ProtocolBase):
 
         self._updateFilenamesDict(myDict)
 
-    def _createIterTemplates(self, rLev=None):
-        """ Setup the regex on how to find iterations. """
-        rLev = self._rLev if rLev is None else rLev
-        print("level rLev in _createIterTemplates:", self._level, rLev)
-
-        self._iterTemplate = self._getFileName('data', lev=self._level,
-                                               rLev=rLev,
-                                               iter=0).replace('000', '???')
-        # Iterations will be identify by _itXXX_ where XXX is the iteration
-        # number and is restricted to only 3 digits.
-        self._iterRegex = re.compile('_it(\d{3,3})_')
-        self._classRegex = re.compile('_class(\d{2,2}).')
-
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         form.addSection(label='Input')
@@ -97,7 +76,8 @@ class ProtLandscapePCA(ProtocolBase):
                       important=True,
                       label='Input volumes',
                       help='Initial reference 3D maps')
-        form.addParam('thresholdMode', EnumParam, choices=['thr', 'pcaCount'],
+        form.addParam('thresholdMode', params.EnumParam,
+                      choices=['thr', 'pcaCount'],
                       default=PCA_THRESHOLD,
                       label='Cut-off mode',
                       help='Threshold value will allow you to select the\n'
@@ -119,100 +99,50 @@ class ProtLandscapePCA(ProtocolBase):
 
         form.addParallelSection(threads=0, mpi=0)
 
-    # --------------------------- INSERT steps functions ------------------------
+    # --------------------------- INSERT steps functions -----------------------
     def _insertAllSteps(self):
+        inputVols = self.inputVolumes.get()
+        volId = inputVols.getObjId()
+        self._insertFunctionStep('convertInputStep', volId)
         self._insertFunctionStep('analyzePCAStep')
 
-    #-------------------------step function-----------------------------------
-
-    def _getAverageVol(self):
-        self._createFilenameTemplates()
-        Plugin.setEnviron()
-
-        inputObj = self.inputVolumes.get()
-        listVol = []
-        for i in inputObj:
-
-            a = getImageLocation(i).split(':')[0]
-            listVol.append(a)
-
-        # listVol = self._getPathMaps() if not bool(listVol) else listVol
-        print (listVol, "listVolll")
-        print('creating average map: ', listVol)
-        avgVol = self._getFileName('avgMap')
-        print (avgVol, "avgVol")
-
-        print('alignining each volume vs. reference')
-        for vol in listVol:
-            print (vol, "vol2")
-            npVol = loadMrc(vol, writable=False)
-
-            if vol == listVol[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
-
-        print (npAvgVol, "npAvgVol1")
-        npAvgVol = np.divide(npAvgVol, len(listVol))
-        print('saving average volume')
-        saveMrc(npAvgVol.astype(dType), avgVol)
-
-    def getParticlesPca(self):
-        z_part= np.loadtxt(self.addWeights.get())
-        print (z_part, "z_part")
-        return z_part
-
+    #-------------------------step function-------------------------------------
+    def convertInputStep(self, resetId):
+        inputVols = self.inputVolumes.get()
+        ih = em.ImageHandler()
+        for i, vol in enumerate(inputVols):
+            num = vol.getObjId()
+            newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
+            ih.convert(vol, newFn)
 
     def analyzePCAStep(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
-
-        row = md.Row()
-        refMd = md.MetaData()
-
-        inputObj = self.inputVolumes.get()
-
-        fnIn= []
-        for i in inputObj:
-            a = getImageLocation(i).split(':')[0]
-            fnIn.append(a)
-
-        for vol in fnIn:
-            row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
-            row.addToMd(refMd)
-        refMd.write(self._getRefStar())
-        print (fnIn, "fninn")
-
-        listVol = fnIn
-
-        print (len(self.inputVolumes.get()), "self.inputVolumes.get()")
+        fnIn = self._getMrcVolumes()
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
         npAvgVol = loadMrc(avgVol, False)
         dType = npAvgVol.dtype
-        iniVolNp = loadMrc(listVol[0], False)
+        iniVolNp = loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
         cov_matrix = []
-        for vol in listVol:
+        for vol in fnIn:
             volNp = loadMrc(vol, False)
             volList = volNp.reshape(lenght)
 
             row = []
             # Now, using diff volume to estimate PCA
             b = volList - npAvgVol.reshape(lenght)
-            for j in listVol:
+            for j in fnIn:
                 npVol = loadMrc(j, writable=False)
                 volList_a = npVol.reshape(lenght)
-                print (len(volList_a), "volist(1)_length")
                 volList_two = volList_a - npAvgVol.reshape(lenght)
                 temp_a= np.corrcoef(volList_two, b).item(1)
-                print (temp_a, "temp_a")
                 row.append(temp_a)
             cov_matrix.append(row)
 
-        print (cov_matrix, "covMatrix")
         u, s, vh = np.linalg.svd(cov_matrix)
         vhDel = self._getvhDel(vh, s)
         # -------------NEWBASE_AXIS-------------------------------------------
@@ -220,16 +150,12 @@ class ProtLandscapePCA(ProtocolBase):
 
         for i in vhDel.T:
             base = np.zeros(lenght)
-            for (a, b) in izip(listVol,i):
-                print (len(a), "volist")
+            for (a, b) in izip(fnIn,i):
                 volInp = loadMrc(a, False)
                 volInpR = volInp.reshape(lenght)
-                print (b.shape, "vhdel")
                 base += volInpR*b
                 volBase = base.reshape((dim, dim, dim))
-                print (volBase.shape, "volBase")
             nameVol = 'volume_base_%02d.mrc' % (counter)
-            print (counter, "counter")
             print('-------------saving map %s-----------------' % nameVol)
             saveMrc(volBase.astype(dType),self._getExtraPath(nameVol))
             counter += 1
@@ -237,7 +163,7 @@ class ProtLandscapePCA(ProtocolBase):
         matProj = []
         baseMrc = self._getExtraPath("*.mrc")
         baseMrcFile = glob(baseMrc)
-        for vol in listVol:
+        for vol in fnIn:
             volNp = loadMrc(vol, False)
             volRow = volNp.reshape(lenght)
             volInputTwo = volRow - npAvgVol.reshape(lenght)
@@ -249,24 +175,15 @@ class ProtLandscapePCA(ProtocolBase):
                 matrix_two = np.dot(volInputTwo, j_trans)
                 row_one.append(matrix_two)
             matProj.append(row_one)
-        print (len(matProj), "len_mat_one")
-        print (len(vhDel), "len_2vhDel")
-
-
-
         # obtaining original volumes--------------------------------------------
         baseMrc = self._getExtraPath("*.mrc")
         baseMrcFile = glob(baseMrc)
-        print (baseMrcFile, "base mrcfile")
         os.makedirs(self._getExtraPath('original_vols'))
         orignCount=0
         for i in matProj:
             vol = np.zeros((dim, dim,dim))
             for a, b in zip(baseMrcFile, i):
-                print (a, "volist")
-                print (b, "matproj")
                 volNpo = loadMrc(a, False)
-                print (volNpo.shape, "volList")
                 vol += volNpo * b
             finalVol= vol + npAvgVol
             nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
@@ -274,17 +191,15 @@ class ProtLandscapePCA(ProtocolBase):
             saveMrc(finalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
             orignCount += 1
 
-
         # difference b/w input vol and original vol-----------------------------
         reconstMrc = self._getExtraPath("original_vols","*.mrc")
         reconstMrcFile = glob(reconstMrc)
         diffCount=0
         os.makedirs(self._getExtraPath('volDiff'))
-        for a, b in zip(reconstMrcFile, listVol):
+        for a, b in zip(reconstMrcFile, fnIn):
             volRec = loadMrc(a, False)
             volInpThree = loadMrc(b, False)
             volDiff= volRec - volInpThree
-            # print (volDiff, "volDiff")
             nameVol = 'volDiff_%02d.mrc' % (diffCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
@@ -294,55 +209,33 @@ class ProtLandscapePCA(ProtocolBase):
         os.makedirs(self._getExtraPath('Coordinates'))
         coorPath = self._getExtraPath('Coordinates')
 
-
         mat_file = os.path.join(coorPath, 'matProj_splic')
         coordNumpy= np.save(mat_file, matProj)
 
     # -------------------------- UTILS functions ------------------------------
-    def _getVolume(self):
-        self._createFilenameTemplates()
+    def _getMrcVolumes(self):
+        return sorted(glob(self._getExtraPath('volume_id_*.mrc')))
 
+    def _getAverageVol(self):
+        self._createFilenameTemplates()
         Plugin.setEnviron()
 
-        row = md.Row()
-        refMd = md.MetaData()
-
-        ih = em.ImageHandler()
-        inputObj = self.inputVolumes.get()
-
-        fnIn = []
-        for i in inputObj:
-            a = getImageLocation(i).split(':')[0]
-            fnIn.append(a)
-
-        for vol in fnIn:
-            row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
-            row.addToMd(refMd)
-        refMd.write(self._getRefStar())
-
-        print (fnIn, "fninn")
-
-        listVol = fnIn
-        self._getAverageVol(listVol)
-
+        listVol = self._getMrcVolumes()
         avgVol = self._getFileName('avgMap')
-        npAvgVol = loadMrc(avgVol, False)
-        dType = npAvgVol.dtype
-        volNp = loadMrc(listVol.__getitem__(0), False)
-        dim = volNp.shape[0]
-        lenght = dim ** 3
-        cov_matrix = []
-        volL = []
+        npVol = loadMrc(listVol[0], writable=False)
+        dType = npVol.dtype
+        npAvgVol = np.zeros(npVol.shape)
+
         for vol in listVol:
-            volNp = loadMrc(vol, False)
+            npVol = loadMrc(vol, writable=False)
+            npAvgVol += npVol
 
-            volList = volNp.reshape(lenght)
-            volL.append(volList)
+        npAvgVol = np.divide(npAvgVol, len(listVol))
+        saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _getRefStar(self):
-        return self._getExtraPath("input_references.star")
-
-
+    def getParticlesPca(self):
+        z_part= np.loadtxt(self.addWeights.get())
+        return z_part
 
     def _getPathMaps(self):
         inputObj = self.inputVolumes.get()
@@ -351,11 +244,9 @@ class ProtLandscapePCA(ProtocolBase):
             a = getImageLocation(i)
             filesPath.append(a)
 
-        print (filesPath, "fninn")
         return sorted(glob(filesPath))
 
     def _createMFile(self, matrix, name='matrix.txt'):
-        print (name, "name")
         f = open(name, 'w')        # f = open(name, 'w')
         for list in matrix:
             s = "%s\n" % list
@@ -378,15 +269,12 @@ class ProtLandscapePCA(ProtocolBase):
                 cuttOffMatrix = sum(s) * thr
                 sCut = 0
 
-                print('cuttOffMatrix & s: ', cuttOffMatrix, s)
                 for i in s:
                     if cuttOffMatrix > 0:
-                        print("Pass, i = %s " % i)
                         cuttOffMatrix = cuttOffMatrix - i
                         sCut += 1
                     else:
                         break
-                print('sCut: ', sCut)
 
                 vhDel = self._geteigen(vh, sCut, s)
                 return vhDel
@@ -397,18 +285,15 @@ class ProtLandscapePCA(ProtocolBase):
                 np.save(eigValsFile, s)
                 eignValData = np.load(
                     self._getExtraPath('EigenFile', 'eigenvalues.npy'))
-                print (eignValData, "eignValData")
 
                 eigVecsFile = os.path.join(eigPath, 'eigenvectors')
                 np.save(eigVecsFile, vh)
                 eignVecData = np.load(
                     self._getExtraPath('EigenFile', 'eigenvectors.npy'))
-                print (eignVecData, "eignVecData")
                 vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
                 np.save(vhdelPath, vh.T)
                 vhDelData = np.load(
                     self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
-                print (vhDelData, "vhDelData")
                 return vh.T
         else:
 
@@ -423,37 +308,29 @@ class ProtLandscapePCA(ProtocolBase):
         np.save(eigValsFile, s)
         eignValData = np.load(
             self._getExtraPath('EigenFile', 'eigenvalues.npy'))
-        print (eignValData, "eignValData")
 
         eigVecsFile = os.path.join(eigPath, 'eigenvectors')
         np.save(eigVecsFile, vh)
         eignVecData = np.load(
             self._getExtraPath('EigenFile', 'eigenvectors.npy'))
-        print (eignVecData, "eignVecData")
 
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
         np.save(vhdelPath, vhDel)
         vhDelData = np.load(self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
 
-        print(' this is the matrix "vhDel": ', vhDel)
-        print (len(vhDel), "vhDel_length")
         return vhDel
 
     def _getPcaCount(self, s):
         cuttOffMatrix = sum(s) * 0.95
         sCut = 0
 
-        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
         for i in s:
-            print('cuttOffMatrix: ', cuttOffMatrix)
             if cuttOffMatrix > 0:
-                print("Pass, i = %s " % i)
                 cuttOffMatrix = cuttOffMatrix - i
                 sCut += 1
             else:
                 break
-        print('sCut: ', sCut)
         return sCut
 
 
