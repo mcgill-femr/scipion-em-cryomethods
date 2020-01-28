@@ -315,10 +315,14 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label="Select number of principal components")
         group.addParam('points', params.IntParam, default=5,
                        label="Select number of volumes you want to show")
+        group.addParam('addWeights', params.FileParam, label="Weight File path",
+                       allowsNull=True,
+                       help='Specify a path to weights for volumes.')
         group.addParam('dimensionality', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
                        label='Select 2D or 3D to see the heat map.')
+
 
 
     def _getVisualizeDict(self):
@@ -345,6 +349,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.plot(vals)
         plt.show()
 
+    def getParticlesPca(self):
+        z_part= np.loadtxt(self.addWeights.get())
+        print (z_part, "z_part")
+        return z_part
+
     def _viewHeatMap(self,paramName=None):
         if self.dimensionality.get() == 0:
             self._view2DHeatMap()
@@ -354,6 +363,7 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _view2DHeatMap(self):
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
+        weight = self.getParticlesPca()
         matProj = self._loadPcaCoordinates()
         if self.heatMap.get() == MDS:
             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
@@ -373,7 +383,8 @@ class PcaLandscapeViewer(ProtocolViewer):
             man = manifold.TSNE(n_components=2, random_state=0)
             coords = man.fit_transform(matProj[:, 0:nPCA])
 
-        xedges, yedges, counts = self._getEdges(coords, nBins)
+
+        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
 
         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
@@ -464,8 +475,9 @@ class PcaLandscapeViewer(ProtocolViewer):
         eignValData = np.load(fn)
         return eignValData
 
-    def _getEdges(self, crds, nBins):
+    def _getEdges(self, crds, nBins, weight):
         counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
+                                                weights=weight,
                                                 bins=nBins)
         shapeCounts = counts.shape[0] + 2
         countsExtended = np.zeros((shapeCounts, shapeCounts))
@@ -504,6 +516,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return w
 
     def _view3DHeatMap(self):
+        weight = self.getParticlesPca()
         if self.interpolateType == LINEAR:
             intType = 'linear'
         else:
@@ -514,6 +527,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
             mds = man.fit_transform(self._loadPcaCoordinates())
             counts, xedges, yedges = np.histogram2d(mds[:, 0], mds[:, 1],
+                                                    weights=weight,
                                                     bins=nBins)
             countsExtended = np.zeros(
                 (counts.shape[0] + 2, counts.shape[0] + 2))
@@ -566,6 +580,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
             lle = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
             counts, xedges, yedges = np.histogram2d(lle[:, 0], lle[:, 1],
+                                                    weights=weight,
                                                     bins=nBins)
             countsExtended = np.zeros(
                 (counts.shape[0] + 2, counts.shape[0] + 2))
@@ -618,6 +633,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             isomap = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
 
             counts, xedges, yedges = np.histogram2d(isomap[:, 0], isomap[:, 1],
+                                                    weights=weight,
                                                     bins=nBins)
             countsExtended = np.zeros(
                 (counts.shape[0] + 2, counts.shape[0] + 2))
@@ -669,6 +685,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             tsne = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
 
             counts, xedges, yedges = np.histogram2d(tsne[:, 0], tsne[:, 1],
+                                                    weights=weight,
                                                     bins=nBins)
 
             countsExtended = np.zeros(
