@@ -537,6 +537,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         self.getParticlesPca()
         fn = self.protocol._getExtraPath('boltzFac.npy')
         weight = np.load(fn)
+        print (weight, "weight")
         nBins = self.binSize.get()
         coords = self._genralplot()
         xedges, yedges, counts=self._getEdges(coords, nBins, weight)
@@ -562,7 +563,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         ticks= np.amin(weight),np.amax(weight)
         print ("aaaa", ticks)
         plt.colorbar()
-        plt.clim(ticks)# draw colorbar
+        plt.clim(np.amin(weight),np.amax(weight))# draw colorbar
         plt.show()
 
 
