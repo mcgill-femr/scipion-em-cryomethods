@@ -360,8 +360,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.show()
 
     def getParticlesPca(self):
-        # z_part= np.loadtxt(self.addWeights.get())
-        f = open(self.addWeights.get())
+        f= np.loadtxt(self.addWeights.get())
+        # f = open(self.addWeights.get())
         allContaint = f.read()
         f.close()
         evaluate = eval('[' + allContaint.replace('\n', ',').replace(',,', '') + ']')
