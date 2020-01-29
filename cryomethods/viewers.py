@@ -407,6 +407,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _viewHeatMap(self, paramName=None):
+        self.getParticlesPca()
         fn = self.protocol._getExtraPath('boltzFac.npy')
         weight = np.load(fn)
         nPCA = self.pcaCount.get()
@@ -532,6 +533,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
+        self.getParticlesPca()
         fn = self.protocol._getExtraPath('boltzFac.npy')
         weight = np.load(fn)
         nBins = self.binSize.get()
@@ -576,6 +578,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return w
 
     def _view3DHeatMap(self):
+        self.getParticlesPca()
         fn = self.protocol._getExtraPath('boltzFac.npy')
         weight = np.load(fn)
         nBins = self.binSize.get()
