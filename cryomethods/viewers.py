@@ -360,13 +360,19 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.show()
 
     def getParticlesPca(self):
-        f= np.loadtxt(self.addWeights.get())
-        # f = open(self.addWeights.get())
-        allContaint = f.read()
-        f.close()
-        evaluate = eval('[' + allContaint.replace('\n', ',').replace(',,', '') + ']')
-        particleArray = np.array(evaluate, dtype=np.float32)
-        print(particleArray.shape)
+        weightPath= self.addWeights.get()
+
+        with open(weightPath) as f:
+            lines = f.readlines()
+        particleArray= np.loadtxt(lines, delimiter=', ', unpack=True)
+
+
+        # f= np.loadtxt(self.addWeights.get())
+        # allContaint = f.read()
+        # f.close()
+        # evaluate = eval('[' + allContaint.replace('\n', ',').replace(',,', '') + ']')
+        # particleArray = np.array(evaluate, dtype=np.float32)
+        # print(particleArray.shape)
         maxValue= np.amax(particleArray)
         boltzFac= []
         for i in particleArray:
