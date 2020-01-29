@@ -66,14 +66,13 @@ class CryoMethodsPlotter(EmPlotter):
     def __init__(self, x=1, y=1, mainTitle="", **kwargs):
         EmPlotter.__init__(self, x, y, mainTitle, **kwargs)
 
-    def plotHeatMap(self, img, xGrid, yGrid, weigths=None, cmap='hot'):
+    def plotHeatMap(self, img, xGrid, yGrid, znew, cmap='hot'):
         """ plot metadata columns mdLabelX and mdLabelY
             if nbins is in args then and histogram over y data is made
         """
-        img.contour(xGrid, yGrid, weigths.T, 10, linewidths=1.5, colors='k')
-        ax = img.contourf(xGrid, yGrid, weigths.T, 20, cmap=cmap,
-                          vmax=(weigths).max(), vmin=0)
-        plt.colorbar(ax)
+        img.contour(xGrid, yGrid, znew.T, 10, linewidths=1.5, colors='k')
+        img.contourf(xGrid, yGrid, znew.T, 20, cmap=cmap,
+                          vmax=(znew).max(), vmin=0)
         return img
 
 
@@ -526,11 +525,11 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         return xedgesExtended, yedgesExtended, countsExtended
 
-    def _createPlot(self, title, xTitle, yTitle, x, y, weights, figure=None):
+    def _createPlot(self, title, xTitle, yTitle, x, y, znew, figure=None):
         xplotter = CryoMethodsPlotter(figure=figure)
         xplotter.plot_title_fontsize = 11
         img = xplotter.createSubPlot(title, xTitle, yTitle, 1, 1)
-        xplotter.plotHeatMap(img, x, y, weights)
+        xplotter.plotHeatMap(img, x, y, znew)
         return xplotter
 
     def _view2DPlot(self):
