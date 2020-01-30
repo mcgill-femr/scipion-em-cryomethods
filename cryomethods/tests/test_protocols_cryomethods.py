@@ -282,6 +282,22 @@ class TestClass3DRansac(TestBase):
 
         # We use a coarse angular sampling of 20 to speed-up test
         DransacProt = self.newProtocol(ProtClass3DRansac,
+                                        objLabel='directional classes 1',
+                                        Class2D=2,
+                                        angularSampling=20,
+                                        angularDistance=25,
+                                        numberOfIterations=5,
+                                        regularisationParamT=2,
+                                        numClasses=5,
+                                        numberOfMpi=2
+                                        )
+
+        DransacProt.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt)
+
+
+        DransacProt1 = self.newProtocol(ProtClass3DRansac,
                                     objLabel='directional classes 1',
                                     Class2D=0,
                                     angularSampling=20,
@@ -291,12 +307,12 @@ class TestClass3DRansac(TestBase):
                                     )
 
 
-        DransacProt.inputVolume.set(self.protImportVol.outputVolume)
-        DransacProt.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(DransacProt)
+        DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt1.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt1)
 
 
-        DransacProt1= self.newProtocol(ProtClass3DRansac,
+        DransacProt2= self.newProtocol(ProtClass3DRansac,
                                     objLabel='directional classes 1',
                                     Class2D=1,
                                     angularSampling=20,
@@ -305,21 +321,10 @@ class TestClass3DRansac(TestBase):
                                     numberOfMpi=4
                                     )
 
-        DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
-        DransacProt1.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(DransacProt1)
-
-
-        DransacProt2 = self.newProtocol(ProtClass3DRansac,
-                                          objLabel='directional classes 1',
-                                          Class2D=2,
-                                          numberOfIterations=5,
-                                          regularisationParamT=2,
-                                          numClasses=5,
-                                          numberOfMpi=4
-                                          )
-
         DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
         DransacProt2.inputParticles.set(protSubset.outputParticles)
         self.launchProtocol(DransacProt2)
+
+
+
 
