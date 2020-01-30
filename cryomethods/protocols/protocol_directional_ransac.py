@@ -738,7 +738,10 @@ class ProtClass3DRansac(ProtDirectionalPruning):
 
         ##""DO PCA - generated principal components""##
         u, s, vh = np.linalg.svd(cov_matrix)
-        cuttOffMatrix = sum(s) * 0.60
+        print(s)
+        print(u)
+        print(vh)
+        cuttOffMatrix = sum(s) * 1
         sCut = 0
         for i in s:
             if cuttOffMatrix > 0:
@@ -790,7 +793,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         if self.ClusteringMethod.get() == 0:
             from sklearn.cluster import KMeans
             print('projections: ', matProj.shape[1])
-            kmeans = KMeans(n_clusters= 5).fit(matProj)
+            kmeans = KMeans(n_clusters= 2).fit(matProj)
             cc = kmeans.cluster_centers_
             op = kmeans.labels_
             print(cc)
@@ -817,14 +820,15 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             print('-------------saving map %s-----------------' % nameVol)
             saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
             counter += 1
+
         # obtaining original volumes--------------------------------------------
         baseMrc = self._getExtraPath("*.mrc")
         baseMrcFile = glob(baseMrc)
         makePath(self._getExtraPath('original_vols'))
         orignCount = 0
-        for i in cc:
+        for i in matProj:
             vol = np.zeros((dim, dim, dim))
-            for a, b in zip(baseMrcFile, i):
+            for a, b in izip(baseMrcFile, i):
                 volNpo = loadMrc(a, False)
                 vol += volNpo * b
             finalVol = vol + npAvgVol
