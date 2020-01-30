@@ -561,7 +561,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                           vmax=(znew).max(), vmin=(znew).min())
         #ticks= np.amin(weight),np.amax(weight)
         #print ("aaaa", ticks)
-        #plt.colorbar()
+        plt.colorbar()
         #plt.clim(np.amin(weight),np.amax(weight))# draw colorbar
         plt.show()
 
