@@ -558,7 +558,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.figure()
         plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5, colors='k')
         plt.contourf(grid_x, grid_y, znew.T, 25, cmap=plt.cm.hot,
-                          vmax=(znew).max(), vmin=0)
+                          vmax=(znew).max(), vmin=-20)
         ticks= np.amin(weight),np.amax(weight)
         print ("aaaa", ticks)
         plt.colorbar()
