@@ -30,6 +30,8 @@ from itertools import izip
 from os.path import exists
 import numpy as np
 import Tkinter as tk
+
+from django.contrib.localflavor import si
 from sklearn import manifold
 import scipy as sc
 import matplotlib.pyplot as plt
@@ -49,6 +51,10 @@ from .protocols.protocol_control_pca import ProtLandscapePCA
 from convert import loadMrc, saveMrc
 import matplotlib as mpl
 import math
+from scipy.signal import argrelextrema
+import scipy.ndimage as ndimage
+import scipy.ndimage.filters as filters
+import scipy
 
 
 
@@ -358,23 +364,18 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.plot(vals)
         plt.show()
 
-    def getParticlesPca(self):
+    def _getParticles(self):
         weightPath= self.addWeights.get()
 
         with open(weightPath) as f:
             lines = f.readlines()
         parts= np.loadtxt(lines, delimiter=', ', unpack=True)
 
-        particleArray = np.array(parts, dtype=np.float32)
-        print(particleArray.shape)
-        maxValue= np.amax(particleArray)
-        boltzFac= []
-        for i in particleArray:
-            natLog= math.log(i/maxValue)
-            boltzFac.append(natLog)
-        boltzParts= self.protocol._getExtraPath('boltzFac')
-        boltzWeights= np.save(boltzParts, boltzFac)
-        return boltzWeights
+        particleArray = self.protocol._getExtraPath('Particle_Weights')
+        partWeights = np.save(particleArray, parts)
+        return partWeights
+
+
 
     def _viewPlot(self, paramName=None):
         if self.plot.get() == 0:
@@ -407,8 +408,8 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _viewHeatMap(self, paramName=None):
-        self.getParticlesPca()
-        fn = self.protocol._getExtraPath('boltzFac.npy')
+        self._getParticles()
+        fn = self.protocol._getExtraPath('Particle_Weights.npy')
         weight = np.load(fn)
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
@@ -430,13 +431,23 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
+        # ---------------------------finding maxima on 2d map-------------------
+        minima = znew.max()
+        print (minima, "minimaaa")
+        tempValue = 25
+        boltzFac = tempValue * np.true_divide(znew, minima)
+        boltzParts = self.protocol._getExtraPath('boltzFac')
+        np.save(boltzParts, boltzFac)
+        boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
+
+        # ---------------------------------------------------------------
         win = self.tkWindow(HeatMapWindow,
                             title='Heat Map',
                             coords=coords,
                             callback=self._getMaps
                             )
         plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
-                                   znew, figure=win.figure)
+                                   boltzLaw, figure=win.figure)
         self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
         win.show()
 
@@ -533,8 +544,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        self.getParticlesPca()
-        fn = self.protocol._getExtraPath('boltzFac.npy')
+        self._getParticles()
+        fn = self.protocol._getExtraPath('Particle_Weights.npy')
         weight = np.load(fn)
         print (weight, "weight")
         nBins = self.binSize.get()
@@ -555,15 +566,45 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
+        print (znew, "znew")
+        # ---------------------------finding maxima on 2d map-------------------
+        minima = znew.max()
+        print (minima, "minimaaa")
+        tempValue= 25
+        boltzFac = tempValue * np.true_divide(znew, minima)
+        boltzParts = self.protocol._getExtraPath('boltzFac')
+        np.save(boltzParts, boltzFac)
+        boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
+
+        # ---------------------------------------------------------------
+
         plt.figure()
-        plt.contour(grid_x, grid_y, znew.T, 10, linewidths=1.5, colors='k')
-        plt.contourf(grid_x, grid_y, znew.T, 25, cmap=plt.cm.hot,
-                          vmax=(znew).max(), vmin=(znew).min())
-        #ticks= np.amin(weight),np.amax(weight)
-        #print ("aaaa", ticks)
+        plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+        plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+        # ----------showing x,y,z under cursor---------------------------
+        Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+
+        def fmt(x, y):
+            # get closest point with known data
+            dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+            idx = np.argmin(dist)
+            z = Zflat[idx]
+            return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+        # -------------------------------------------------------------------
+
+        plt.gca().format_coord = fmt
         plt.colorbar()
-        #plt.clim(np.amin(weight),np.amax(weight))# draw colorbar
+        # ticks= np.amin(weight),np.amax(weight)
+        #print ("aaaa", ticks)
+
+        # plt.clim(np.amin(weight),np.amax(weight))
+        savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+        plt.savefig(savePlot)
+
+        # draw colorbar
         plt.show()
+
 
 
 
