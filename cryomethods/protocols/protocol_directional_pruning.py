@@ -926,7 +926,7 @@ class ProtDirectionalPruning(ProtAnalysis3D):
           x = self._getInputParticles().getDim()[0]
           maskDiameter = self._getInputParticles().getSamplingRate() * x
 
-          args.update({'--particle_diameter': maskDiameter,
+        args.update({'--particle_diameter': maskDiameter,
                      '--angpix': newTs,
                      })
 
