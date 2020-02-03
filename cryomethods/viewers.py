@@ -613,6 +613,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         area = (50 * np.ones(117))  # 0 to 15 point radii
         colors = weight
         plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=colors, alpha=0.5)
+        plt.colorbar()
         plt.show()
 
 
