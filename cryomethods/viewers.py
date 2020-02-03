@@ -72,15 +72,14 @@ class CryoMethodsPlotter(EmPlotter):
     def __init__(self, x=1, y=1, mainTitle="", **kwargs):
         EmPlotter.__init__(self, x, y, mainTitle, **kwargs)
 
-    def plotHeatMap(self, img, xGrid, yGrid, znew, cmap='hot'):
+    def plotHeatMap(self, img, xGrid, yGrid, boltzLaw, cmap='hot'):
         """ plot metadata columns mdLabelX and mdLabelY
             if nbins is in args then and histogram over y data is made
         """
-        img.contour(xGrid, yGrid, znew.T, 10, linewidths=1.5, colors='k')
-        img.contourf(xGrid, yGrid, znew.T, 20, cmap=cmap,
-                          vmax=(znew).max(), vmin=0)
+        img.contour(xGrid, yGrid, boltzLaw.T, 10, linewidths=1.5, colors='k')
+        img.contourf(xGrid, yGrid, boltzLaw.T, 20, cmap=cmap,
+                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
         return img
-
 
 
 class VolumeSelectorViewer(ProtocolViewer):
@@ -335,8 +334,8 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label='view 2D or 3D free-energy landscape.')
         group.addParam('dimensionality', params.LabelParam,
                        label='View trajectory in 2D free-energy landscape')
-        # group.addParam('scatterPlot', params.LabelParam,
-        #                label='scatter plot of 2d free-energy landscape')
+        group.addParam('scatterPlot', params.LabelParam,
+                       label='scatter plot of 2d free-energy landscape')
 
 
 
@@ -345,7 +344,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
                          'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
-                         # 'scatterPlot': self._scatterPlot
+                         'scatterPlot': self._scatterPlot
                          }
         return visualizeDict
 
@@ -437,13 +436,15 @@ class PcaLandscapeViewer(ProtocolViewer):
         # ---------------------------finding maxima on 2d map-------------------
         minima = znew.max()
         print (minima, "minimaaa")
-        tempValue = 25
-        boltzFac = tempValue * np.true_divide(znew, minima)
+        tempValue = -(25)
+        fac= np.true_divide(znew, minima)
+        boltzFac = tempValue * fac
         boltzParts = self.protocol._getExtraPath('boltzFac')
         np.save(boltzParts, boltzFac)
         boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
 
         # ---------------------------------------------------------------
+
         win = self.tkWindow(HeatMapWindow,
                             title='Heat Map',
                             coords=coords,
@@ -538,11 +539,11 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         return xedgesExtended, yedgesExtended, countsExtended
 
-    def _createPlot(self, title, xTitle, yTitle, x, y, znew, figure=None):
+    def _createPlot(self, title, xTitle, yTitle, x, y, boltzLaw, figure=None):
         xplotter = CryoMethodsPlotter(figure=figure)
         xplotter.plot_title_fontsize = 11
         img = xplotter.createSubPlot(title, xTitle, yTitle, 1, 1)
-        xplotter.plotHeatMap(img, x, y, znew)
+        xplotter.plotHeatMap(img, x, y, boltzLaw)
         return xplotter
 
     def _view2DPlot(self):
@@ -572,8 +573,9 @@ class PcaLandscapeViewer(ProtocolViewer):
         # ---------------------------finding maxima on 2d map-------------------
         minima = znew.max()
         print (minima, "minimaaa")
-        tempValue= 25
-        boltzFac = tempValue * np.true_divide(znew, minima)
+        tempValue= -25
+        fac= np.true_divide(znew, minima)
+        boltzFac = tempValue * fac
         boltzParts = self.protocol._getExtraPath('boltzFac')
         np.save(boltzParts, boltzFac)
         boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
@@ -602,40 +604,16 @@ class PcaLandscapeViewer(ProtocolViewer):
         # draw colorbar
         plt.show()
 
-    # def _scatterPlot(self, paramName=None):
-    #     self._getParticles()
-    #     fn = self.protocol._getExtraPath('Particle_Weights.npy')
-    #     weight = np.load(fn)
-    #     print (weight, "weight")
-    #     nBins = self.binSize.get()
-    #     coords = self._genralplot()
-    #     xedges, yedges, counts = self._getEdges(coords, nBins, weight)
-    #
-    #     a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
-    #     b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
-    #
-    #     a2 = np.linspace(xedges.min(), xedges.max(), num=100)
-    #     b2 = np.linspace(yedges.min(), yedges.max(), num=100)
-    #     H2 = counts.reshape(counts.size)
-    #     grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-    #     if self.interpolateType == LINEAR:
-    #         intType = 'linear'
-    #     else:
-    #         intType = 'cubic'
-    #     f = sc.interpolate.interp2d(a, b, H2, kind=intType,
-    #                                 bounds_error='True')
-    #     znew = f(a2, b2)
-    #     print (znew, "znew")
-    #     # ---------------------------finding maxima on 2d map-------------------
-    #     minima = znew.max()
-    #     print (minima, "minimaaa")
-    #     tempValue = 25
-    #     boltzFac = tempValue * np.true_divide(znew, minima)
-    #     boltzParts = self.protocol._getExtraPath('boltzFac')
-    #     np.save(boltzParts, boltzFac)
-    #     boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
-    #     plt.scatter(a,b)
-    #     plt.show()
+    def _scatterPlot(self, paramName=None):
+        self._getParticles()
+        fn = self.protocol._getExtraPath('Particle_Weights.npy')
+        weight = np.load(fn)
+        print (weight, "weight")
+        matProj = self._loadPcaCoordinates()
+        area = (50 * np.ones(117))  # 0 to 15 point radii
+        colors = weight
+        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=colors, alpha=0.5)
+        plt.show()
 
 
     def _getCoordMapFiles(self):
