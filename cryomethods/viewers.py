@@ -332,9 +332,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         group.addParam('plot', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
-                       label='Select 2D or 3D to see the heat map.')
+                       label='view 2D or 3D free-energy landscape.')
         group.addParam('dimensionality', params.LabelParam,
-                       label='2D heat map to view trajectory')
+                       label='View trajectory in 2D free-energy landscape')
+        # group.addParam('scatterPlot', params.LabelParam,
+        #                label='scatter plot of 2d free-energy landscape')
 
 
 
@@ -342,7 +344,8 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _getVisualizeDict(self):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
                          'dimensionality': self._viewHeatMap,
-                         'plot': self._viewPlot
+                         'plot': self._viewPlot,
+                         # 'scatterPlot': self._scatterPlot
                          }
         return visualizeDict
 
@@ -483,7 +486,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         #
         # self.objectView(volSet).show()
 
-
     def _getPoints(self, data):
         xData = data.getXData()
         yData = data.getYData()
@@ -595,17 +597,45 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         plt.gca().format_coord = fmt
         plt.colorbar()
-        # ticks= np.amin(weight),np.amax(weight)
-        #print ("aaaa", ticks)
-
-        # plt.clim(np.amin(weight),np.amax(weight))
         savePlot = self.protocol._getExtraPath('2d_PLOT.png')
         plt.savefig(savePlot)
-
         # draw colorbar
         plt.show()
 
-
+    # def _scatterPlot(self, paramName=None):
+    #     self._getParticles()
+    #     fn = self.protocol._getExtraPath('Particle_Weights.npy')
+    #     weight = np.load(fn)
+    #     print (weight, "weight")
+    #     nBins = self.binSize.get()
+    #     coords = self._genralplot()
+    #     xedges, yedges, counts = self._getEdges(coords, nBins, weight)
+    #
+    #     a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+    #     b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+    #
+    #     a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+    #     b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+    #     H2 = counts.reshape(counts.size)
+    #     grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+    #     if self.interpolateType == LINEAR:
+    #         intType = 'linear'
+    #     else:
+    #         intType = 'cubic'
+    #     f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+    #                                 bounds_error='True')
+    #     znew = f(a2, b2)
+    #     print (znew, "znew")
+    #     # ---------------------------finding maxima on 2d map-------------------
+    #     minima = znew.max()
+    #     print (minima, "minimaaa")
+    #     tempValue = 25
+    #     boltzFac = tempValue * np.true_divide(znew, minima)
+    #     boltzParts = self.protocol._getExtraPath('boltzFac')
+    #     np.save(boltzParts, boltzFac)
+    #     boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
+    #     plt.scatter(a,b)
+    #     plt.show()
 
 
     def _getCoordMapFiles(self):
@@ -649,6 +679,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         print ("aaaa", ticks)
         # draw colorbar
         plt.show()
+
 
 
 

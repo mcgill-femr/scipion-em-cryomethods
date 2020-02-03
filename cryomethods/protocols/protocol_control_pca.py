@@ -11,7 +11,7 @@ import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
 from cryomethods import Plugin
-from cryomethods.convert import (loadMrc, saveMrc)
+from cryomethods.convert import (loadMrc, saveMrc, alignVolumes, applyTransforms)
 # from xmipp3.convert import getImageLocation
 from .protocol_base import ProtocolBase
 import collections
@@ -19,10 +19,16 @@ import collections
 
 PCA_THRESHOLD = 0
 PCA_COUNT=1
+ALIGN = 0
+NOTALIGN = 1
+
 
 
 class ProtLandscapePCA(em.EMProtocol):
     _label = 'Control PCA'
+    FILE_KEYS = ['data', 'optimiser', 'sampling']
+    PREFIXES = ['']
+
     def _initialize(self):
         """ This function is mean to be called after the
         working dir for the protocol have been set.
@@ -76,7 +82,17 @@ class ProtLandscapePCA(em.EMProtocol):
                       important=True,
                       label='Input volumes',
                       help='Initial reference 3D maps')
-        form.addParam('thresholdMode', params.EnumParam,
+        form.addParam('resLimit', params.FloatParam, default=20,
+                      label="Resolution Limit (A)",
+                      help="Resolution limit used to low pass filter both "
+                           "input and reference map(s).")
+        form.addParam('alignment', params.EnumParam, default=0,
+                      choices=['Yes, align Volumes',
+                               'No volumes alignment'],
+                      label='Align Input Volumes?')
+
+        group = form.addSection('machine leaning components')
+        group.addParam('thresholdMode', params.EnumParam,
                       choices=['thr', 'pcaCount'],
                       default=PCA_THRESHOLD,
                       label='Cut-off mode',
@@ -84,18 +100,19 @@ class ProtLandscapePCA(em.EMProtocol):
                            'principle components above this value.\n'
                            'sCut will allow you to select number of\n'
                            'principle components you want to select.')
-        form.addParam('thr', params.FloatParam, default=0.95,
+        group.addParam('thr', params.FloatParam, default=0.95,
                       important=True,
                       condition='thresholdMode==%d' % PCA_THRESHOLD,
                       label='THreshold percentage')
-        form.addParam('pcaCount', params.FloatParam, default=2,
+        group.addParam('pcaCount', params.FloatParam, default=2,
                       label="count of PCA",
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
 
-        form.addParam('addWeights', params.FileParam, label="Weight File path",
+        group.addParam('addWeights', params.FileParam, label="Weight File path",
                       allowsNull=True,
                       help='Specify a path to weights for volumes.')
+
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -115,10 +132,44 @@ class ProtLandscapePCA(em.EMProtocol):
             newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
             ih.convert(vol, newFn)
 
+        sampling_rate = inputVols.getSamplingRate()
+        print (sampling_rate, "sampling rate before")
+        resLimitDig = self.resLimit.get()
+        print (resLimitDig, "resLimitDig")
+        inputVols.setSamplingRate(resLimitDig)
+        print (inputVols.getSamplingRate(), "after")
+
+    #     ----------------alignment---------------------------
+    def alignVols(self):
+        self._getAverageVol()
+        avgVol= self._getFileName('avgMap')
+        npAvgVol = loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+        fnIn = self._getMrcVolumes()
+        for vols in fnIn:
+            npVolAlign = loadMrc(vols, False)
+            npVolFlipAlign = np.fliplr(npVolAlign)
+
+            axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
+            axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
+                                                           npAvgVol)
+            if scoref > score:
+                npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
+            else:
+                npVol = applyTransforms(npVolAlign, shifts, angles, axis)
+
+            saveMrc(npVol.astype(dType), vols)
+
+
     def analyzePCAStep(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
-        fnIn = self._getMrcVolumes()
+        if self.alignment.get()==0:
+            self.alignVols()
+            fnIn= self._getMrcVolumes()
+        else:
+            fnIn = self._getMrcVolumes()
+
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
