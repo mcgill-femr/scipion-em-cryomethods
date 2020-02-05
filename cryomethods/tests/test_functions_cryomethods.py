@@ -116,6 +116,7 @@ class TestAlignVolumes(TestBase):
             print(labels)
 
     def testAffinityProp(self):
+        from matplotlib import pyplot as plt
         from itertools import izip
         Plugin.setEnviron()
         volList = self._getVolList()
@@ -125,9 +126,10 @@ class TestAlignVolumes(TestBase):
         prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         npAvgMap, _ = prot._doAverageMaps(volList)
-        matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        # matrix, _ = prot._doPCA(volList)
+        # matrix, _ = prot._mrcToNp(volList, npAvgMap)
+        matrix, eigenVals = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
+
         if labels is not None:
             f = open('volumes_clustered.txt', 'w')
             for vol, label in izip (volList, labels):
@@ -138,11 +140,19 @@ class TestAlignVolumes(TestBase):
 
             for key, value in groupDict.iteritems():
                 valueStr = ' '.join(value)
-                valueStr.replace('ScipionUserData', 'PROCESSING/TESLA')
                 line = 'chimera %s\n' % valueStr
                 f.write(line)
             f.close()
             print(labels)
+
+        # for line in matrix:
+        #     l = map(abs, line)
+        #     fig = plt.figure()
+        #     plt.subplot(1, 2, 1)
+        #     plt.plot(eigenVals)
+        #     plt.subplot(1, 2, 2)
+        #     plt.plot(l)
+        #     plt.show()
 
     def testHandlingMd(self):
         from collections import defaultdict
@@ -203,16 +213,17 @@ class TestAlignVolumes(TestBase):
         # claseId = 0
 
     def _getVolList(self):
-        volList = glob('/home/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/MAPS/*_fil20.mrc')
-#        fixedPath = '/mnt/tesla/data/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/'
-#        filePath = 'Runs/001594_Prot3DAutoClassifier/extra/raw_final_model.star'
-#        wholePath = fixedPath + filePath
-#        mdModel = md.MetaData(wholePath)
-#        for row in md.iterRows(mdModel):
-#            volFn = row.getValue('rlnReferenceImage')
-#            fullVolFn = fixedPath + volFn
-#            volList.append(fullVolFn)
-        return volList
+        # volList = glob('/home/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/MAPS/*_fil20.mrc')
+       volList = []
+       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/10061_AutoCTest/'
+       filePath = 'Runs/001260_Prot3DAutoClassifier/extra/raw_final_model.star'
+       wholePath = fixedPath + filePath
+       mdModel = md.MetaData(wholePath)
+       for row in md.iterRows(mdModel):
+           volFn = row.getValue('rlnReferenceImage')
+           fullVolFn = fixedPath + volFn
+           volList.append(fullVolFn)
+       return volList
 
     def _reconstructMap(self, matProj):
         from glob import glob
