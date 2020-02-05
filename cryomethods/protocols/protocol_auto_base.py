@@ -567,18 +567,18 @@ class ProtAutoBase(ProtocolBase):
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npMask
+            npAvgVol += npVol
 
         npAvgVol = npAvgVol / len(listVol)
         npAvgMask = 1 * (npAvgVol < 0.99)
-        # npAvgVol *= npAvgMask
-        return npAvgMask, dType
+        npAvgVol *= npAvgMask
+        return npAvgVol, dType
 
     def _getVolNp(self, vol):
         mapNp = loadMrc(vol, False)
-        # std = 3 * volNp.std()
-        # npMask = 1 * (volNp > std)
-        # mapNp = volNp * npMask
+        std = 3 * mapNp.std()
+        npMask = 1 * (mapNp > std)
+        mapNp = mapNp * npMask
         return mapNp
 
     def _getFunc(self, modelMd):
@@ -647,7 +647,7 @@ class ProtAutoBase(ProtocolBase):
 
         covMatrix = np.cov(listNpVol)
         u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) * 0.95
+        cuttOffMatrix = sum(s) * 1
         sCut = 0
 
         for i in s:
@@ -671,7 +671,7 @@ class ProtAutoBase(ProtocolBase):
         projFile = 'projection_matrix.txt'
         self._createMFile(matProj, projFile)
         print("How many PCA eigenvalues: ", sCut)
-        return matProj, newBaseAxis
+        return matProj, s
 
     def _getFinalMaps(self):
         return [self._getMapById(k) for k in self._getFinalMapIds()]

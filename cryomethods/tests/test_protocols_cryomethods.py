@@ -30,6 +30,7 @@ from pyworkflow.tests import *
 from pyworkflow.em import ProtImportParticles, ProtImportVolumes
 from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
+from cryomethods.protocols import ProtVolClustering
 
 
 class TestBase(BaseTest):
@@ -194,4 +195,24 @@ class TestVolumeSelector(TestBase):
             volSelNoGPU.numberOfThreads.set(2)
             self.launchProtocol(volSelNoGPU)
             _checkAsserts(volSelNoGPU)
+
+
+class TestVolumeClustering(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+
+    def testVolumeClustering(self):
+        protImport = self.newProtocol(ProtImportVolumes,
+                                     filesPath='/home/josuegbl/SOFTWARE/SCIPION/scipion/data/tests/BetaGClass',
+                                     filesPattern='*.mrc',
+                                     samplingRate=1.7)
+        self.launchProtocol(protImport)
+
+        prot = self.newProtocol(ProtVolClustering,
+                                alignVolumes=True)
+        prot.setObjLabel('test')
+        prot.inputVolumes.set(protImport.outputVolumes)
+        self.launchProtocol(prot)
+        self.assertIsNotNone(prot.outputVolumes, "There was a problem...")
 
