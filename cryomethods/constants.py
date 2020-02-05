@@ -56,4 +56,11 @@ V3_0 = '3.0'
 
 # Packages constants
 RELION_CRYOMETHODS_HOME = 'RELION_CRYOMETHODS_HOME'
+XMIPP_CRYOMETHODS_HOME = 'XMIPP_CRYOMETHODS_HOME'
 CRYOMETHODS_HOME = 'CRYOMETHODS_HOME'
+
+# Constants to Directional pruning
+
+    # methods
+CL2D = 0
+RL2D = 1
