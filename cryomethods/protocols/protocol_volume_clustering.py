@@ -104,8 +104,10 @@ class ProtVolClustering(em.EMProtocol):
                          '--sampling': pxSize
                          }
             args = ' '.join('%s %s' %(k,v) for k,v in dictParam.iteritems())
-            args += '--fourier low_pass %s %s' %(lowPass, lowRaised)
-        self.runJob('xmipp_transform_filter', args)
+            args += ' --fourier low_pass %s %s' %(lowPass, lowRaised)
+            self.runJob('xmipp_transform_filter', args)
+
+        print("Saving average volume")
         self._saveAverageVol()
         if self.alignVolumes:
             self._alignVolumes()
@@ -170,9 +172,10 @@ class ProtVolClustering(em.EMProtocol):
             map.write(outputFn)
 
     def _saveAverageVol(self):
-        listVol = self._getPathMaps()
+        listVol = self._getPathMaps('volume_????_filtered.mrc')
         avgVol = self._getAvgMapFn()
         npAvgVol, dType = self._doAverageMap(listVol)
+        print("Dtype: ", dType)
         if dType == 'float64':
             dType = 'float32'
         saveMrc(npAvgVol.astype(dType), avgVol)
@@ -290,3 +293,10 @@ class ProtVolClustering(em.EMProtocol):
         from sklearn.cluster import AffinityPropagation
         ap = AffinityPropagation(damping=0.5).fit(matProj)
         return ap.labels_
+
+    def _createMFile(self, matrix, name='matrix.txt'):
+        f = open(name, 'w')
+        for list in matrix:
+            s = "%s\n" % list
+            f.write(s)
+        f.close()

@@ -91,7 +91,7 @@ class NumpyImgHandler(object):
         return volume
 
     @classmethod
-    def getAverageMap(cls, mapFnList):
+    def doAverageMap(cls, mapFnList):
         """ Returns the average map and the type of the data.
         """
         for vol in mapFnList:
@@ -105,7 +105,7 @@ class NumpyImgHandler(object):
         return npAvgVol, dType
 
     @classmethod
-    def getMaskedMap(cls, vol, mult=3.0):
+    def getMapByThreshold(cls, vol, mult=3.0):
         """Returns a map masked by a threshold value, given by the standard
         deviation of the map.
         """

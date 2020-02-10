@@ -112,7 +112,6 @@ class TestAlignVolumes(TestBase):
                 line = '%s %s\n' % (key, value)
                 f.write(line)
             f.close()
-
             print(labels)
 
     def testAffinityProp(self):
@@ -126,8 +125,8 @@ class TestAlignVolumes(TestBase):
         prot = Prot3DAutoClassifier(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         npAvgMap, _ = prot._doAverageMaps(volList)
-        # matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        matrix, eigenVals = prot._doPCA(volList)
+        matrix, _ = prot._mrcToNp(volList, npAvgMap)
+        # matrix, eigenVals = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
 
         if labels is not None:
@@ -215,8 +214,8 @@ class TestAlignVolumes(TestBase):
     def _getVolList(self):
         # volList = glob('/home/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/MAPS/*_fil20.mrc')
        volList = []
-       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/10061_AutoCTest/'
-       filePath = 'Runs/001260_Prot3DAutoClassifier/extra/raw_final_model.star'
+       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/'
+       filePath = 'Runs/003715_Prot3DAutoClassifier/extra/raw_final_model.star'
        wholePath = fixedPath + filePath
        mdModel = md.MetaData(wholePath)
        for row in md.iterRows(mdModel):

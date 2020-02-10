@@ -338,7 +338,7 @@ class TestVolumeClustering(TestBase):
         self.launchProtocol(protImport)
 
         prot = self.newProtocol(ProtVolClustering,
-                                alignVolumes=True)
+                                alignVolumes=False)
         prot.setObjLabel('test')
         prot.inputVolumes.set(protImport.outputVolumes)
         self.launchProtocol(prot)
