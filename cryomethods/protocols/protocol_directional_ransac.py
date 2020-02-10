@@ -692,7 +692,6 @@ class ProtClass3DRansac(ProtDirectionalPruning):
     def pcaStep(self):
         ##"".vol to .mrc conversion""##
         listVol = []
-        totVol=[]
         Plugin.setEnviron()
         for i in range (self.randomIteration):
             stack=i+1
@@ -702,7 +701,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             img.convert(inputVol, self._getExtraPath("volume_%s.mrc" %stack))
             MrcFile = self._getExtraPath("volume_%s.mrc" %stack)
             listVol.append(MrcFile)
-            totVol.append(inputVol)
+
 
         # ""AVERAGE VOLUME GENERATION""#
         listVol = self._getPathMaps() if not bool(listVol) else listVol
@@ -734,13 +733,10 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                 temp_a = np.corrcoef(volList_two, b).item(1)
                 row.append(temp_a)
             cov_matrix.append(row)
-        print(cov_matrix,'Covariance matrix')
+
 
         ##""DO PCA - generated principal components""##
         u, s, vh = np.linalg.svd(cov_matrix)
-        print(s)
-        print(u)
-        print(vh)
         cuttOffMatrix = sum(s) * 1
         sCut = 0
         for i in s:
@@ -757,42 +753,42 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         self._createMFile(vh, eigVecsFile)
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         self._createMFile(vhDel, 'matrix_vhDel.txt')
-        print(vhDel, 'eigenvalues&vectors')
+
 
         ###""MATCH PROJECTION"""###
+        counter = 0
+        for i in vhDel.T:
+            base = np.zeros(lenght)
+            for (a, b) in izip(listVol, i):
+                volInp = loadMrc(a, False)
+                volInpR = volInp.reshape(lenght)
+                base += volInpR * b
+                volBase = base.reshape((dim, dim, dim))
+            nameVol = 'volume_base_%02d.mrc' % (counter)
+            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
+            counter += 1
 
-        mat_one = []
+        matProj = []
+        baseMrc = self._getExtraPath("volume_*.mrc")
+        baseMrcFile = glob(baseMrc)
         for vol in listVol:
             volNp = loadMrc(vol, False)
-            volList = volNp.reshape(lenght)
+            volRow = volNp.reshape(lenght)
+            volInputTwo = volRow - npAvgVol.reshape(lenght)
             row_one = []
-            for j in listVol:
+            for j in baseMrcFile:
                 npVol = loadMrc(j, writable=False)
-                volList_three = npVol.reshape(lenght)
-                j_trans = volList_three.transpose()
-                matrix_two = np.dot(volList, j_trans)
+                volBaseTwo = npVol.reshape(lenght)
+                j_trans = volBaseTwo.transpose()
+                matrix_two = np.dot(volInputTwo, j_trans)
                 row_one.append(matrix_two)
-            mat_one.append(row_one)
-        matProj = np.dot(mat_one, vhDel)
-        print(matProj, 'Match Projections')
-
-        ##""Construct PCA histogram""##
-        x_proj = [item[0] for item in matProj]
-        y_proj = [item[1] for item in matProj]
-
-        ## save coordinates:
-        mat_file = 'matProj_splic.txt'
-        self._createMFile(matProj, mat_file)
-        x_file = 'x_proj_splic.txt'
-        self._createMFile(x_proj, x_file)
-        y_file = 'y_proj_splic.txt'
-        self._createMFile(y_proj, y_file)
+            matProj.append(row_one)
+        print(matProj)
 
         ##Kmeans&AffinityPropagation
 
         if self.ClusteringMethod.get() == 0:
             from sklearn.cluster import KMeans
-            print('projections: ', matProj.shape[1])
             kmeans = KMeans(n_clusters= 2).fit(matProj)
             cc = kmeans.cluster_centers_
             op = kmeans.labels_
@@ -808,34 +804,19 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             print(op)
 
         ####Coordinates to volume ######
-        counter =0
-        for i in vhDel.T:
-            base = np.zeros(lenght)
-            for (a, b) in izip(listVol, i):
-                volInp = loadMrc(a, False)
-                volInpR = volInp.reshape(lenght)
-                base += volInpR * b
-                volBase = base.reshape((dim, dim, dim))
-            nameVol = 'volume_base_%02d.mrc' % (counter)
-            print('-------------saving map %s-----------------' % nameVol)
-            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
-            counter += 1
-
-        # obtaining original volumes--------------------------------------------
-        baseMrc = self._getExtraPath("*.mrc")
+        baseMrc = self._getExtraPath("volume_*.mrc")
         baseMrcFile = glob(baseMrc)
-        makePath(self._getExtraPath('original_vols'))
+        makePath(self._getExtraPath('recons_vols'))
         orignCount = 0
         for i in matProj:
             vol = np.zeros((dim, dim, dim))
             for a, b in izip(baseMrcFile, i):
+
                 volNpo = loadMrc(a, False)
                 vol += volNpo * b
             finalVol = vol + npAvgVol
-            nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
-            print(
-                        '-------------saving original_vols %s-----------------' % nameVol)
-            saveMrc(finalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
+            nameVol = 'volume_reconstructed_%05d.mrc' % (orignCount)
+            saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
             orignCount += 1
 
     def createOutputStep(self):
@@ -1096,3 +1077,14 @@ class ProtClass3DRansac(ProtDirectionalPruning):
     #plt.colorbar()
     #plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
     #plt.close(fig)
+        ##""Construct PCA histogram""##
+        #x_proj = [item[0] for item in matProj]
+        #y_proj = [item[1] for item in matProj]
+
+        ## save coordinates:
+        #mat_file = 'matProj_splic.txt'
+        #self._createMFile(matProj, mat_file)
+        #x_file = 'x_proj_splic.txt'
+        #self._createMFile(x_proj, x_file)
+        #y_file = 'y_proj_splic.txt'
+        #self._createMFile(y_proj, y_file)
