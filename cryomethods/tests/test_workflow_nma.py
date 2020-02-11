@@ -28,7 +28,7 @@ from pyworkflow.tests.em.workflows.test_workflow import TestWorkflow
 
 
 
-from cryomethods.protocols.protocol_merge_nma import ProtLandscapeNMA
+from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
 
 from xmipp3.protocols.pdb.protocol_pseudoatoms_base import NMA_MASK_THRE
 from pyworkflow.tests import *

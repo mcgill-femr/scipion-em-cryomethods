@@ -199,12 +199,13 @@ class ProtLandscapePCA(em.EMProtocol):
         # -------------NEWBASE_AXIS-------------------------------------------
         counter = 0
 
-        for i in vhDel.T:
+        for eignRow in vhDel.T:
             base = np.zeros(lenght)
-            for (a, b) in izip(fnIn,i):
-                volInp = loadMrc(a, False)
+            for (vol, eigenCoef) in izip(fnIn,eignRow):
+                volInp = loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
-                base += volInpR*b
+                volSubs= volInpR - npAvgVol.reshape(lenght)
+                base += volSubs*eigenCoef
                 volBase = base.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (counter)
             print('-------------saving map %s-----------------' % nameVol)
@@ -212,39 +213,38 @@ class ProtLandscapePCA(em.EMProtocol):
             counter += 1
 
         matProj = []
-        baseMrc = self._getExtraPath("*.mrc")
-        baseMrcFile = glob(baseMrc)
+        baseMrc = self._getExtraPath("volume_base_??.mrc")
+        baseMrcFile = sorted(glob(baseMrc))
         for vol in fnIn:
             volNp = loadMrc(vol, False)
-            volRow = volNp.reshape(lenght)
-            volInputTwo = volRow - npAvgVol.reshape(lenght)
-            row_one = []
-            for j in baseMrcFile:
-                npVol = loadMrc(j, writable=False)
-                volBaseTwo= npVol.reshape(lenght)
-                j_trans = volBaseTwo.transpose()
-                matrix_two = np.dot(volInputTwo, j_trans)
-                row_one.append(matrix_two)
-            matProj.append(row_one)
-        # obtaining original volumes--------------------------------------------
-        baseMrc = self._getExtraPath("*.mrc")
-        baseMrcFile = glob(baseMrc)
-        os.makedirs(self._getExtraPath('original_vols'))
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseVol in baseMrcFile:
+                npVol = loadMrc(baseVol, writable=False)
+                baseVol_row= npVol.reshape(lenght)
+                baseVol_col = baseVol_row.transpose()
+                projCoef = np.dot(volRow, baseVol_col)
+                rowCoef.append(projCoef)
+            matProj.append(rowCoef)
+
+        # obtaining volumes from coordinates-----------------------------------
+        os.makedirs(self._getExtraPath('reconstructed_vols'))
         orignCount=0
-        for i in matProj:
+        for projRow in matProj:
             vol = np.zeros((dim, dim,dim))
-            for a, b in zip(baseMrcFile, i):
-                volNpo = loadMrc(a, False)
-                vol += volNpo * b
+            for baseVol, proj in zip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
             finalVol= vol + npAvgVol
             nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
-            saveMrc(finalVol.astype(dType), self._getExtraPath('original_vols', nameVol))
+            saveMrc(finalVol.astype(dType), self._getExtraPath('reconstructed_vols', nameVol))
             orignCount += 1
 
         # difference b/w input vol and original vol-----------------------------
         reconstMrc = self._getExtraPath("original_vols","*.mrc")
-        reconstMrcFile = glob(reconstMrc)
+        reconstMrcFile = sorted(glob(reconstMrc))
         diffCount=0
         os.makedirs(self._getExtraPath('volDiff'))
         for a, b in zip(reconstMrcFile, fnIn):
@@ -313,7 +313,6 @@ class ProtLandscapePCA(em.EMProtocol):
 
 
     def _getvhDel(self, vh, s):
-
         if self.thresholdMode == PCA_THRESHOLD:
             thr= self.thr.get()
             if thr < 1:
