@@ -404,23 +404,19 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                               label="clustering method",
                               display=EnumParam.DISPLAY_COMBO,
                               help='Select a method to cluster the data. \n ')
-
         form.addParallelSection(threads=1, mpi=1)
 
     def _insertAllSteps(self):
-        
-        convertId = self._insertFunctionStep('convertInputStep',
-                                             self.inputParticles.get().getObjId(), self.inputVolume.get().getObjId(), 
-                                             self.targetResolution.get())
-        
-        self._insertFunctionStep('constructGroupsStep', self.inputParticles.get().getObjId(),
-                                 self.angularSampling.get(), self.angularDistance.get(), self.symmetryGroup.get())
-        
-
-
+        particlesId = self.inputParticles.get().getObjId()
+        volId = self.inputVolume.get().getObjId()
+        convertId = self._insertFunctionStep('convertInputStep', particlesId,
+                                             volId, self.targetResolution.get())
+        self._insertFunctionStep('constructGroupsStep', particlesId,
+                                 self.angularSampling.get(),
+                                 self.angularDistance.get(),
+                                 self.symmetryGroup.get())
         self._insertFunctionStep('classify2DStep')
         self._insertFunctionStep('randomSelectionStep')
-        
         self._insertFunctionStep('reconstruct3DStep')
         self._insertFunctionStep('pcaStep')
 
@@ -682,7 +678,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         Mc = (self.backRadius.get()) * (self.Xdim2/2)
         Sym = self.symmetryGroup.get()
 
-        for i in range (self.randomIteration):
+        for i in range(self.randomIteration):
             stack=i+1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
             self.runJob("xmipp_reconstruct_fourier","-i %s.xmd -o %s.vol --sym %s --max_resolution %f" %(fnRandomAverages,fnRandomAverages,Sym,normFreq))
@@ -694,17 +690,15 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         listVol = []
         Plugin.setEnviron()
         for i in range (self.randomIteration):
-            stack=i+1
+            stack = i + 1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
             inputVol = fnRandomAverages +'.vol'
             img = ImageHandler()
-            img.convert(inputVol, self._getExtraPath("volume_%s.mrc" %stack))
-            MrcFile = self._getExtraPath("volume_%s.mrc" %stack)
-            listVol.append(MrcFile)
-
+            mrcFn = self._getExtraPath("volume_%s.mrc" %stack)
+            img.convert(inputVol, mrcFn)
+            listVol.append(mrcFn)
 
         # ""AVERAGE VOLUME GENERATION""#
-        listVol = self._getPathMaps() if not bool(listVol) else listVol
         avgVol = self._getPath('map_average.mrc')
         for vol in listVol:
             npVol = loadMrc(vol, writable=False)
@@ -712,31 +706,30 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
-        npAvgVol = np.divide(npAvgVol, len(listVol))
+        npAvgVol = npAvgVol/ len(listVol)
         saveMrc(npAvgVol.astype(dType), avgVol)
 
         ##""PCA ESTIMATION- generates covariance matrix""##
-        npVol = loadMrc(listVol.__getitem__(0), False)
+        npVol = loadMrc(listVol[0], False)
         dim = npVol.shape[0]
         lenght = dim ** 3
-        cov_matrix = []
-        for vol in listVol:
-            npVol = loadMrc(vol, False)
-            volList = npVol.reshape(lenght)
+        covMatrix = []
+        for vol1 in listVol:
+            npVol1 = loadMrc(vol1, False)
+            restNpVol1 = npVol1 - npAvgVol
+            listRestNpVol1 = restNpVol1.reshape(lenght)
             row = []
-            b = volList - npAvgVol.reshape(lenght)
+            for vol2 in listVol:
+                npVol2 = loadMrc(vol2, writable=False)
+                restNpVol2  = npVol2 - npAvgVol
+                listRestNpVol2 = restNpVol2.reshape(lenght)
+                coef = np.cov(listRestNpVol1,listRestNpVol2)[0][1]
+                row.append(coef)
+            covMatrix.append(row)
 
-            for j in listVol:
-                npVol = loadMrc(j, writable=False)
-                volList = npVol.reshape(lenght)
-                volList_two = volList - npAvgVol.reshape(lenght)
-                temp_a = np.corrcoef(volList_two, b).item(1)
-                row.append(temp_a)
-            cov_matrix.append(row)
-
-
+        print("cov Matrix: ", covMatrix)
         ##""DO PCA - generated principal components""##
-        u, s, vh = np.linalg.svd(cov_matrix)
+        u, s, vh = np.linalg.svd(covMatrix)
         cuttOffMatrix = sum(s) * 1
         sCut = 0
         for i in s:
@@ -754,70 +747,66 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         self._createMFile(vhDel, 'matrix_vhDel.txt')
 
-
-        ###""MATCH PROJECTION"""###
+        # Generates base volumes
         counter = 0
-        for i in vhDel.T:
-            base = np.zeros(lenght)
-            for (a, b) in izip(listVol, i):
-                volInp = loadMrc(a, False)
-                volInpR = volInp.reshape(lenght)
-                base += volInpR * b
-                volBase = base.reshape((dim, dim, dim))
+        for eigenRow in vhDel.T:
+            volBase = np.zeros((dim, dim, dim))
+            for (volFn, eigenCoef) in izip(listVol, eigenRow):
+                npVol = loadMrc(volFn, False)
+                restNpVol = npVol - npAvgVol
+                volBase += eigenCoef * restNpVol
             nameVol = 'volume_base_%02d.mrc' % (counter)
             saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
             counter += 1
 
+        # Generates the matrix projection
         matProj = []
-        baseMrc = self._getExtraPath("volume_*.mrc")
-        baseMrcFile = glob(baseMrc)
+        baseMrc = self._getExtraPath("volume_base_??.mrc")
+        baseMrcFile = sorted(glob(baseMrc))
+        print("sorted base volumes")
+
         for vol in listVol:
-            volNp = loadMrc(vol, False)
-            volRow = volNp.reshape(lenght)
-            volInputTwo = volRow - npAvgVol.reshape(lenght)
-            row_one = []
-            for j in baseMrcFile:
-                npVol = loadMrc(j, writable=False)
-                volBaseTwo = npVol.reshape(lenght)
-                j_trans = volBaseTwo.transpose()
-                matrix_two = np.dot(volInputTwo, j_trans)
-                row_one.append(matrix_two)
-            matProj.append(row_one)
+            npVol = loadMrc(vol, False)
+            restNpVol = npVol - npAvgVol
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseFn in baseMrcFile:
+                npBase = loadMrc(baseFn, writable=False)
+                npBaseRow = npBase.reshape(lenght)
+                npBaseCol = npBaseRow.transpose()
+                projCoef = np.dot(volRow, npBaseCol)
+                rowCoef.append(projCoef)
+            matProj.append(rowCoef)
         print(matProj)
 
-        ##Kmeans&AffinityPropagation
-
-        if self.ClusteringMethod.get() == 0:
-            from sklearn.cluster import KMeans
-            kmeans = KMeans(n_clusters= 2).fit(matProj)
-            cc = kmeans.cluster_centers_
-            op = kmeans.labels_
-            print(cc)
-            print(op)
-
-        elif self.ClusteringMethod.get() == 1:
-            from sklearn.cluster import AffinityPropagation
-            ap = AffinityPropagation(damping=0.9).fit(matProj)
-            print("cluster_centers", ap.cluster_centers_)
-            cc = ap.cluster_centers_
-            op= ap.labels_
-            print(op)
-
         ####Coordinates to volume ######
-        baseMrc = self._getExtraPath("volume_*.mrc")
-        baseMrcFile = glob(baseMrc)
         makePath(self._getExtraPath('recons_vols'))
         orignCount = 0
-        for i in matProj:
+        for projRow in matProj:
             vol = np.zeros((dim, dim, dim))
-            for a, b in izip(baseMrcFile, i):
-
-                volNpo = loadMrc(a, False)
-                vol += volNpo * b
+            for baseVol, proj in izip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
             finalVol = vol + npAvgVol
-            nameVol = 'volume_reconstructed_%05d.mrc' % (orignCount)
+            nameVol = 'volume_reconstructed_%03d.mrc' % (orignCount)
             saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
             orignCount += 1
+
+        # if self.ClusteringMethod.get() == 0:
+        #     from sklearn.cluster import KMeans
+        #     kmeans = KMeans(n_clusters=2).fit(matProj)
+        #     cc = kmeans.cluster_centers_
+        #     op = kmeans.labels_
+        #     print(cc)
+        #     print(op)
+        #
+        # else:
+        #     from sklearn.cluster import AffinityPropagation
+        #     ap = AffinityPropagation(damping=0.9).fit(matProj)
+        #     print("cluster_centers", ap.cluster_centers_)
+        #     cc = ap.cluster_centers_
+        #     op = ap.labels_
+        #     print(op)
 
     def createOutputStep(self):
         pass

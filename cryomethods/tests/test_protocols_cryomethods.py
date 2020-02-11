@@ -27,12 +27,8 @@
 from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes , ProtSubSet
-from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
-from cryomethods.protocols import ProtInitialVolumeSelector
-from cryomethods.protocols import ProtDirectionalPruning
-from cryomethods.protocols import ProtClass3DRansac
-
+from pyworkflow.em import ProtImportParticles, ProtImportVolumes, ProtSubSet
+from cryomethods.protocols import *
 
 class TestBase(BaseTest):
     @classmethod
@@ -259,7 +255,6 @@ class TestDirectionalPruning(TestBase):
 
 
 class TestClass3DRansac(TestBase):
-
     @classmethod
     def setUpClass(cls):
         setupTestProject(cls)
@@ -289,7 +284,7 @@ class TestClass3DRansac(TestBase):
                                         numberOfIterations=5,
                                         regularisationParamT=2,
                                         numClasses=5,
-                                        numberOfMpi=2
+                                        numberOfMpi=4
                                         )
 
         DransacProt.inputVolume.set(self.protImportVol.outputVolume)
@@ -297,34 +292,30 @@ class TestClass3DRansac(TestBase):
         self.launchProtocol(DransacProt)
 
 
-        DransacProt1 = self.newProtocol(ProtClass3DRansac,
-                                    objLabel='directional classes 1',
-                                    Class2D=0,
-                                    angularSampling=20,
-                                    angularDistance=25,
-                                    numClasses=5,
-                                    numberOfMpi=4
-                                    )
-
-
-        DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
-        DransacProt1.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(DransacProt1)
-
-
-        DransacProt2= self.newProtocol(ProtClass3DRansac,
-                                    objLabel='directional classes 1',
-                                    Class2D=1,
-                                    angularSampling=20,
-                                    angularDistance=25,
-                                    numClasses=5,
-                                    numberOfMpi=4
-                                    )
-
-        DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
-        DransacProt2.inputParticles.set(protSubset.outputParticles)
-        self.launchProtocol(DransacProt2)
-
-
-
-
+        # DransacProt1 = self.newProtocol(ProtClass3DRansac,
+        #                             objLabel='directional classes 1',
+        #                             Class2D=0,
+        #                             angularSampling=20,
+        #                             angularDistance=25,
+        #                             numClasses=5,
+        #                             numberOfMpi=4
+        #                             )
+        #
+        #
+        # DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
+        # DransacProt1.inputParticles.set(protSubset.outputParticles)
+        # self.launchProtocol(DransacProt1)
+        #
+        #
+        # DransacProt2= self.newProtocol(ProtClass3DRansac,
+        #                             objLabel='directional classes 1',
+        #                             Class2D=1,
+        #                             angularSampling=20,
+        #                             angularDistance=25,
+        #                             numClasses=5,
+        #                             numberOfMpi=4
+        #                             )
+        #
+        # DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
+        # DransacProt2.inputParticles.set(protSubset.outputParticles)
+        # self.launchProtocol(DransacProt2)
