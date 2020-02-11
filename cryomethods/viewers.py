@@ -294,191 +294,191 @@ class VolumeSelectorViewer(ProtocolViewer):
         return self.protocol._getFileName(prefix + 'model', iter=it)
 
 #  --------------------------NMA_Landscape VIEWER-------------------------------
-
-class NmaLandscapeViewer(ProtocolViewer):
-    _label = 'viewer resolution3D'
-    _targets = [ProtLandscapeNMA]
-    _environments = [DESKTOP_TKINTER, WEB_DJANGO]
-
-    def _defineParams(self, form):
-        form.addSection(label='Results')
-        form.addParam('plotAutovalues', params.LabelParam,
-                      label="Display cumulative sum of eigenvalues")
-
-        group = form.addGroup('Landscape')
-        group.addParam('heatMap', params.EnumParam,
-                      choices=['MDS', 'LocallyLinearEmbedding',
-                               'Isomap', 'TSNE'],
-                      default=MDS,
-                      label='Non-linear Manifold embedding',
-                      help='select')
-        group.addParam('interpolateType', em.EnumParam,
-                       choices=['linear', 'cubic'],
-                       default=0,
-                       label="Interpolation Type")
-        group.addParam('binSize', params.IntParam, default=6,
-                       label="select bin size")
-        group.addParam('neighbourCount', params.IntParam, default=3,
-                       label="Select neighbour points",
-                       condition="heatMap==1 or heatMap==2")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
-        group.addParam('points', params.IntParam, default=5,
-                       label="Select number of volumes you want to show")
-        group.addParam('plot', params.EnumParam,
-                       choices=['2D', '3D'],
-                       default=0,
-                       label='view 2D or 3D free-energy landscape.')
-        group.addParam('dimensionality', params.LabelParam,
-                       label='View trajectory in 2D free-energy landscape')
-        group.addParam('scatterPlot', params.LabelParam,
-                       label='scatter plot of 2d free-energy landscape')
-
-
-
-
-    def _getVisualizeDict(self):
-        visualizeDict = {'plotAutovalues': self._plotAutovalues,
-                         # 'dimensionality': self._viewHeatMap,
-                         'plot': self._viewPlot,
-                         # 'scatterPlot': self._scatterPlot
-                         }
-        return visualizeDict
-
-    def _showErrors(self, param=None):
-        views = []
-        self.errorList(self._errors, views)
-        return views
-
-    def _viewAll(self, *args):
-        pass
-
-    # ==========================================================================
-    # Show sum of eigenvalues
-    # ==========================================================================
-    def _plotAutovalues(self, paramName=None):
-        fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
-        autoVal = np.load(fn)
-        vals = (np.cumsum(autoVal))
-        plt.plot(vals)
-        plt.show()
-
-    def _viewPlot(self, paramName=None):
-        if self.plot.get() == 0:
-            self._view2DPlot()
-        # else:
-        #     self._view3DHeatMap()
-
-    def _genralplot(self, paramName=None):
-        nPCA = self.pcaCount.get()
-        matProj = self._loadPcaCoordinates()
-        if self.heatMap.get() == MDS:
-            man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
-            coords = man.fit_transform(matProj[:, 0:nPCA])
-
-        elif self.heatMap.get() == LLEMBEDDING:
-            n_neighbors = self.neighbourCount.get()
-            man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
-            coords = man.fit_transform(matProj[:, 0:nPCA])
-
-        elif self.heatMap.get() == Isomap:
-            n_neighbors = self.neighbourCount.get()
-            iso = manifold.Isomap(n_neighbors, n_components=2)
-            coords = iso.fit_transform(matProj[:, 0:nPCA])
-
-        else:
-            man = manifold.TSNE(n_components=2, random_state=0)
-            coords = man.fit_transform(matProj[:, 0:nPCA])
-        return coords
-
-    def _view2DPlot(self):
-        fn = self.protocol._getExtraPath('Particle_Weights.npy')
-        weight = np.load(fn)
-        print (weight, "weight")
-        nBins = self.binSize.get()
-        coords = self._genralplot()
-        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
-
-        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
-        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
-
-        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
-        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
-        H2 = counts.reshape(counts.size)
-        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-        if self.interpolateType == LINEAR:
-            intType = 'linear'
-        else:
-            intType = 'cubic'
-        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
-                                    bounds_error='True')
-        znew = f(a2, b2)
-        print (znew, "znew")
-        # ---------------------------finding maxima on 2d map-------------------
-        minima = znew.max()
-        print (minima, "minimaaa")
-        tempValue = -25
-        fac = np.true_divide(znew, minima)
-        boltzFac = tempValue * fac
-        boltzParts = self.protocol._getExtraPath('boltzFac')
-        np.save(boltzParts, boltzFac)
-        boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
-
-        # ---------------------------------------------------------------
-
-        plt.figure()
-        plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
-        plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
-                     vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
-        # ----------showing x,y,z under cursor---------------------------
-        Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
-
-        def fmt(x, y):
-            # get closest point with known data
-            dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
-            idx = np.argmin(dist)
-            z = Zflat[idx]
-            return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
-
-        # -------------------------------------------------------------------
-
-        plt.gca().format_coord = fmt
-        plt.colorbar()
-        savePlot = self.protocol._getExtraPath('2d_PLOT.png')
-        plt.savefig(savePlot)
-        # draw colorbar
-        plt.show()
-
-    def _loadPcaCoordinates(self):
-        """ Check if the PCA data is generated and if so,
-        read the data.
-        *args and **kwargs will be passed to self._createPlot function.
-        """
-        fn = self.protocol._getExtraPath('Coordinates', 'matProj_splic.npy')
-        matProjData = np.load(fn)
-        return matProjData
-
-    def _getEdges(self, crds, nBins, weight):
-        counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
-                                                weights=weight,
-                                                bins=nBins)
-        shapeCounts = counts.shape[0] + 2
-        countsExtended = np.zeros((shapeCounts, shapeCounts))
-        countsExtended[1:-1, 1:-1] = counts
-
-        def extendEdges(edges, shapeCounts):
-            xedges = 0.5 * edges[:-1] + 0.5 * edges[1:]
-            stepx = edges[1] - edges[0]
-            xedgesExtended = np.zeros(shapeCounts)
-            xedgesExtended[1:-1] = xedges
-            xedgesExtended[0] = xedges[0] - stepx
-            xedgesExtended[-1] = xedges[-1] + stepx
-            return xedgesExtended
-
-        xedgesExtended = extendEdges(xedges, shapeCounts)
-        yedgesExtended = extendEdges(yedges, shapeCounts)
-
-        return xedgesExtended, yedgesExtended, countsExtended
+#
+# class NmaLandscapeViewer(ProtocolViewer):
+#     _label = 'viewer resolution3D'
+#     _targets = [ProtLandscapeNMA]
+#     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
+#
+#     def _defineParams(self, form):
+#         form.addSection(label='Results')
+#         form.addParam('plotAutovalues', params.LabelParam,
+#                       label="Display cumulative sum of eigenvalues")
+#
+#         group = form.addGroup('Landscape')
+#         group.addParam('heatMap', params.EnumParam,
+#                       choices=['MDS', 'LocallyLinearEmbedding',
+#                                'Isomap', 'TSNE'],
+#                       default=MDS,
+#                       label='Non-linear Manifold embedding',
+#                       help='select')
+#         group.addParam('interpolateType', em.EnumParam,
+#                        choices=['linear', 'cubic'],
+#                        default=0,
+#                        label="Interpolation Type")
+#         group.addParam('binSize', params.IntParam, default=6,
+#                        label="select bin size")
+#         group.addParam('neighbourCount', params.IntParam, default=3,
+#                        label="Select neighbour points",
+#                        condition="heatMap==1 or heatMap==2")
+#         group.addParam('pcaCount', params.IntParam, default=10,
+#                        label="Select number of principal components")
+#         group.addParam('points', params.IntParam, default=5,
+#                        label="Select number of volumes you want to show")
+#         group.addParam('plot', params.EnumParam,
+#                        choices=['2D', '3D'],
+#                        default=0,
+#                        label='view 2D or 3D free-energy landscape.')
+#         group.addParam('dimensionality', params.LabelParam,
+#                        label='View trajectory in 2D free-energy landscape')
+#         group.addParam('scatterPlot', params.LabelParam,
+#                        label='scatter plot of 2d free-energy landscape')
+#
+#
+#
+#
+#     def _getVisualizeDict(self):
+#         visualizeDict = {'plotAutovalues': self._plotAutovalues,
+#                          # 'dimensionality': self._viewHeatMap,
+#                          'plot': self._viewPlot,
+#                          # 'scatterPlot': self._scatterPlot
+#                          }
+#         return visualizeDict
+#
+#     def _showErrors(self, param=None):
+#         views = []
+#         self.errorList(self._errors, views)
+#         return views
+#
+#     def _viewAll(self, *args):
+#         pass
+#
+#     # ==========================================================================
+#     # Show sum of eigenvalues
+#     # ==========================================================================
+#     def _plotAutovalues(self, paramName=None):
+#         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
+#         autoVal = np.load(fn)
+#         vals = (np.cumsum(autoVal))
+#         plt.plot(vals)
+#         plt.show()
+#
+#     def _viewPlot(self, paramName=None):
+#         if self.plot.get() == 0:
+#             self._view2DPlot()
+#         # else:
+#         #     self._view3DHeatMap()
+#
+#     def _genralplot(self, paramName=None):
+#         nPCA = self.pcaCount.get()
+#         matProj = self._loadPcaCoordinates()
+#         if self.heatMap.get() == MDS:
+#             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#
+#         elif self.heatMap.get() == LLEMBEDDING:
+#             n_neighbors = self.neighbourCount.get()
+#             man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#
+#         elif self.heatMap.get() == Isomap:
+#             n_neighbors = self.neighbourCount.get()
+#             iso = manifold.Isomap(n_neighbors, n_components=2)
+#             coords = iso.fit_transform(matProj[:, 0:nPCA])
+#
+#         else:
+#             man = manifold.TSNE(n_components=2, random_state=0)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#         return coords
+#
+#     def _view2DPlot(self):
+#         fn = self.protocol._getExtraPath('Particle_Weights.npy')
+#         weight = np.load(fn)
+#         print (weight, "weight")
+#         nBins = self.binSize.get()
+#         coords = self._genralplot()
+#         xedges, yedges, counts = self._getEdges(coords, nBins, weight)
+#
+#         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+#         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+#
+#         a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+#         b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+#         H2 = counts.reshape(counts.size)
+#         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+#         if self.interpolateType == LINEAR:
+#             intType = 'linear'
+#         else:
+#             intType = 'cubic'
+#         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+#                                     bounds_error='True')
+#         znew = f(a2, b2)
+#         print (znew, "znew")
+#         # ---------------------------finding maxima on 2d map-------------------
+#         minima = znew.max()
+#         print (minima, "minimaaa")
+#         tempValue = -25
+#         fac = np.true_divide(znew, minima)
+#         boltzFac = tempValue * fac
+#         boltzParts = self.protocol._getExtraPath('boltzFac')
+#         np.save(boltzParts, boltzFac)
+#         boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
+#
+#         # ---------------------------------------------------------------
+#
+#         plt.figure()
+#         plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+#         plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+#                      vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+#         # ----------showing x,y,z under cursor---------------------------
+#         Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+#
+#         def fmt(x, y):
+#             # get closest point with known data
+#             dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+#             idx = np.argmin(dist)
+#             z = Zflat[idx]
+#             return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+#
+#         # -------------------------------------------------------------------
+#
+#         plt.gca().format_coord = fmt
+#         plt.colorbar()
+#         savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+#         plt.savefig(savePlot)
+#         # draw colorbar
+#         plt.show()
+#
+#     def _loadPcaCoordinates(self):
+#         """ Check if the PCA data is generated and if so,
+#         read the data.
+#         *args and **kwargs will be passed to self._createPlot function.
+#         """
+#         fn = self.protocol._getExtraPath('Coordinates', 'matProj_splic.npy')
+#         matProjData = np.load(fn)
+#         return matProjData
+#
+#     def _getEdges(self, crds, nBins, weight):
+#         counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
+#                                                 weights=weight,
+#                                                 bins=nBins)
+#         shapeCounts = counts.shape[0] + 2
+#         countsExtended = np.zeros((shapeCounts, shapeCounts))
+#         countsExtended[1:-1, 1:-1] = counts
+#
+#         def extendEdges(edges, shapeCounts):
+#             xedges = 0.5 * edges[:-1] + 0.5 * edges[1:]
+#             stepx = edges[1] - edges[0]
+#             xedgesExtended = np.zeros(shapeCounts)
+#             xedgesExtended[1:-1] = xedges
+#             xedgesExtended[0] = xedges[0] - stepx
+#             xedgesExtended[-1] = xedges[-1] + stepx
+#             return xedgesExtended
+#
+#         xedgesExtended = extendEdges(xedges, shapeCounts)
+#         yedgesExtended = extendEdges(yedges, shapeCounts)
+#
+#         return xedgesExtended, yedgesExtended, countsExtended
 
 
 #  --------------------------ML_Landscape VIEWER--------------------------------
@@ -856,9 +856,6 @@ class PcaLandscapeViewer(ProtocolViewer):
                         cmap='viridis', edgecolor='none')
         # draw colorbar
         plt.show()
-
-
-
 
 
 class PointPath():
