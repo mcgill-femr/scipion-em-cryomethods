@@ -31,7 +31,6 @@ from os.path import exists
 import numpy as np
 import Tkinter as tk
 
-from django.contrib.localflavor import si
 from sklearn import manifold
 import scipy as sc
 import matplotlib.pyplot as plt
@@ -50,12 +49,7 @@ from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_ML_landscape import ProtLandscapePCA
 from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
 from convert import loadMrc, saveMrc
-import matplotlib as mpl
-import math
-from scipy.signal import argrelextrema
-import scipy.ndimage as ndimage
-import scipy.ndimage.filters as filters
-import scipy
+
 
 
 
