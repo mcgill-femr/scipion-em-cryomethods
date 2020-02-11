@@ -268,10 +268,10 @@ class ProtLandscapeNMA(em.EMProtocol):
         form.addSection(label='Animation')
         form.addParam('amplitude', FloatParam, default=70,
                       label="Amplitude")
-        form.addParam('displayVol', params.LabelParam,
-                       label='Display volume with',
-                       help='*slices*: display volumes as 2D slices along z '
-                            'axis.')
+        # form.addParam('displayVol', params.LabelParam,
+        #                label='Display volume with',
+        #                help='*slices*: display volumes as 2D slices along z '
+        #                     'axis.')
         form.addParam('nframes', IntParam, default=3,
                       expertLevel=LEVEL_ADVANCED,
                       label='Number of frames')
@@ -795,10 +795,10 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         form.addParallelSection(threads=1, mpi=4)
 
-    def _getVisualizeDict(self):
-        visualizeDict = {'displayVol': self._showVolumes
-                         }
-        return visualizeDict
+    # def _getVisualizeDict(self):
+    #     visualizeDict = {'displayVol': self._showVolumes
+    #                      }
+    #     return visualizeDict
 
     def _defineConstants(self):
         self.IS_3D = not self.IS_2D
@@ -875,29 +875,16 @@ class ProtLandscapeNMA(em.EMProtocol):
                         numberOfMpi=1, numberOfThreads=1)
         cleanPattern(self._getPath(pseudoatoms + '_*'))
     # ---------------------view perturbed vol----------------------------------
-    def _showVolumes(self, paramName=None):
-        view = []
-        pseudoFn = 'pseudoatoms.pdb'
-        self.runJob("nma_animate_pseudoatoms.py %d"
-                    "animated_mode %d %d %f" % \
-                    (pseudoFn, self.amplitude.get(),
-                     self.downsample.get(),
-                     self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
-                    numberOfMpi=1, numberOfThreads=1)
-
-
-        # if (self.viewIter == RUN_LAST and
-        #         getattr(self.protocol, 'outputVolumes', None) is not None):
-        #     fn = self.protocol.outputVolumes.getFileName()
-        #
-        #     view.append(self.createView(filename=fn,
-        #                                 viewParams=self._getViewParams()))
-        # else:
-        #     for r in self._runs:
-        #         volSqlte = self.protocol._getIterVolumes(r)
-        #         view.append(self.createView(filename=volSqlte,
-        #                                     viewParams=self._getViewParams()))
-        return view
+    # def _showVolumes(self, paramName=None):
+    #     view = []
+    #     pseudoFn = 'pseudoatoms.pdb'
+    #     self.runJob("nma_animate_pseudoatoms.py %d"
+    #                 "animated_mode %d %d %f" % \
+    #                 (pseudoFn, self.amplitude.get(),
+    #                  self.downsample.get(),
+    #                  self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
+    #                 numberOfMpi=1, numberOfThreads=1)
+    #     return view
 
     def computeNMAStep(self):
         # Link the input
