@@ -126,7 +126,7 @@ class TestAlignVolumes(TestBase):
         print("Mehod: ", prot.classMethod.get())
         npAvgMap, _ = prot._doAverageMaps(volList)
         matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        # matrix, eigenVals = prot._doPCA(volList)
+        matrix, eigenVals = prot._doPCA(volList)
         labels = prot._clusteringData(matrix)
 
         if labels is not None:
