@@ -109,10 +109,10 @@ class ProtLandscapePCA(em.EMProtocol):
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
 
-        group.addParam('addWeights', params.FileParam, label="Weight File path",
-                      allowsNull=True,
-                      help='Specify a path to weights for volumes.')
-
+        # group.addParam('addWeights', params.FileParam, label="Weight File path",
+        #               allowsNull=True,
+        #               help='Specify a path to weights for volumes.')
+        #
 
         form.addParallelSection(threads=0, mpi=0)
 
@@ -284,9 +284,9 @@ class ProtLandscapePCA(em.EMProtocol):
         npAvgVol = np.divide(npAvgVol, len(listVol))
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def getParticlesPca(self):
-        z_part= np.loadtxt(self.addWeights.get())
-        return z_part
+    # def getParticlesPca(self):
+    #     z_part= np.loadtxt(self.addWeights.get())
+    #     return z_part
 
     def _getPathMaps(self):
         inputObj = self.inputVolumes.get()
