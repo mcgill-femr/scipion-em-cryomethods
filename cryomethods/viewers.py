@@ -49,6 +49,7 @@ from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_ML_landscape import ProtLandscapePCA
 from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
 from convert import loadMrc, saveMrc
+import sqlite3
 
 
 
@@ -550,7 +551,10 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     def _getParticles(self):
         weightPath= self.addWeights.get()
+        # connection = sqlite3.connect(weightPath)
+        # c = connection.cursor()
 
+        #
         with open(weightPath) as f:
             lines = f.readlines()
         parts= np.loadtxt(lines, delimiter=', ', unpack=True)
