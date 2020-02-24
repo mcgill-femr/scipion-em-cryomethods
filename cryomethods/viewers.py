@@ -818,7 +818,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return w
 
     def _view3DHeatMap(self):
-        fn= self.protocol._getExtraPath("44s_parts.npy")
+        fn= self.protocol._getExtraPath("44s_parts_good.npy")
         weight = np.load(fn)
         nBins = self.binSize.get()
         coords = self._genralplot()
