@@ -874,8 +874,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         lenght = dim ** 3
 
         # obtaining volumes from coordinates-----------------------------------
-        os.makedirs(self._getExtraPath('Select_Pca'))
-        baseMrc = self.protocol._getExtraPath("volume_base_%d.mrc" % self.volNumb.get())
+        os.makedirs(self.protocol._getExtraPath('Select_PC'))
+        baseMrc = self.protocol._getExtraPath("volume_base_%02d.mrc" % self.volNumb.get())
         baseMrcFile = sorted(glob(baseMrc))
         avgVol = self.protocol._getFileName('avgMap')
         npAvgVol = loadMrc(avgVol, False)
@@ -891,11 +891,11 @@ class PcaLandscapeViewer(ProtocolViewer):
             print(
                         '-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(finalVol.astype(dType),
-                    self.protocol._getExtraPath('reconstruct_vol', nameVol))
+                    self.protocol._getExtraPath('Select_PC', nameVol))
 
             orgVol = 'original_%02d.mrc' % (self.volNumb.get())
             saveMrc(fnIn.astype(dType),
-                    self._getExtraPath('reconstruct_vol', orgVol))
+                    self.protocol._getExtraPath('Select_PC', orgVol))
             orignCount += 1
 
 
