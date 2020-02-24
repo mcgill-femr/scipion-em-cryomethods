@@ -51,6 +51,8 @@ from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
 from convert import loadMrc, saveMrc
 import sqlite3
 from pyworkflow.em import SetOfClasses3D
+from glob import glob
+
 
 
 
@@ -505,8 +507,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         group.addParam('neighbourCount', params.IntParam, default=3,
                        label="Select neighbour points",
                        condition="heatMap==1 or heatMap==2")
+        group.addParam('volNumb', params.IntParam, default=001,
+                       label="Select the volume to reconstruct")
         group.addParam('pcaCount', params.IntParam, default=10,
                        label="Select number of principal components")
+
         group.addParam('points', params.IntParam, default=5,
                        label="Select number of volumes you want to show")
         # group.addParam('addWeights', params.FileParam, label="Weight File path",
@@ -554,10 +559,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _getParticles(self):
-        partWeights= '/home/satinder/44s_parts.npy'
-        return partWeights
-
-
+        pass
         # weightPath= self.addWeights.get()
         # with open(weightPath) as f:
         #     lines = f.readlines()
@@ -565,6 +567,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
     # particleArray = self.protocol._getExtraPath('Particle_Weights')
     # partWeights = np.save(particleArray, parts)
+    # return partWeights
 
 
 
@@ -855,6 +858,42 @@ class PcaLandscapeViewer(ProtocolViewer):
                         cmap='viridis', edgecolor='none')
         # draw colorbar
         plt.show()
+    # --------------decide pca count to reconstruct vols-----------------
+    def _pcaReconstruction(self, paramName=None):
+        Plugin.setEnviron()
+        nPCA = self.pcaCount.get()
+        matProj = self._loadPcaCoordinates()
+        pcaCount = matProj[:, 0:nPCA]
+        fnIn = glob(self.protocol._getExtraPath('volume_id_%d.mrc'%self.volNumb.get()))
+        iniVolNp = loadMrc(fnIn[0], False)
+        dim = iniVolNp.shape[0]
+        lenght = dim ** 3
+
+        # obtaining volumes from coordinates-----------------------------------
+        os.makedirs(self._getExtraPath('reconstructed_vols'))
+        baseMrc = self.protocol._getExtraPath("volume_base_%d.mrc" % self.volNumb.get())
+        baseMrcFile = sorted(glob(baseMrc))
+        avgVol = self.protocol._getFileName('avgMap')
+        npAvgVol = loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+        orignCount = 0
+        for projRow in pcaCount:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in zip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
+            finalVol = vol + npAvgVol
+            nameVol = 'volume_reconstructed_%d.mrc' % (self.volNumb.get())
+            print(
+                        '-------------saving original_vols %s-----------------' % nameVol)
+            saveMrc(finalVol.astype(dType),
+                    self._getExtraPath('reconstructed_vols', nameVol))
+
+            orgVol = 'volume_original_%d.mrc' % (self.volNumb.get())
+            saveMrc(fnIn.astype(dType),
+                    self._getExtraPath('original_vol', orgVol))
+            orignCount += 1
+
 
 
 class PointPath():
