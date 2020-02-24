@@ -556,13 +556,15 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _getParticles(self):
         partWeights= '/home/satinder/44s_parts.npy'
         return partWeights
-        # particleArray = self.protocol._getExtraPath('Particle_Weights')
-        # partWeights = np.save(particleArray, parts)
+
 
         # weightPath= self.addWeights.get()
         # with open(weightPath) as f:
         #     lines = f.readlines()
         # parts= np.loadtxt(lines, delimiter=', ', unpack=True)
+
+    # particleArray = self.protocol._getExtraPath('Particle_Weights')
+    # partWeights = np.save(particleArray, parts)
 
 
 
