@@ -734,7 +734,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        fn = self._getFileName('/home/satinder/44s_parts.npy')
+        os.chdir('/home/satinder')
+        fn = '44s_parts.npy'
         weight = np.load(fn)
         print (weight, "weight")
         nBins = self.binSize.get()
