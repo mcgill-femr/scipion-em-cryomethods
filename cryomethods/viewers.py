@@ -490,6 +490,13 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addSection(label='Results')
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
+        form.addParam('volNumb', params.IntParam, default=1,
+                       label="Select the volume to reconstruct")
+        form.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of principal components")
+        form.addParam('reconstructVol', params.LabelParam,
+                       label="Visualize the reconstructed volume")
+
 
         group = form.addGroup('Landscape')
         group.addParam('heatMap', params.EnumParam,
@@ -507,10 +514,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         group.addParam('neighbourCount', params.IntParam, default=3,
                        label="Select neighbour points",
                        condition="heatMap==1 or heatMap==2")
-        group.addParam('volNumb', params.IntParam, default=001,
-                       label="Select the volume to reconstruct")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
 
         group.addParam('points', params.IntParam, default=5,
                        label="Select number of volumes you want to show")
@@ -533,7 +536,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
                          'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
-                         'scatterPlot': self._scatterPlot
+                         'scatterPlot': self._scatterPlot,
+                         'reconstructVol': self._pcaReconstruction
                          }
         return visualizeDict
 
@@ -883,15 +887,15 @@ class PcaLandscapeViewer(ProtocolViewer):
                 volNpo = loadMrc(baseVol, False)
                 vol += volNpo * proj
             finalVol = vol + npAvgVol
-            nameVol = 'volume_reconstructed_%d.mrc' % (self.volNumb.get())
+            nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
             print(
                         '-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(finalVol.astype(dType),
-                    self._getExtraPath('reconstructed_vols', nameVol))
+                    self.protocol._getExtraPath('reconstruct_vol', nameVol))
 
-            orgVol = 'volume_original_%d.mrc' % (self.volNumb.get())
+            orgVol = 'original_%02d.mrc' % (self.volNumb.get())
             saveMrc(fnIn.astype(dType),
-                    self._getExtraPath('original_vol', orgVol))
+                    self._getExtraPath('reconstruct_vol', orgVol))
             orignCount += 1
 
 
