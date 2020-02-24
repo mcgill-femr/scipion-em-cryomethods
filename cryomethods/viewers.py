@@ -868,8 +868,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         nPCA = self.pcaCount.get()
         matProj = self._loadPcaCoordinates()
         pcaCount = matProj[:, 0:nPCA]
-        fnIn = glob(self.protocol._getExtraPath('volume_id_%d.mrc'%self.volNumb.get()))
-        iniVolNp = loadMrc(fnIn[0], False)
+        fnIn = glob(self.protocol._getExtraPath('volume_id_%02d.mrc'%self.volNumb.get()))
+        iniVolNp = loadMrc(fnIn, False)
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
 

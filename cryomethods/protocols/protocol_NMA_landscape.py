@@ -1729,7 +1729,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                 break
 
         refMd.write(self._getRefStar())
-        print (inputFn, "inputFnnnnnnnnnnnnnnnnn")
 
 
     def _postprocessParticleRow(self, part, partRow):
