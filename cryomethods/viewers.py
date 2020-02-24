@@ -50,6 +50,7 @@ from .protocols.protocol_ML_landscape import ProtLandscapePCA
 from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
 from convert import loadMrc, saveMrc
 import sqlite3
+from pyworkflow.em import SetOfClasses3D
 
 
 
@@ -508,9 +509,9 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label="Select number of principal components")
         group.addParam('points', params.IntParam, default=5,
                        label="Select number of volumes you want to show")
-        group.addParam('addWeights', params.FileParam, label="Weight File path",
-                       allowsNull=True,
-                       help='Specify a path to weights for volumes.')
+        # group.addParam('addWeights', params.FileParam, label="Weight File path",
+        #                allowsNull=True,
+        #                help='Specify a path to weights for volumes.')
         group.addParam('plot', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
@@ -531,6 +532,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                          }
         return visualizeDict
 
+
     def _showErrors(self, param=None):
         views = []
         self.errorList(self._errors, views)
@@ -549,19 +551,18 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.plot(vals)
         plt.show()
 
+
+
     def _getParticles(self):
-        weightPath= self.addWeights.get()
-        # connection = sqlite3.connect(weightPath)
-        # c = connection.cursor()
-
-        #
-        with open(weightPath) as f:
-            lines = f.readlines()
-        parts= np.loadtxt(lines, delimiter=', ', unpack=True)
-
-        particleArray = self.protocol._getExtraPath('Particle_Weights')
-        partWeights = np.save(particleArray, parts)
+        partWeights= '/home/satinder/44s_parts.npy'
         return partWeights
+        # particleArray = self.protocol._getExtraPath('Particle_Weights')
+        # partWeights = np.save(particleArray, parts)
+
+        # weightPath= self.addWeights.get()
+        # with open(weightPath) as f:
+        #     lines = f.readlines()
+        # parts= np.loadtxt(lines, delimiter=', ', unpack=True)
 
 
 
