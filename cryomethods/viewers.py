@@ -874,7 +874,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         lenght = dim ** 3
 
         # obtaining volumes from coordinates-----------------------------------
-        os.makedirs(self._getExtraPath('reconstructed_vols'))
+        os.makedirs(self._getExtraPath('Select_Pca'))
         baseMrc = self.protocol._getExtraPath("volume_base_%d.mrc" % self.volNumb.get())
         baseMrcFile = sorted(glob(baseMrc))
         avgVol = self.protocol._getFileName('avgMap')
