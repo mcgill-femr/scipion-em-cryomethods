@@ -873,9 +873,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         volReconst= []
         for vols in fnIn:
             fnVols= loadMrc(vols, False)
-            volNum= self.volNumb.get()
-            selectVol= fnVols[volNum]
-            volReconst.append(selectVol)
+            if len(fnVols)<=len(fnIn):
+                volNum= self.volNumb.get()
+                selectVol= fnVols[volNum]
+                volReconst.append(selectVol)
+            break
 
 
 
