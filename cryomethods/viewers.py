@@ -491,7 +491,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
 
-        form.addParam('reconstruct', params.EnumParam, default=0,
+        form.addParam('reconstruct', params.LabelParam, default=0,
                       choices=['Yes, Reconstruct',
                                'No Reconstruction'],
                       label='Reconstruct maps to guess required'
