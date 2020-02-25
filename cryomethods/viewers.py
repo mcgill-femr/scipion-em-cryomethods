@@ -490,18 +490,14 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addSection(label='Results')
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
-
-        form.addParam('reconstruct', params.EnumParam, default=0,
-                      choices=['Yes, Reconstruct',
-                               'No Reconstruction'],
-                      label='Reconstruct maps to guess required'
-                            ' Principal Components')
-        form.addParam('volNumb', params.IntParam, default=1,
-                      condition='reconstruct==%d' % 0,
+        group = form.addGroup('Guess PC value')
+        group.addParam('volNumb', params.IntParam, default=1,
                        label="Select the volume to reconstruct")
-        form.addParam('pcaCount', params.LabelParam, default=10,
-                      condition='reconstruct==%d' % 0,
+        group.addParam('pcaCount', params.IntParam, default=10,
                        label="Select number of principal components")
+        group.addParam('reconstructVol', params.LabelParam,
+                       label="reconstruct map with selected PC value ")
+
 
         group = form.addGroup('Landscape')
         group.addParam('heatMap', params.EnumParam,
@@ -542,7 +538,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                          'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
                          'scatterPlot': self._scatterPlot,
-                         'pcaCount': self._pcaReconstruction
+                         'reconstructVol': self._pcaReconstruction
                          }
         return visualizeDict
 
@@ -868,48 +864,47 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.show()
     # --------------decide pca count to reconstruct vols-----------------
     def _pcaReconstruction(self, paramName=None):
-        if self.reconstruct.get()==0:
-            Plugin.setEnviron()
-            nPCA = self.pcaCount.get()
-            matProj = self._loadPcaCoordinates()
-            pcaCount = matProj[:, 0:nPCA]
-            print (pcaCount, "pcaCount")
-            fnIn = self.protocol._getMrcVolumes()
+        Plugin.setEnviron()
+        nPCA = self.pcaCount.get()
+        matProj = self._loadPcaCoordinates()
+        pcaCount = matProj[:, 0:nPCA]
+        print (pcaCount, "pcaCount")
+        fnIn = self.protocol._getMrcVolumes()
 
-            volNum = self.volNumb.get()
-            iniVolNp = loadMrc(fnIn[volNum], False)
-            dim = iniVolNp.shape[volNum]
-            print (iniVolNp, "iniVolNp")
-            lenght = dim ** 3
+        volNum = self.volNumb.get()
+        iniVolNp = loadMrc(fnIn[volNum], False)
+        dim = iniVolNp.shape[volNum]
+        print (iniVolNp, "iniVolNp")
+        lenght = dim ** 3
 
-            # obtaining volumes from coordinates-----------------------------------
-            baseMrc = self.protocol._getExtraPath("volume_base_??.mrc")
-            baseMrcFile = sorted(glob(baseMrc))
-            volNpo = loadMrc(baseMrcFile[volNum], False)
-            # self.protocol._getAverageVol()
-            avgVol = self.protocol._getPath('extramap_average.mrc')
-            npAvgVol = loadMrc(avgVol, False)
-            print ("average map is here")
-            dType = npAvgVol.dtype
-            for projRow in pcaCount:
-                vol = np.zeros((dim, dim, dim))
-                for baseVol, proj in zip(volNpo, projRow):
-                    # volBase = loadMrc(baseVol, False)
-                    vol += baseVol * proj
-                    break
-                finalVol = vol + npAvgVol
-                nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-                print(
-                            '-------------saving original_vols %s-----------------' % nameVol)
-                saveMrc(finalVol.astype(dType),
-                        self.protocol._getExtraPath('Select_PC', nameVol))
+        # obtaining volumes from coordinates-----------------------------------
+        baseMrc = self.protocol._getExtraPath("volume_base_??.mrc")
+        baseMrcFile = sorted(glob(baseMrc))
+        volNpo = loadMrc(baseMrcFile[volNum], False)
+        # self.protocol._getAverageVol()
+        avgVol = self.protocol._getPath('extramap_average.mrc')
+        npAvgVol = loadMrc(avgVol, False)
+        print ("average map is here")
+        dType = npAvgVol.dtype
+        for projRow in pcaCount:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in zip(volNpo, projRow):
+                # volBase = loadMrc(baseVol, False)
+                vol += baseVol * proj
                 break
+            finalVol = vol + npAvgVol
+            nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+            print(
+                        '-------------saving original_vols %s-----------------' % nameVol)
+            saveMrc(finalVol.astype(dType),
+                    self.protocol._getExtraPath('Select_PC', nameVol))
+            break
 
-            orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-            saveMrc(iniVolNp.astype(dType),
-                    self.protocol._getExtraPath('Select_PC', orgVol))
-        else:
-            self.pcaCount.get()
+        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        saveMrc(iniVolNp.astype(dType),
+                self.protocol._getExtraPath('Select_PC', orgVol))
+
+
 
 class PointPath():
         """ Graphical manager based on Matplotlib to handle mouse
