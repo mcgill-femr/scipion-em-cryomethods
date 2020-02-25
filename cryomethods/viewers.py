@@ -491,13 +491,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
 
-        group = form.addGroup('Guess PC value')
-        group.addParam('volNum', params.IntParam, default=1,
-                       label="Select the volume to reconstruct")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
-        group.addParam('reconstructVol', params.LabelParam,
-                       label="reconstruct map with selected PC value ")
+
 
 
         group = form.addGroup('Landscape')
@@ -519,9 +513,6 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         group.addParam('points', params.IntParam, default=5,
                        label="Select number of volumes you want to show")
-        # group.addParam('addWeights', params.FileParam, label="Weight File path",
-        #                allowsNull=True,
-        #                help='Specify a path to weights for volumes.')
         group.addParam('plot', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
@@ -530,6 +521,14 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label='View trajectory in 2D free-energy landscape')
         group.addParam('scatterPlot', params.LabelParam,
                        label='scatter plot of 2d free-energy landscape')
+
+        group = form.addGroup('Guess PC value')
+        group.addParam('volNum', params.IntParam, default=1,
+                       label="Select the volume to reconstruct")
+        group.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of principal components")
+        group.addParam('reconstructVol', params.LabelParam,
+                       label="reconstruct map with selected PC value ")
 
 
 
