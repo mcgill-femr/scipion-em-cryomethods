@@ -498,7 +498,6 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label="Select number of principal components")
         group.addParam('reconstructVol', params.LabelParam,
                        label="reconstruct map with selected PC value ")
-
         group = form.addGroup('Landscape')
         group.addParam('heatMap', params.EnumParam,
                       choices=['MDS', 'LocallyLinearEmbedding',
