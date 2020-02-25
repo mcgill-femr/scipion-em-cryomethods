@@ -888,13 +888,12 @@ class PcaLandscapeViewer(ProtocolViewer):
             for baseVol, proj in zip(volNpo, projRow):
                 # volBase = loadMrc(baseVol, False)
                 vol += baseVol * proj
-            finalVol = vol + npAvgVol
-            nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-            print(
-                        '-------------saving original_vols %s-----------------' % nameVol)
-            saveMrc(finalVol.astype(dType),
+        finalVol = vol + npAvgVol
+        nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving original_vols %s-----------------' % nameVol)
+        saveMrc(finalVol.astype(dType),
                     self.protocol._getExtraPath('Select_PC', nameVol))
-            break
+
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
         saveMrc(iniVolNp.astype(dType),
