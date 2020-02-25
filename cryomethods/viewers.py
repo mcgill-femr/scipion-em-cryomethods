@@ -491,7 +491,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
 
-        form.addParam('reconstruct', params.LabelParam, default=0,
+        form.addParam('reconstruct', params.EnumParam, default=0,
                       choices=['Yes, Reconstruct',
                                'No Reconstruction'],
                       label='Reconstruct maps to guess required'
@@ -499,7 +499,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addParam('volNumb', params.IntParam, default=1,
                       condition='reconstruct==%d' % 0,
                        label="Select the volume to reconstruct")
-        form.addParam('pcaCount', params.IntParam, default=10,
+        form.addParam('pcaCount', params.LabelParam, default=10,
                       condition='reconstruct==%d' % 0,
                        label="Select number of principal components")
 
@@ -542,7 +542,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                          'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
                          'scatterPlot': self._scatterPlot,
-                         'reconstruct': self._pcaReconstruction
+                         'pcaCount': self._pcaReconstruction
                          }
         return visualizeDict
 
