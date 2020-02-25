@@ -868,9 +868,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         pcaCount = matProj[:, 0:nPCA]
         print (pcaCount, "pcaCount")
         fnIn = self.protocol._getMrcVolumes()
-        sortFnIn= sorted(glob(fnIn))
         volNum = self.volNumb.get()
-        iniVolNp = loadMrc(sortFnIn[0], False)
+        iniVolNp = loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         print (iniVolNp, "iniVolNp")
         lenght = dim ** 3
