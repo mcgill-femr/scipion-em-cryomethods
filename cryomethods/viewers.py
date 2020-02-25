@@ -870,21 +870,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         pcaCount = matProj[:, 0:nPCA]
         print (pcaCount, "pcaCount")
         fnIn = self.protocol._getMrcVolumes()
-        volReconst= []
-        for vols in fnIn:
-            fnVols= loadMrc(vols, False)
-            if len(fnVols)<=len(fnIn):
-                volNum= self.volNumb.get()
-                selectVol= fnVols[volNum]
-                volReconst.append(selectVol)
-            break
 
-
-
-        print (volReconst, "fnIn")
-        iniVolNp = loadMrc(volReconst, False)
-        print (iniVolNp, 'iniVolNp')
-        dim = iniVolNp.shape[0]
+        volNum = self.volNumb.get()
+        iniVolNp = loadMrc(fnIn[volNum], False)
+        dim = iniVolNp.shape[volNum]
+        print (iniVolNp, "iniVolNp")
         lenght = dim ** 3
 
         # obtaining volumes from coordinates-----------------------------------
