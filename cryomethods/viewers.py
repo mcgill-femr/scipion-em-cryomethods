@@ -863,6 +863,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         Plugin.setEnviron()
         os.makedirs(self.protocol._getExtraPath('Select_PC'))
         nPCA = self.pcaCount.get()
+        print (nPCA)
         matProj = self._loadPcaCoordinates()
         pcaCount = matProj[:, 0:nPCA]
         print (pcaCount, "pcaCount")
