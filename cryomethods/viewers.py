@@ -861,7 +861,7 @@ class PcaLandscapeViewer(ProtocolViewer):
     # --------------decide pca count to reconstruct vols-----------------
     def _pcaReconstruction(self, paramName=None):
         Plugin.setEnviron()
-        os.makedirs(self._getExtraPath('Select_PC'))
+        os.makedirs(self.protocol._getExtraPath('Select_PC'))
         nPCA = self.pcaCount.get()
         matProj = self._loadPcaCoordinates()
         pcaCount = matProj[:, 0:nPCA]
