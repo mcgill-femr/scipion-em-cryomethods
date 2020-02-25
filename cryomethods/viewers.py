@@ -492,7 +492,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                       label="Display cumulative sum of eigenvalues")
 
         group = form.addGroup('Guess PC value')
-        group.addParam('volNumb', params.IntParam, default=1,
+        group.addParam('volNum', params.IntParam, default=1,
                        label="Select the volume to reconstruct")
         group.addParam('pcaCount', params.IntParam, default=10,
                        label="Select number of principal components")
