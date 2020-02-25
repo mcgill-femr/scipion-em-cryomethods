@@ -542,7 +542,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                          'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
                          'scatterPlot': self._scatterPlot,
-                         'reconstructVol': self._pcaReconstruction
+                         'reconstruct': self._pcaReconstruction
                          }
         return visualizeDict
 
