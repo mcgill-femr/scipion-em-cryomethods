@@ -881,8 +881,10 @@ class PcaLandscapeViewer(ProtocolViewer):
         os.makedirs(self.protocol._getExtraPath('Select_PC'))
         baseMrc = self.protocol._getExtraPath("volume_base_%02d.mrc" % self.volNumb.get())
         baseMrcFile = sorted(glob(baseMrc))
-        avgVol = self.protocol._getFileName('avgMap')
+        # self.protocol._getAverageVol()
+        avgVol = self.protocol._getPath('extramap_average.mrc')
         npAvgVol = loadMrc(avgVol, False)
+        print ("average map is here")
         dType = npAvgVol.dtype
         orignCount = 0
         for projRow in pcaCount:
@@ -898,7 +900,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                     self.protocol._getExtraPath('Select_PC', nameVol))
 
             orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-            saveMrc(volReconst.astype(dType),
+            saveMrc(iniVolNp.astype(dType),
                     self.protocol._getExtraPath('Select_PC', orgVol))
             orignCount += 1
 
