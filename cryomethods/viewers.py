@@ -879,30 +879,30 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         # obtaining volumes from coordinates-----------------------------------
         os.makedirs(self.protocol._getExtraPath('Select_PC'))
-        baseMrc = self.protocol._getExtraPath("volume_base_%02d.mrc" % self.volNumb.get())
+        baseMrc = self.protocol._getExtraPath("volume_base_??.mrc")
         baseMrcFile = sorted(glob(baseMrc))
         # self.protocol._getAverageVol()
         avgVol = self.protocol._getPath('extramap_average.mrc')
         npAvgVol = loadMrc(avgVol, False)
         print ("average map is here")
         dType = npAvgVol.dtype
-        orignCount = 0
         for projRow in pcaCount:
             vol = np.zeros((dim, dim, dim))
             for baseVol, proj in zip(baseMrcFile, projRow):
-                volNpo = loadMrc(baseVol, False)
+                volNpo = loadMrc(baseVol[volNum], False)
                 vol += volNpo * proj
+                break
             finalVol = vol + npAvgVol
             nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
             print(
                         '-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(finalVol.astype(dType),
                     self.protocol._getExtraPath('Select_PC', nameVol))
+            break
 
-            orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-            saveMrc(iniVolNp.astype(dType),
-                    self.protocol._getExtraPath('Select_PC', orgVol))
-            orignCount += 1
+        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        saveMrc(iniVolNp.astype(dType),
+                self.protocol._getExtraPath('Select_PC', orgVol))
 
 
 
