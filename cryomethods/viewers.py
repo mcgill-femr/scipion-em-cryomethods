@@ -868,17 +868,17 @@ class PcaLandscapeViewer(ProtocolViewer):
         pcaCount = matProj[:, 0:nPCA]
         print (pcaCount, "pcaCount")
         fnIn = self.protocol._getMrcVolumes()
-
+        sortFnIn= sorted(glob(fnIn))
         volNum = self.volNumb.get()
-        iniVolNp = loadMrc(fnIn[volNum], False)
-        dim = iniVolNp.shape[volNum]
+        iniVolNp = loadMrc(sortFnIn[0], False)
+        dim = iniVolNp.shape[0]
         print (iniVolNp, "iniVolNp")
         lenght = dim ** 3
 
         # obtaining volumes from coordinates-----------------------------------
         baseMrc = self.protocol._getExtraPath("volume_base_??.mrc")
         baseMrcFile = sorted(glob(baseMrc))
-        volNpo = loadMrc(baseMrcFile[volNum], False)
+        volNpo = loadMrc(baseMrcFile[0], False)
         # self.protocol._getAverageVol()
         avgVol = self.protocol._getPath('extramap_average.mrc')
         npAvgVol = loadMrc(avgVol, False)
@@ -889,14 +889,13 @@ class PcaLandscapeViewer(ProtocolViewer):
             for baseVol, proj in zip(volNpo, projRow):
                 # volBase = loadMrc(baseVol, False)
                 vol += baseVol * proj
-                break
             finalVol = vol + npAvgVol
             nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
             print(
                         '-------------saving original_vols %s-----------------' % nameVol)
             saveMrc(finalVol.astype(dType),
                     self.protocol._getExtraPath('Select_PC', nameVol))
-            break
+            # break
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
         saveMrc(iniVolNp.astype(dType),
