@@ -178,23 +178,8 @@ class ProtLandscapePCA(em.EMProtocol):
         iniVolNp = loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
-        cov_matrix = []
-        for vol in fnIn:
-            volNp = loadMrc(vol, False)
-            volList = volNp.reshape(lenght)
 
-            row = []
-            # Now, using diff volume to estimate PCA
-            b = volList - npAvgVol.reshape(lenght)
-            for j in fnIn:
-                npVol = loadMrc(j, writable=False)
-                volList_a = npVol.reshape(lenght)
-                volList_two = volList_a - npAvgVol.reshape(lenght)
-                temp_a= np.corrcoef(volList_two, b).item(1)
-                row.append(temp_a)
-            cov_matrix.append(row)
-
-        u, s, vh = np.linalg.svd(cov_matrix)
+        u, s, vh = np.linalg.svd(self._getCovMatrix())
         vhDel = self._getvhDel(vh, s)
         # -------------NEWBASE_AXIS-------------------------------------------
         counter = 0
@@ -283,6 +268,38 @@ class ProtLandscapePCA(em.EMProtocol):
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
         saveMrc(npAvgVol.astype(dType), avgVol)
+
+    def _getCovMatrix(self):
+        if self.alignment.get()==0:
+            self.alignVols()
+            fnIn= self._getMrcVolumes()
+        else:
+            fnIn = self._getMrcVolumes()
+
+        self._getAverageVol()
+
+        avgVol = self._getFileName('avgMap')
+        npAvgVol = loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+        iniVolNp = loadMrc(fnIn[0], False)
+        dim = iniVolNp.shape[0]
+        lenght = dim ** 3
+        cov_matrix = []
+        for vol in fnIn:
+            volNp = loadMrc(vol, False)
+            volList = volNp.reshape(lenght)
+
+            row = []
+            # Now, using diff volume to estimate PCA
+            b = volList - npAvgVol.reshape(lenght)
+            for j in fnIn:
+                npVol = loadMrc(j, writable=False)
+                volList_a = npVol.reshape(lenght)
+                volList_two = volList_a - npAvgVol.reshape(lenght)
+                temp_a= np.corrcoef(volList_two, b).item(1)
+                row.append(temp_a)
+            cov_matrix.append(row)
+        return cov_matrix
 
     # def getParticlesPca(self):
     #     z_part= np.loadtxt(self.addWeights.get())
