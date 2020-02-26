@@ -873,49 +873,52 @@ class PcaLandscapeViewer(ProtocolViewer):
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
         iniVolNp = loadMrc(fnIn[0], False)
+
         dim = iniVolNp.shape[0]
-        print (iniVolNp, "iniVolNp")
+        print (len(iniVolNp), "iniVolNp")
         lenght = dim ** 3
+        reshapeVol = iniVolNp.reshape(lenght)
+        subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
         # -------------------------covariance matrix----------------------
         cov_matrix = []
-        for vol in iniVolNp:
-            # volNp = loadMrc(vol, False)
-            volList = vol.reshape(lenght)
-
+        for vol in fnIn:
+            volNp = loadMrc(vol, False)
+            volList = volNp.reshape(lenght)
             row = []
-            # Now, using diff volume to estimate PCA
             b = volList - npAvgVol.reshape(lenght)
-            for j in iniVolNp:
-                # npVol = loadMrc(j, writable=False)
-                volList_a = j.reshape(lenght)
+            for j in fnIn:
+                npVol = loadMrc(j, writable=False)
+                volList_a = npVol.reshape(lenght)
                 volList_two = volList_a - npAvgVol.reshape(lenght)
                 temp_a = np.corrcoef(volList_two, b).item(1)
                 row.append(temp_a)
             cov_matrix.append(row)
-
         u, s, vh = np.linalg.svd(cov_matrix)
+        sCut = int(self.pcaCount.get())
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        print (sCut, "scut")
         # --------------------obatining base-----------------------------
-        vhDel = self._getvhDel(vh, s)
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
-            for (vol, eigenCoef) in izip(iniVolNp,eignRow):
+            for (vol, eigenCoef) in izip(fnIn,eignRow):
                 volInp = loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
-                volSubs= volInpR - npAvgVol.reshape(lenght)
-                base += volSubs*eigenCoef
+                volSubs = volInpR - npAvgVol.reshape(lenght)
+                base += volSubs * eigenCoef
                 volBase = base.reshape((dim, dim, dim))
-            nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
-            print('-------------saving map %s-----------------' % nameVol)
-            saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
-
-        # ----------------matproj-----------------------------------------
+                break
+            break
+        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving map %s-----------------' % nameVol)
+        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+        #
+        # # ----------------matproj-----------------------------------------
         matProj = []
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
-        print ("length of bese file", len(baseMrcFile))
-        for vol in iniVolNp:
-            # volNp = loadMrc(vol, False)
-            restNpVol = vol.reshape(lenght) - npAvgVol.reshape(lenght)
+        for vol in fnIn:
+            volNp = loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
@@ -924,29 +927,26 @@ class PcaLandscapeViewer(ProtocolViewer):
                 baseVol_col = baseVol_row.transpose()
                 projCoef = np.dot(volRow, baseVol_col)
                 rowCoef.append(projCoef)
-            matProj.append(rowCoef)
-
-        # obtaining volumes from coordinates-----------------------------------
+            break
+        matProj.append(rowCoef)
+        print (matProj, "matProj")
+        print ("length of bese file", len(baseMrcFile))
+        #
+        # # obtaining volumes from coordinates-----------------------------------
         for projRow in matProj:
             vol = np.zeros((dim, dim, dim))
             for baseVol, proj in zip(baseMrcFile, projRow):
-                # volBase = loadMrc(baseVol, False)
-                vol += baseVol * proj
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
             finalVol = vol + npAvgVol
-        nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-        print('-------------saving original_vols %s-----------------' % nameRes)
-        saveMrc(finalVol.astype(dType),
-                    self.protocol._getExtraPath('Select_PC', nameRes))
+            nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+            print('-------------saving original_vols %s-----------------' % nameRes)
+            saveMrc(finalVol.astype(dType),
+                        self.protocol._getExtraPath('Select_PC', nameRes))
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
         saveMrc(iniVolNp.astype(dType),
                 self.protocol._getExtraPath('Select_PC', orgVol))
-
-    def _getvhDel(self, vh,s, paramName=None):
-        sCut = int(self.pcaCount.get())
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        print ("pcCount", sCut)
-        return vhDel
 
 
 
