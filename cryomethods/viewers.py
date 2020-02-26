@@ -536,11 +536,13 @@ class PcaLandscapeViewer(ProtocolViewer):
                          'scatterPlot': self._scatterPlot,
                          'reconstructVol': self._pcaReconstruction
                          }
+
         return visualizeDict
 
 
     def _showErrors(self, param=None):
         views = []
+        self._errors = []
         self.errorList(self._errors, views)
         return views
 
@@ -922,7 +924,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         saveMrc(iniVolNp.astype(dType),
                 self.protocol._getExtraPath('Select_PC', orgVol))
 
-    def _getvhDel(self, vh, s):
+    def _getvhDel(self, vh,):
         sCut = int(self.pcaCount.get())
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         print ("pcCount", sCut)
