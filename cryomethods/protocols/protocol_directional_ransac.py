@@ -423,6 +423,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         self._insertFunctionStep('reconstruct3DStep')
         self._insertFunctionStep('pcaStep')
         self._insertFunctionStep('cleanStep')
+        self._insertFunctionStep('createOutputStep')
 
 
         
@@ -783,35 +784,16 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         cleanPath(self._getExtraPath('scaled_particles.stk'))
         cleanPath(self._getExtraPath('scaled_particles.xmd'))
         cleanPath(self._getExtraPath('volume.vol'))
-        #cleanPattern(self._getExtraPath('relion_*.star'))
-        #cleanPattern(self._getExtraPath('randomAverages_*.xmd'))
-        #cleanPattern(self._getExtraPath('randomAverages_*.vol'))
-        #cleanPattern(self._getExtraPath("direction_*"))
-        #cleanPattern(self._getExtraPath('volume_base_*.mrc'))
-        #cleanPattern(self._getExtraPath('volume_*.mrc'))
 
     def createOutputStep(self):
-        pass
-        #partSet = self.inputParticles.get()
-        #classes3D = self._createSetOfClasses3D(partSet)
-        #self._fillClassesFromIter(classes3D, self._lastIter())
-
-        #self._defineOutputs(outputClasses=classes3D)
-        #self._defineSourceRelation(self.inputParticles, classes3D)
 
         ## create a SetOfVolumes and define its relations
-        #volumes = self._createSetOfVolumes()
-        #volumes = self._createSetOfVolumes()
-        #self._fillVolSetFromIter(volumes, self._lastIter())
-        #volumes.setSamplingRate(partSet.getSamplingRate())
-
-        #for class3D in classes3D:
-         #   vol = class3D.getRepresentative()
-          #  vol.setObjId(class3D.getObjId())
-           # volumes.append(vol)
-
-        #self._defineOutputs(outputVolumes=volumes)
-        #self._defineSourceRelation(self.inputParticles, volumes)
+        volumes = self._createSetOfVolumes()
+        volumes.copyInfo(self.inputParticles.get())
+        volumes.setSamplingRate(volumes.getSamplingRate())
+        self._fillVolSetFromIter(volumes, self._lastIter())
+        self._defineOutputs(outputVolumes=volumes)
+        self._defineSourceRelation(self.inputParticles, volumes)
     #--------------------------- INFO functions -------------------------------------------- 
     def _validate(self):
         pass
