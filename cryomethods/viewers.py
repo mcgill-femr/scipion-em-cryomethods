@@ -876,8 +876,26 @@ class PcaLandscapeViewer(ProtocolViewer):
         dim = iniVolNp.shape[0]
         print (iniVolNp, "iniVolNp")
         lenght = dim ** 3
+        # -------------------------covariance matrix----------------------
+        cov_matrix = []
+        for vol in iniVolNp:
+            # volNp = loadMrc(vol, False)
+            volList = vol.reshape(lenght)
+
+            row = []
+            # Now, using diff volume to estimate PCA
+            b = volList - npAvgVol.reshape(lenght)
+            for j in iniVolNp:
+                # npVol = loadMrc(j, writable=False)
+                volList_a = j.reshape(lenght)
+                volList_two = volList_a - npAvgVol.reshape(lenght)
+                temp_a = np.corrcoef(volList_two, b).item(1)
+                row.append(temp_a)
+            cov_matrix.append(row)
+
+        u, s, vh = np.linalg.svd(cov_matrix)
         # --------------------obatining base-----------------------------
-        vhDel = self._getvhDel()
+        vhDel = self._getvhDel(vh, s)
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             for (vol, eigenCoef) in izip(iniVolNp,eignRow):
@@ -895,9 +913,9 @@ class PcaLandscapeViewer(ProtocolViewer):
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
         print ("length of bese file", len(baseMrcFile))
-        for vol in fnIn:
-            volNp = loadMrc(vol, False)
-            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+        for vol in iniVolNp:
+            # volNp = loadMrc(vol, False)
+            restNpVol = vol.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
@@ -924,7 +942,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         saveMrc(iniVolNp.astype(dType),
                 self.protocol._getExtraPath('Select_PC', orgVol))
 
-    def _getvhDel(self, vh,):
+    def _getvhDel(self, vh,s, paramName=None):
         sCut = int(self.pcaCount.get())
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         print ("pcCount", sCut)
