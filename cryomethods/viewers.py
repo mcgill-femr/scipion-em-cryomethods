@@ -864,40 +864,70 @@ class PcaLandscapeViewer(ProtocolViewer):
         os.makedirs(self.protocol._getExtraPath('Select_PC'))
         nPCA = self.pcaCount.get()
         print (nPCA)
-        matProj = self._loadPcaCoordinates()
-        pcaCount = matProj[:, 0:nPCA]
-        print (pcaCount, "pcaCount")
+        avgVol = self.protocol._getPath('extramap_average.mrc')
+        npAvgVol = loadMrc(avgVol, False)
+        print ("average map is here")
+        dType = npAvgVol.dtype
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
         iniVolNp = loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         print (iniVolNp, "iniVolNp")
         lenght = dim ** 3
+        # --------------------obatining base-----------------------------
+        vhDel = self._getvhDel()
+        for eignRow in vhDel.T:
+            base = np.zeros(lenght)
+            for (vol, eigenCoef) in izip(iniVolNp,eignRow):
+                volInp = loadMrc(vol, False)
+                volInpR = volInp.reshape(lenght)
+                volSubs= volInpR - npAvgVol.reshape(lenght)
+                base += volSubs*eigenCoef
+                volBase = base.reshape((dim, dim, dim))
+            nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+            print('-------------saving map %s-----------------' % nameVol)
+            saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+
+        # ----------------matproj-----------------------------------------
+        matProj = []
+        baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
+        baseMrcFile = sorted(glob(baseMrc))
+        print ("length of bese file", len(baseMrcFile))
+        for vol in fnIn:
+            volNp = loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseVol in baseMrcFile:
+                npVol = loadMrc(baseVol, writable=False)
+                baseVol_row = npVol.reshape(lenght)
+                baseVol_col = baseVol_row.transpose()
+                projCoef = np.dot(volRow, baseVol_col)
+                rowCoef.append(projCoef)
+            matProj.append(rowCoef)
 
         # obtaining volumes from coordinates-----------------------------------
-        baseMrc = self.protocol._getExtraPath("volume_base_??.mrc")
-        baseMrcFile = sorted(glob(baseMrc))
-        volNpo = loadMrc(baseMrcFile[0], False)
-        # self.protocol._getAverageVol()
-        avgVol = self.protocol._getPath('extramap_average.mrc')
-        npAvgVol = loadMrc(avgVol, False)
-        print ("average map is here")
-        dType = npAvgVol.dtype
-        for projRow in pcaCount:
+        for projRow in matProj:
             vol = np.zeros((dim, dim, dim))
-            for baseVol, proj in zip(volNpo, projRow):
+            for baseVol, proj in zip(baseMrcFile, projRow):
                 # volBase = loadMrc(baseVol, False)
                 vol += baseVol * proj
-        finalVol = vol + npAvgVol
-        nameVol = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-        print('-------------saving original_vols %s-----------------' % nameVol)
+            finalVol = vol + npAvgVol
+        nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving original_vols %s-----------------' % nameRes)
         saveMrc(finalVol.astype(dType),
-                    self.protocol._getExtraPath('Select_PC', nameVol))
-
+                    self.protocol._getExtraPath('Select_PC', nameRes))
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
         saveMrc(iniVolNp.astype(dType),
                 self.protocol._getExtraPath('Select_PC', orgVol))
+
+    def _getvhDel(self, vh, s):
+        sCut = int(self.pcaCount.get())
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        print ("pcCount", sCut)
+        return vhDel
+
 
 
 
