@@ -880,7 +880,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         reshapeVol = iniVolNp.reshape(lenght)
         subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
         # -------------------------covariance matrix----------------------
-        cov_matrix= self.protocol._getCovMatrix()
+        cov_matrix= np.load(
+            self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
         print (len(cov_matrix), "cov_matrix")
         u, s, vh = np.linalg.svd(cov_matrix)
         sCut = int(self.pcaCount.get())

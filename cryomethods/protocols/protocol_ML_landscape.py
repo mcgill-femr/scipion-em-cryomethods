@@ -299,7 +299,13 @@ class ProtLandscapePCA(em.EMProtocol):
                 temp_a= np.corrcoef(volList_two, b).item(1)
                 row.append(temp_a)
             cov_matrix.append(row)
-        return cov_matrix
+        os.makedirs(self._getExtraPath('CovMatrix'))
+        covPath = self._getExtraPath('CovMatrix')
+        CovMatrix = os.path.join(covPath, 'covMatrix')
+        np.save(CovMatrix, cov_matrix)
+        CovMatData = np.load(
+            self._getExtraPath('CovMatrix', 'covMatrix.npy'))
+        return CovMatData
 
     # def getParticlesPca(self):
     #     z_part= np.loadtxt(self.addWeights.get())
