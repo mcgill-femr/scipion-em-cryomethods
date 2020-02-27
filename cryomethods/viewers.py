@@ -881,10 +881,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
         # -------------------------covariance matrix----------------------
         cov_matrix= self.protocol._getCovMatrix()
+        print (len(cov_matrix), "cov_matrix")
         u, s, vh = np.linalg.svd(cov_matrix)
         sCut = int(self.pcaCount.get())
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         print (sCut, "scut")
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         # --------------------obatining base-----------------------------
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
