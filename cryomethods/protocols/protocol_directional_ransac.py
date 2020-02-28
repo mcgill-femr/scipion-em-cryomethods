@@ -35,6 +35,7 @@ from pyworkflow.em.metadata.utils import getSize
 import xmippLib
 import math
 import numpy as np
+from pyworkflow.em.data import Volume
 from cryomethods.convert import loadMrc, saveMrc
 from cryomethods import Plugin
 from pyworkflow.em.convert import ImageHandler
@@ -766,7 +767,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
 
         ####Coordinates to volume ######
         fnVolume = self._getExtraPath('recons_vols')
-        fnOutVol = self._getPath('output_volumes.vol')
+        #fnOutVol = self._getPath('output_volumes.vol')
 
         orignCount = 0
         if not exists(fnVolume):
@@ -782,8 +783,12 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             orignCount += 1
             ####for output step####
             fnRecon = join(fnVolume + '/' + nameVol)
-            mdOutVol = xmippLib.MetaData(fnRecon)
-            mdOutVol.write(fnOutVol)
+            ih = ImageHandler()
+            img = ih.read(fnRecon)
+            print(img)
+            img.write(self._getPath('output_volumes_%03d.vol' %(orignCount)))
+            #mdOutVol = xmippLib.MetaData(fnRecon)
+            #mdOutVol.write(fnOutVol)
         cleanPattern(self._getExtraPath('volume_base_*.mrc'))
         cleanPattern(self._getExtraPath('volume_*.mrc'))
 
@@ -793,12 +798,8 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         cleanPath(self._getExtraPath('volume.vol'))
 
     def createOutputStep(self):
-
-        ## create a SetOfVolumes and define its relations
         volumes = self._createSetOfVolumes()
-        volumes.copyInfo(self.inputParticles.get())
-        volumes.setSamplingRate(volumes.getSamplingRate())
-        self. _fillDataFromIter(volumes)
+        self._fillVolSetFromIter(volumes)
         self._defineOutputs(outputVolumes=volumes)
         self._defineSourceRelation(self.inputParticles, volumes)
     #--------------------------- INFO functions -------------------------------------------- 
@@ -930,19 +931,6 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                          self.defocusRange.get(),
                          self.numParticles.get())
 
-    def _fillDataFromIter(self, volumes):
-        fnOutVol = self._getPath('output_volumes.vol')
-        convXmp.readSetOfVolumes(fnOutVol,volumes)
-
-    def _postprocessVolume(self, vol):
-        self._counter += 1
-        vol.setObjComment('Output volume %02d' % self._counter)
-
-    def clone(self):
-        """ Override the clone defined in Object
-        to avoid copying _mapperPath property
-        """
-        pass
 
     def _callBack(self, newItem, row):
         if row.getValue(xmippLib.MDL_ENABLED) == -1:
@@ -967,6 +955,14 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
 
+    def _fillVolSetFromIter(self, volumes):
+        volumes.setSamplingRate(self._getInputParticles().getSamplingRate())
+        nC = self.clusterCentres.get()
+        for val in range(nC):
+            vol = em.Volume()
+            fnOutVol = self._getPath('output_volumes_%03d.vol' % (val + 1))
+            vol.setFileName(fnOutVol)
+            volumes.append(vol)
 
 
 
