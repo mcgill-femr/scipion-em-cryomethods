@@ -671,8 +671,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             mrcFn = self._getExtraPath("volume_%s.mrc" %stack)
             img.convert(inputVol, mrcFn)
             listVol.append(mrcFn)
-        cleanPattern(self._getExtraPath('randomAverages_*.xmd'))
-        cleanPattern(self._getExtraPath('randomAverages_*.vol'))
+
 
         # ""AVERAGE VOLUME GENERATION""#
         avgVol = self._getPath('map_average.mrc')
@@ -766,8 +765,12 @@ class ProtClass3DRansac(ProtDirectionalPruning):
              cc = ap.cluster_centers_
 
         ####Coordinates to volume ######
-        makePath(self._getExtraPath('recons_vols'))
+        fnVolume = self._getExtraPath('recons_vols')
+        fnOutVol = self._getPath('output_volumes.vol')
+
         orignCount = 0
+        if not exists(fnVolume):
+            makePath(fnVolume)
         for projRow in cc:
             vol = np.zeros((dim, dim, dim))
             for baseVol, proj in izip(baseMrcFile, projRow):
@@ -777,6 +780,10 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             nameVol = 'volume_reconstructed_%03d.mrc' % (orignCount)
             saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
             orignCount += 1
+            ####for output step####
+            fnRecon = join(fnVolume + '/' + nameVol)
+            mdOutVol = xmippLib.MetaData(fnRecon)
+            mdOutVol.write(fnOutVol)
         cleanPattern(self._getExtraPath('volume_base_*.mrc'))
         cleanPattern(self._getExtraPath('volume_*.mrc'))
 
@@ -791,7 +798,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         volumes = self._createSetOfVolumes()
         volumes.copyInfo(self.inputParticles.get())
         volumes.setSamplingRate(volumes.getSamplingRate())
-        self._fillVolSetFromIter(volumes, self._lastIter())
+        self. _fillDataFromIter(volumes)
         self._defineOutputs(outputVolumes=volumes)
         self._defineSourceRelation(self.inputParticles, volumes)
     #--------------------------- INFO functions -------------------------------------------- 
@@ -923,82 +930,23 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                          self.defocusRange.get(),
                          self.numParticles.get())
 
-    def _getIterVolumes(self, it, clean=False):
-        """ Return a volumes .sqlite file for this iteration.
-        If the file doesn't exists, it will be created by
-        converting from this iteration data.star file.
+    def _fillDataFromIter(self, volumes):
+        fnOutVol = self._getPath('output_volumes.vol')
+        convXmp.readSetOfVolumes(fnOutVol,volumes)
+
+    def _postprocessVolume(self, vol):
+        self._counter += 1
+        vol.setObjComment('Output volume %02d' % self._counter)
+
+    def clone(self):
+        """ Override the clone defined in Object
+        to avoid copying _mapperPath property
         """
-        sqlteVols = self._getFileName('volumes_scipion', iter=it)
+        pass
 
-        if clean:
-            cleanPath(sqlteVols)
-
-        if not exists(sqlteVols):
-            volSet = self.OUTPUT_TYPE(filename=sqlteVols)
-            self._fillVolSetFromIter(volSet, it)
-            volSet.write()
-            volSet.close()
-        return sqlteVols
-
-    def _fillVolSetFromIter(self, volSet, it):
-        volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
-        modelStar = md.MetaData('model_classes@' +
-                                self._getFileName('model', iter=it))
-        for row in md.iterRows(modelStar):
-            fn = row.getValue('rlnReferenceImage')
-            fnMrc = fn + ":mrc"
-            itemId = self._getClassId(fn)
-            classDistrib = row.getValue('rlnClassDistribution')
-            accurracyRot = row.getValue('rlnAccuracyRotations')
-            accurracyTras = row.getValue('rlnAccuracyTranslations')
-            resol = row.getValue('rlnEstimatedResolution')
-
-            if classDistrib > 0:
-                vol = em.Volume()
-                self._invertScaleVol(fnMrc)
-                vol.setName(self._getOutputVolFn(fnMrc))
-                vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Float(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
-                volSet.append(vol)
-
-
-    def _fillClassesFromIter(self, clsSet, iteration):
-        """ Create the SetOfClasses3D from a given iteration. """
-        self._loadClassesInfo(iteration)
-        dataStar = self._getFileName('data', iter=iteration)
-        clsSet.classifyItems(updateItemCallback=self._updateParticle,
-                             updateClassCallback=self._updateClass,
-                             itemDataIterator=md.iterRows(dataStar,
-                                                          sortByLabel=md.RLN_IMAGE_ID))
-
-
-
-    def _updateParticle(self, item, row):
-        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
-
-        item._rlnLogLikeliContribution = em.Float(
-            row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
-            row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
-
-    def _updateClass(self, item):
-        classId = item.getObjId()
-        if classId in self._classesInfo:
-            index, fn, row = self._classesInfo[classId]
-            fn += ":mrc"
-            item.setAlignmentProj()
-            item.getRepresentative().setLocation(index, fn)
-            item._rlnclassDistribution = em.Float(
-                row.getValue('rlnClassDistribution'))
-            item._rlnAccuracyRotations = em.Float(
-                row.getValue('rlnAccuracyRotations'))
-            item._rlnAccuracyTranslations = em.Float(
-                row.getValue('rlnAccuracyTranslations'))
+    def _callBack(self, newItem, row):
+        if row.getValue(xmippLib.MDL_ENABLED) == -1:
+            setattr(newItem, "_appendItem", False)
 
     def _createMFile(self, matrix, name='matrix.txt'):
 
