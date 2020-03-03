@@ -21,7 +21,7 @@
 # * 02111-1307  USA
 # *
 # *  All comments concerning this program package may be sent to the
-# *  e-mail address 'jmdelarosa@cnb.csic.es'
+# *  e-mail address 'swathi.adinarayanan@mail.mcgill.ca'
 # *
 # **************************************************************************
 from pyworkflow.protocol.params import (PointerParam, FloatParam, EnumParam,
@@ -767,8 +767,6 @@ class ProtClass3DRansac(ProtDirectionalPruning):
 
         ####Coordinates to volume ######
         fnVolume = self._getExtraPath('recons_vols')
-        #fnOutVol = self._getPath('output_volumes.vol')
-
         orignCount = 0
         if not exists(fnVolume):
             makePath(fnVolume)
@@ -787,15 +785,16 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             img = ih.read(fnRecon)
             print(img)
             img.write(self._getPath('output_volumes_%03d.vol' %(orignCount)))
-            #mdOutVol = xmippLib.MetaData(fnRecon)
-            #mdOutVol.write(fnOutVol)
         cleanPattern(self._getExtraPath('volume_base_*.mrc'))
         cleanPattern(self._getExtraPath('volume_*.mrc'))
+        cleanPattern(self._getExtraPath('randomAverages_*.xmd'))
+        cleanPattern(self._getExtraPath('randomAverages_.vol'))
 
     def cleanStep(self):
         cleanPath(self._getExtraPath('scaled_particles.stk'))
         cleanPath(self._getExtraPath('scaled_particles.xmd'))
         cleanPath(self._getExtraPath('volume.vol'))
+        cleanPath(self._getExtraPath('recons_vols'))
 
     def createOutputStep(self):
         volumes = self._createSetOfVolumes()
