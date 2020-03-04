@@ -605,7 +605,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _viewHeatMap(self, paramName=None):
-        fn = self.protocol._getExtraPath("44s_parts.npy")
+        fn = self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
@@ -741,7 +741,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        fn= self.protocol._getExtraPath("44s_parts.npy")
+        fn= self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         print (weight, "weight")
         nBins = self.binSize.get()
@@ -798,7 +798,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.show()
 
     def _scatterPlot(self, paramName=None):
-        fn = self.protocol._getExtraPath('Particle_Weights.npy')
+        fn = self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         print (weight, "weight")
         matProj = self._loadPcaCoordinates()
@@ -821,7 +821,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return w
 
     def _view3DHeatMap(self):
-        fn= self.protocol._getExtraPath("44s_parts.npy")
+        fn= self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         nBins = self.binSize.get()
         coords = self._genralplot()
