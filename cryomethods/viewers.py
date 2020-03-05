@@ -892,8 +892,8 @@ class PcaLandscapeViewer(ProtocolViewer):
             volSelect = fnIn[volNum]
             print(volSelect, "volSelect")
             for (vol, eigenCoef) in zip(volSelect,eignRow):
-                volInp = loadMrc(vol, False)
-                volInpR = volInp.reshape(lenght)
+                # volInp = loadMrc(vol, False)
+                volInpR = vol.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
                 base += volSubs * eigenCoef
                 volBase = base.reshape((dim, dim, dim))
