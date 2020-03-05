@@ -896,11 +896,12 @@ class PcaLandscapeViewer(ProtocolViewer):
                     volSubs = volInpR - npAvgVol.reshape(lenght)
                     base += volSubs * eigenCoef
                     volBase = base.reshape((dim, dim, dim))
+
+                    nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+                    print('-------------saving map %s-----------------' % nameVol)
+                    saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC', nameVol))
                 break
             break
-        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
-        print('-------------saving map %s-----------------' % nameVol)
-        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
         #
         # # ----------------matproj-----------------------------------------
         matProj = []
