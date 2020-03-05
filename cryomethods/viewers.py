@@ -871,7 +871,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         dType = npAvgVol.dtype
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
-        iniVolNp = loadMrc(fnIn[0], False)
+        iniVolNp = loadMrc(fnIn[volNum], False)
 
         dim = iniVolNp.shape[0]
         print (len(iniVolNp), "iniVolNp")
@@ -890,7 +890,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             for (vol, eigenCoef) in izip(fnIn,eignRow):
-                volInp = loadMrc(vol, False)
+                volInp = loadMrc(vol[volNum], False)
                 volInpR = volInp.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
                 base += volSubs * eigenCoef
@@ -906,12 +906,12 @@ class PcaLandscapeViewer(ProtocolViewer):
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
         for vol in fnIn:
-            volNp = loadMrc(vol, False)
+            volNp = loadMrc(vol[volNum], False)
             restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
-                npVol = loadMrc(baseVol, writable=False)
+                npVol = loadMrc(baseVol[volNum], writable=False)
                 baseVol_row = npVol.reshape(lenght)
                 baseVol_col = baseVol_row.transpose()
                 projCoef = np.dot(volRow, baseVol_col)
