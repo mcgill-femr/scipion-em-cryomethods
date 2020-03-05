@@ -887,10 +887,9 @@ class PcaLandscapeViewer(ProtocolViewer):
         print (sCut, "scut")
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         # --------------------obatining base-----------------------------
-        fnIn= fnIn[volNum]
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
-            for (vol, eigenCoef) in izip(fnIn,eignRow):
+            for (vol, eigenCoef) in izip(fnIn[volNum],eignRow):
                 volInp = loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
@@ -906,7 +905,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         matProj = []
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
-        for vol in fnIn:
+        for vol in fnIn[volNum]:
             volNp = loadMrc(vol, False)
             restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
