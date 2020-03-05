@@ -889,7 +889,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         # --------------------obatining base-----------------------------
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
-            for (vol, eigenCoef) in izip(fnIn[volNum],eignRow):
+            for (vol, eigenCoef) in zip(fnIn[volNum],eignRow):
                 volInp = loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
