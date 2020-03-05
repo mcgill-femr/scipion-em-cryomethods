@@ -871,7 +871,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         dType = npAvgVol.dtype
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
-        iniVolNp = loadMrc(fnIn[volNum], False)
+        iniVolNp = loadMrc(fnIn[0], False)
 
         dim = iniVolNp.shape[0]
         print (len(iniVolNp), "iniVolNp")
@@ -887,31 +887,29 @@ class PcaLandscapeViewer(ProtocolViewer):
         print (sCut, "scut")
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         # --------------------obatining base-----------------------------
+        fnIn= fnIn[volNum]
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             for (vol, eigenCoef) in izip(fnIn,eignRow):
-                if vol==volNum:
-                    volInp = loadMrc(vol, False)
-                    volInpR = volInp.reshape(lenght)
-                    volSubs = volInpR - npAvgVol.reshape(lenght)
-                    base += volSubs * eigenCoef
-                    volBase = base.reshape((dim, dim, dim))
-
-                    nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
-                    print('-------------saving map %s-----------------' % nameVol)
-                    saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC', nameVol))
+                volInp = loadMrc(vol, False)
+                volInpR = volInp.reshape(lenght)
+                volSubs = volInpR - npAvgVol.reshape(lenght)
+                base += volSubs * eigenCoef
+                volBase = base.reshape((dim, dim, dim))
                 break
             break
+        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving map %s-----------------' % nameVol)
+        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
         #
         # # ----------------matproj-----------------------------------------
         matProj = []
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
         for vol in fnIn:
-            if vol == volNum:
-                volNp = loadMrc(vol, False)
-                restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
-                volRow = restNpVol.reshape(lenght)
+            volNp = loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
                 npVol = loadMrc(baseVol, writable=False)
