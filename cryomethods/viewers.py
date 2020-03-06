@@ -53,7 +53,7 @@ from convert import loadMrc, saveMrc
 import sqlite3
 from pyworkflow.em import SetOfClasses3D
 from glob import glob
-
+from os import path
 
 
 
@@ -864,7 +864,8 @@ class PcaLandscapeViewer(ProtocolViewer):
     # --------------decide pca count to reconstruct vols-----------------
     def _pcaReconstruction(self, paramName=None):
         Plugin.setEnviron()
-        os.makedirs(self.protocol._getExtraPath('Select_PC'))
+        if not os.path.exists('Select_PC_Count'):
+            os.makedirs(self.protocol._getExtraPath('Select_PC_Count'))
         nPCA = self.pcaCount.get()
         print (nPCA)
         avgVol = self.protocol._getPath('extramap_average.mrc')
