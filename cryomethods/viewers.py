@@ -939,7 +939,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                         self.protocol._getExtraPath('Select_PC', nameRes))
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-        saveMrc(volSelect.astype(dType),
+        saveMrc(volSelect,
                 self.protocol._getExtraPath('Select_PC', orgVol))
 
 
