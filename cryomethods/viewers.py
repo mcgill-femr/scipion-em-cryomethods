@@ -30,6 +30,7 @@ from itertools import izip
 from os.path import exists
 import numpy as np
 import Tkinter as tk
+from shutil import copyfile
 
 from sklearn import manifold
 import scipy as sc
@@ -939,8 +940,8 @@ class PcaLandscapeViewer(ProtocolViewer):
                         self.protocol._getExtraPath('Select_PC', nameRes))
         finalVol= fnIn[volNum]
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-        saveMrc(finalVol.astype(dType),
-                self.protocol._getExtraPath('Select_PC', orgVol))
+        # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
+        copyfile(finalVol, self.protocol._getExtraPath('Select_PC'))
 
 
 
