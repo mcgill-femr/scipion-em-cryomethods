@@ -889,7 +889,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         # --------------------obatining base-----------------------------
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
-            volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
+            # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
+            volSelect= fnIn[:2]
             print(volSelect, "volSelect")
             for (vol, eigenCoef) in zip(volSelect,eignRow):
                 volInp = loadMrc(vol, False)
@@ -897,7 +898,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                 volSubs = volInpR - npAvgVol.reshape(lenght)
                 base += volSubs * eigenCoef
                 volBase = base.reshape((dim, dim, dim))
-                break
+                # break
             break
         nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
         print('-------------saving map %s-----------------' % nameVol)
