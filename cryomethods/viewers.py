@@ -865,7 +865,7 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _pcaReconstruction(self, paramName=None):
         Plugin.setEnviron()
         if not os.path.exists('Select_PC_Count'):
-            os.makedirs(self.protocol._getExtraPath('Select_PC_Count'))
+            os.mkdir(self.protocol._getExtraPath('Select_PC_Count'))
         nPCA = self.pcaCount.get()
         print (nPCA)
         avgVol = self.protocol._getPath('extramap_average.mrc')
