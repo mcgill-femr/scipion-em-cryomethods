@@ -892,7 +892,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
             volSelect= fnIn[2]
             print(volSelect, "volSelect")
-            for (vol, eigenCoef) in zip(volSelect,eignRow):
+            for (vol, eigenCoef) in izip(volSelect,eignRow):
                 volInp = loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
