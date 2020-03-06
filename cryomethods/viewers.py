@@ -939,9 +939,11 @@ class PcaLandscapeViewer(ProtocolViewer):
             saveMrc(finalVol.astype(dType),
                         self.protocol._getExtraPath('Select_PC', nameRes))
         finalVol= fnIn[volNum]
+
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        dst = self.protocol._getExtraPath('Select_PC', orgVol)
         # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
-        copyfile(finalVol, self.protocol._getExtraPath('Select_PC'))
+        copyfile(finalVol, dst)
 
 
 
