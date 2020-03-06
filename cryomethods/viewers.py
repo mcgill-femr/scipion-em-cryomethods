@@ -890,7 +890,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
-            volSelect= fnIn[2]
+            initVolNum= volNum-1
+            volSelect= fnIn[initVolNum:volNum]
             print(volSelect, "volSelect")
             for (vol, eigenCoef) in izip(volSelect,eignRow):
                 volInp = loadMrc(vol, False)
