@@ -491,13 +491,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         form.addParam('plotAutovalues', params.LabelParam,
                       label="Display cumulative sum of eigenvalues")
 
-        group = form.addGroup('Guess PC value')
-        group.addParam('volNumb', params.IntParam, default=1,
-                       label="Select the volume to reconstruct")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
-        group.addParam('reconstructVol', params.LabelParam,
-                       label="reconstruct map with selected PC value ")
         group = form.addGroup('Landscape')
         group.addParam('heatMap', params.EnumParam,
                       choices=['MDS', 'LocallyLinearEmbedding',
@@ -525,6 +518,14 @@ class PcaLandscapeViewer(ProtocolViewer):
                        label='View trajectory in 2D free-energy landscape')
         group.addParam('scatterPlot', params.LabelParam,
                        label='scatter plot of 2d free-energy landscape')
+
+        group = form.addGroup('Guess PC value')
+        group.addParam('volNumb', params.IntParam, default=1,
+                       label="Select the volume to reconstruct")
+        group.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of principal components")
+        group.addParam('reconstructVol', params.LabelParam,
+                       label="reconstruct map with selected PC value ")
 
 
 
@@ -871,6 +872,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         dType = npAvgVol.dtype
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
+        initVolNum = volNum - 1
         iniVolNp = loadMrc(fnIn[0], False)
 
         dim = iniVolNp.shape[0]
@@ -890,7 +892,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
-            initVolNum= volNum-1
             volSelect= fnIn[initVolNum:volNum]
             print(volSelect, "volSelect")
             for (vol, eigenCoef) in izip(volSelect,eignRow):
@@ -909,7 +910,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         matProj = []
         baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
         baseMrcFile = sorted(glob(baseMrc))
-        for vol in fnIn[volNum]:
+        volSelect = fnIn[initVolNum:volNum]
+        for vol in volSelect:
             volNp = loadMrc(vol, False)
             restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
@@ -920,7 +922,6 @@ class PcaLandscapeViewer(ProtocolViewer):
                 baseVol_col = baseVol_row.transpose()
                 projCoef = np.dot(volRow, baseVol_col)
                 rowCoef.append(projCoef)
-            break
         matProj.append(rowCoef)
         print (matProj, "matProj")
         print ("length of bese file", len(baseMrcFile))
@@ -933,12 +934,12 @@ class PcaLandscapeViewer(ProtocolViewer):
                 vol += volNpo * proj
             finalVol = vol + npAvgVol
             nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-            print('-------------saving original_vols %s-----------------' % nameRes)
+            print('-------------saving reconstruct_vols %s-----------------' % nameRes)
             saveMrc(finalVol.astype(dType),
                         self.protocol._getExtraPath('Select_PC', nameRes))
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-        saveMrc(iniVolNp.astype(dType),
+        saveMrc(volSelect.astype(dType),
                 self.protocol._getExtraPath('Select_PC', orgVol))
 
 
