@@ -115,19 +115,26 @@ class TestAlignVolumes(TestBase):
             print(labels)
 
     def testAffinityProp(self):
+        from cryomethods.functions import MlMethods, NumpyImgHandler
         from matplotlib import pyplot as plt
         from itertools import izip
         Plugin.setEnviron()
         volList = self._getVolList()
+        ml = MlMethods()
+        npIh = NumpyImgHandler()
 
         dictNames = {}
         groupDict = {}
         prot = Prot3DAutoClassifier(classMethod=1)
-        print("Mehod: ", prot.classMethod.get())
-        npAvgMap, _ = prot._doAverageMaps(volList)
-        matrix, _ = prot._mrcToNp(volList, npAvgMap)
-        matrix, eigenVals = prot._doPCA(volList)
-        labels = prot._clusteringData(matrix)
+        matrix = npIh.getAllNpList(volList, 2)
+
+        # covMatrix, listNpVol = ml.getCovMatrixAuto(volList, 2)
+        # eigenVec, eigVal = ml.doPCA(covMatrix, 1)
+        # matrix = ml.getMatProjAuto(listNpVol, eigenVec)
+
+        labels = prot._doSklearnAffProp(matrix)
+        # labels = prot._doSklearnKmeans(matrix)
+        # labels = prot._doDBSCAN(matrix)
 
         if labels is not None:
             f = open('volumes_clustered.txt', 'w')
@@ -212,10 +219,11 @@ class TestAlignVolumes(TestBase):
         # claseId = 0
 
     def _getVolList(self):
-        # volList = glob('/home/josuegbl/ScipionUserData/projects/Spliceosome_Tesla/MAPS/*_fil20.mrc')
+       # volList = glob('/home/josuegbl/PROCESSING/PAPERS/AUTOCLASSIFY/'
+       #                'WIlliamsonCell/MAPS_Cell_Reproc/map_id-??.???.mrc')
        volList = []
-       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/44S_TestBank/'
-       filePath = 'Runs/003715_Prot3DAutoClassifier/extra/raw_final_model.star'
+       fixedPath = '/home/josuegbl/ScipionUserData/projects/Test3DAutoClasifier/'
+       filePath = 'Runs/000121_Prot3DAutoClassifier/extra/raw_final_model.star'
        wholePath = fixedPath + filePath
        mdModel = md.MetaData(wholePath)
        for row in md.iterRows(mdModel):

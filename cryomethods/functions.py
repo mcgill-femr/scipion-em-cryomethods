@@ -24,6 +24,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
+from itertools import izip
 import numpy as np
 
 
@@ -60,23 +61,20 @@ class NumpyImgHandler(object):
         will affect the file to which the array is bound.
         """
         import mrc
-
         mode = 'r'
         if writable:
             mode = 'r+'
         a = mrc.Mrc(fn, mode)
-
         return a.data_withMrc(fn)
 
     @classmethod
     def saveMrc(cls, npVol, fn):
         import mrc
-        mrc.save(npVol, fn, ifExists='overwrite')
+        mrc.save(npVol.astype('float32'), fn, ifExists='overwrite')
 
     @classmethod
     def alignVolumes(cls, volToAlign, VolRef):
         import frm
-
         axis, shifts, angles, score = frm.frm_align(VolRef, None, volToAlign,
                                                     None, None, 20)
         return axis, shifts, angles, score
@@ -91,7 +89,7 @@ class NumpyImgHandler(object):
         return volume
 
     @classmethod
-    def doAverageMap(cls, mapFnList):
+    def getAverageMap(cls, mapFnList):
         """ Returns the average map and the type of the data.
         """
         for vol in mapFnList:
@@ -105,14 +103,151 @@ class NumpyImgHandler(object):
         return npAvgVol, dType
 
     @classmethod
-    def getMapByThreshold(cls, vol, mult=3.0):
+    def getAvgMapByStd(cls, mapFnList, mult=1):
+        """ Returns the average map and the type of the data.
+        """
+        for vol in mapFnList:
+            npVol = cls.getMapByStd(vol, mult)
+            if vol == mapFnList[0]:
+                dType = npVol.dtype
+                npAvgVol = np.zeros(npVol.shape)
+            npAvgVol += npVol
+
+        npAvgVol = npAvgVol / len(mapFnList)
+        return npAvgVol, dType
+
+    @classmethod
+    def getMinCommonMask(cls, mapFnList, mult=1):
+        """ Returns the average map and the type of the data.
+        """
+        for vol in mapFnList:
+            npVol = cls.loadMrc(vol, False)
+            if vol == mapFnList[0]:
+                dType = npVol.dtype
+                npAvgVol = np.zeros(npVol.shape)
+            npMask = cls.getMaskBelowThreshold(npVol, mult)
+            npAvgVol += npMask
+        npAvgMask = 1 * (npAvgVol > 0.3*len(mapFnList))
+        return npAvgMask, dType
+
+    @classmethod
+    def getMapByStd(cls, vol, mult=1.0):
         """Returns a map masked by a threshold value, given by the standard
         deviation of the map.
         """
         volNp = cls.loadMrc(vol, False)
         std = mult * volNp.std()
-        npMask = 1 * (volNp >= std)
+        npMask = cls.getMaskAboveThreshold(std)
         mapNp = volNp * npMask
         return mapNp
 
+    @classmethod
+    def getMaskAboveThreshold(cls, volNp, mult=1):
+        std = mult * volNp.std()
+        npMask = 1 * (volNp > std)
+        return npMask
 
+    @classmethod
+    def getMaskBelowThreshold(cls, volNp, mult=1):
+        std = mult * volNp.std()
+        npMask = 1 * (volNp <= std)
+        return npMask
+
+    @classmethod
+    def volToList(cls, volNp, avgVol=None, mode='avg'):
+        dim = volNp.shape[0]
+        lenght = dim**3
+        if avgVol is not None:
+            if mode == 'avg':
+                volNp -= avgVol
+                volNp = volNp * cls.getMaskAboveThreshold(volNp, 0)
+            else:
+                volNp *= avgVol
+
+        volNpList = volNp.reshape(lenght)
+        return volNpList, volNpList.dtype
+
+    @classmethod
+    def getAllNpList(cls, listVol, mult=1, mode='avg'):
+        avgMap, _ = cls.getAvgMapByStd(listVol,mult)
+        listNpVol = []
+        for volFn in listVol:
+            npVol = cls.getMapByStd(volFn, mult)
+            npList, _ = cls.volToList(npVol, avgMap, mode)
+            listNpVol.append(npList)
+        return listNpVol
+
+
+class MlMethods(object):
+    """ Class to provides several matching learning methods used in SPA. """
+    def __init__(self):
+        pass
+
+    @classmethod
+    def getCovMatrixAuto(cls, listVol, mult, mode='avg'):
+        npIh = NumpyImgHandler()
+        listNpVol = npIh.getAllNpList(listVol, mult, mode)
+        covMatrix = np.cov(listNpVol)
+        return covMatrix, listNpVol
+
+    @classmethod
+    def getCovMatrixManual(cls, listVol,  mult):
+        npIh = NumpyImgHandler()
+        npAvgVol, _ = npIh.getAverageMap(listVol)
+        covMatrix = []
+        for vol1 in listVol:
+            npVol1 = npIh.loadMrc(vol1, False)
+            npList1 = npIh.volToList(npVol1, npAvgVol)
+            row = []
+            for vol2 in listVol:
+                npVol2 = npIh.loadMrc(vol2, False)
+                npList2 = npIh.volToList(npVol2, npAvgVol)
+                coef = np.cov(npList1, npList2)[0][1]
+                row.append(coef)
+            covMatrix.append(row)
+        return covMatrix
+
+    @classmethod
+    def doPCA(cls, covMatrix, cut=1):
+        u, s, vh = np.linalg.svd(covMatrix)
+        cuttOffMatrix = sum(s) * cut
+        sCut = 0
+        for i in s:
+            if cuttOffMatrix > 0:
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+        eigVecMat = np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0)
+        return eigVecMat, s
+
+    @classmethod
+    def getMatProjAuto(cls, listNpVol, eigVecMat):
+        newBaseAxis = eigVecMat.dot(listNpVol)
+        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
+        return matProj
+
+    @classmethod
+    def getMatProjManual(cls, listVol, eigVecMat):
+        npIh = NumpyImgHandler()
+        matProjTrasp = []
+        npAvgVol = npIh.getAverageMap(listVol)
+        dim = npAvgVol.shape[0]
+        for eigenRow in eigVecMat:
+            volBase = np.zeros((dim, dim, dim))
+            for (volFn, eigenCoef) in izip(listVol, eigenRow):
+                npVol = npIh.loadMrc(volFn, False)
+                restNpVol = npVol - npAvgVol
+                volBase += eigenCoef * restNpVol
+
+            rowCoef = []
+            for volFn in listVol:
+                npVol = npIh.loadMrc(volFn, False)
+                volRow = npIh.volToList(npVol, npAvgVol)
+                npBaseRow = npIh.volToList(volBase)
+                npBaseCol = npBaseRow.transpose()
+                projCoef = np.dot(volRow, npBaseCol)
+                rowCoef.append(projCoef)
+            matProjTrasp.append(rowCoef)
+        matProj = np.array(matProjTrasp).transpose()
+        return matProj

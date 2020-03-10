@@ -215,23 +215,6 @@ class Prot3DAutoClassifier(ProtAutoBase):
         area = np.trapz(ssnr, resolution)
         return area
 
-    def _mrcToNp(self, volList, avgVol=None):
-        listNpVol = []
-        for vol in volList:
-            volNp = self._getVolNp(vol)
-            dim = volNp.shape[0]
-            lenght = dim**3
-            if avgVol is None:
-                volNpList = volNp.reshape(lenght)
-            else:
-                volNpSub = volNp * avgVol
-                npMask = 1 * (volNpSub > 0)
-                volNpSub *= npMask
-                volNpList = volNpSub.reshape(lenght)
-
-            listNpVol.append(volNpList)
-        return listNpVol, listNpVol[0].dtype
-
     def _convertStar(self, copyAlignment, imgStar):
         imgSet = self._getInputParticles()
         self.info("Converting set from '%s' into '%s'" %

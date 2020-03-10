@@ -39,6 +39,7 @@ from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 from cryomethods import Plugin
 from cryomethods.convert import (rowToAlignment, relionToLocation, loadMrc,
                                  saveMrc, alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler, MlMethods
 from .protocol_base import ProtocolBase
 
 
@@ -178,15 +179,14 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def mergeClassesStep(self):
-
         if self.doGrouping:
-
+            from cryomethods.functions import NumpyImgHandler
+            npIh = NumpyImgHandler()
             makePath(self._getLevelPath(self._level))
-            # matrix = self._estimatePCA()
             listVol = self._getFinalMaps()
-            matrix, _ = self._mrcToNp(listVol)
-
+            matrix = npIh.getAllNpList(listVol, 2)
             labels = self._clusteringData(matrix)
+
             prevStar = self._getFileName('rawFinalData')
             mdData = md.MetaData(prevStar)
 
@@ -204,7 +204,6 @@ class ProtAutoBase(ProtocolBase):
                     mdOutput = md.MetaData()
                 row.addToMd(mdOutput)
             mdOutput.write(fn)
-
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
@@ -548,38 +547,22 @@ class ProtAutoBase(ProtocolBase):
         return md.MetaData(file) if os.path.exists(fList[-1]) else md.MetaData()
 
     def _getAverageVol(self, listVol=[]):
-
         listVol = self._getPathMaps() if not bool(listVol) else listVol
-
         try:
             avgVol = self._getFileName('avgMap', lev=self._level)
         except:
             avgVol = self._getPath('map_average.mrc')
-        npAvgVol, dType = self._doAverageMaps(listVol)
-        saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _doAverageMaps(self, listVol):
-        for vol in listVol:
-            npVol = self._getVolNp(vol)
-            std = 2 * npVol.std()
-            npMask = 1 * (npVol > std)
-
-            if vol == listVol[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
-
-        npAvgVol = npAvgVol / len(listVol)
-        npAvgMask = 1 * (npAvgVol < 0.99)
-        # npAvgVol *= npAvgMask
-        return npAvgMask, dType
+        npIh = NumpyImgHandler()
+        npAvgVol, _ = npIh.getAverageMap(listVol)
+        npIh.saveMrc(npAvgVol, avgVol)
 
     def _getVolNp(self, vol):
         mapNp = loadMrc(vol, False)
         std = 2 * mapNp.std()
-        npMask = 1 * (mapNp > std)
+        npMask = 1 * (mapNp >= std)
         mapNp = mapNp * npMask
-        return mapNp
+        return mapNp, npMask
 
     def _getFunc(self, modelMd):
         resolution = []
@@ -625,13 +608,15 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def _estimatePCA(self):
+        from cryomethods.functions import MlMethods
+        ml = MlMethods()
         listVol = self._getFinalMaps()
 
         volNp = loadMrc(listVol[0], False)
         dim = volNp.shape[0]
         dType = volNp.dtype
 
-        matProj, newBaseAxis = self._doPCA(listVol)
+        matProj, newBaseAxis = ml.doPCAuto(listVol, 2, 1)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
@@ -639,39 +624,6 @@ class ProtAutoBase(ProtocolBase):
             saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
         return matProj
-
-    def _doPCA(self, listVol):
-        npAvgVol, _ = self._doAverageMaps(listVol)
-
-        listNpVol, _ = self._mrcToNp(listVol, avgVol=npAvgVol)
-
-        covMatrix = np.cov(listNpVol)
-        u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) * 1
-        sCut = 0
-
-        for i in s:
-            if cuttOffMatrix > 0:
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-
-        eigValsFile = 'eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        newBaseAxis = vhDel.T.dot(listNpVol)
-        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
-        projFile = 'projection_matrix.txt'
-        self._createMFile(matProj, projFile)
-        print("How many PCA eigenvalues: ", sCut)
-        return matProj, s
 
     def _getFinalMaps(self):
         return [self._getMapById(k) for k in self._getFinalMapIds()]
@@ -695,6 +647,16 @@ class ProtAutoBase(ProtocolBase):
         from sklearn.cluster import AffinityPropagation
         ap = AffinityPropagation(damping=0.5).fit(matProj)
         return ap.labels_
+
+    def _doSpectralClustering(self, matProj):
+        from sklearn.cluster import SpectralClustering
+        op = SpectralClustering(n_clusters=matProj.shape[1]-1).fit(matProj)
+        return op.labels_
+
+    def _doDBSCAN(self, matProj):
+        from sklearn.cluster import DBSCAN
+        op = DBSCAN().fit(matProj)
+        return op.labels_
 
     # def _getDistance(self, m1, m2, neg=False):
     #     #estimatation of the distance bt row vectors
