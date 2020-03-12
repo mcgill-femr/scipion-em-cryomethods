@@ -169,7 +169,7 @@ class NumpyImgHandler(object):
 
     @classmethod
     def getAllNpList(cls, listVol, mult=1, mode='avg'):
-        avgMap, _ = cls.getAvgMapByStd(listVol,mult)
+        avgMap, _ = cls.getAvgMapByStd(listVol, mult)
         listNpVol = []
         for volFn in listVol:
             npVol = cls.getMapByStd(volFn, mult)
@@ -251,3 +251,27 @@ class MlMethods(object):
             matProjTrasp.append(rowCoef)
         matProj = np.array(matProjTrasp).transpose()
         return matProj
+
+    @classmethod
+    def doSklearnKmeans(cls, matProj):
+        from sklearn.cluster import KMeans
+        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
+        return kmeans.labels_
+
+    @classmethod
+    def doSklearnAffProp(cls, matProj):
+        from sklearn.cluster import AffinityPropagation
+        ap = AffinityPropagation(damping=0.5).fit(matProj)
+        return ap.labels_
+
+    @classmethod
+    def doSklearnSpectralClustering(cls, matProj):
+        from sklearn.cluster import SpectralClustering
+        op = SpectralClustering(n_clusters=matProj.shape[1]-1).fit(matProj)
+        return op.labels_
+
+    @classmethod
+    def doSklearnDBSCAN(cls, matProj):
+        from sklearn.cluster import DBSCAN
+        op = DBSCAN().fit(matProj)
+        return op.labels_

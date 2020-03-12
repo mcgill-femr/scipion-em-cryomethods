@@ -201,7 +201,7 @@ class ProtAutoBase(ProtocolBase):
                     clsChange = newClass
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=newClass)
-                    mdOutput = md.MetaData()
+                    mdOutput = self._getMetadata(fn)
                 row.addToMd(mdOutput)
             mdOutput.write(fn)
         else:
@@ -632,40 +632,12 @@ class ProtAutoBase(ProtocolBase):
         return [k for k, v in self.stopDict.items() if v is True]
 
     def _clusteringData(self, matProj):
+        ml = MlMethods()
         method = self.classMethod.get()
         if method == 0:
-            return self._doSklearnKmeans(matProj)
+            return ml.doSklearnKmeans(matProj)
         else:
-            return self._doSklearnAffProp(matProj)
-
-    def _doSklearnKmeans(self, matProj):
-        from sklearn.cluster import KMeans
-        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
-        return kmeans.labels_
-
-    def _doSklearnAffProp(self, matProj):
-        from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(damping=0.5).fit(matProj)
-        return ap.labels_
-
-    def _doSpectralClustering(self, matProj):
-        from sklearn.cluster import SpectralClustering
-        op = SpectralClustering(n_clusters=matProj.shape[1]-1).fit(matProj)
-        return op.labels_
-
-    def _doDBSCAN(self, matProj):
-        from sklearn.cluster import DBSCAN
-        op = DBSCAN().fit(matProj)
-        return op.labels_
-
-    # def _getDistance(self, m1, m2, neg=False):
-    #     #estimatation of the distance bt row vectors
-    #     distances = np.zeros(( m1.shape[0], m1.shape[1]))
-    #     for i, row in enumerate(m2):
-    #         distances[:, i] = np.linalg.norm(m1 - row, axis=1)
-    #     if neg == True:
-    #         distances = -distances
-    #     return distances
+            return ml.doSklearnAffProp(matProj)
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')

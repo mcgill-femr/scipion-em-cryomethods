@@ -125,16 +125,16 @@ class TestAlignVolumes(TestBase):
 
         dictNames = {}
         groupDict = {}
-        prot = Prot3DAutoClassifier(classMethod=1)
         matrix = npIh.getAllNpList(volList, 2)
 
         # covMatrix, listNpVol = ml.getCovMatrixAuto(volList, 2)
         # eigenVec, eigVal = ml.doPCA(covMatrix, 1)
         # matrix = ml.getMatProjAuto(listNpVol, eigenVec)
 
-        labels = prot._doSklearnAffProp(matrix)
-        # labels = prot._doSklearnKmeans(matrix)
-        # labels = prot._doDBSCAN(matrix)
+        labels = ml.doSklearnAffProp(matrix)
+        # labels = ml.doSklearnKmeans(matrix)
+        # labels = ml.doSklearnDBSCAN(matrix)
+        print(labels)
 
         if labels is not None:
             f = open('volumes_clustered.txt', 'w')
@@ -144,12 +144,22 @@ class TestAlignVolumes(TestBase):
             for key, value in sorted(dictNames.iteritems()):
                 groupDict.setdefault(value, []).append(key)
 
+            counter = 0
             for key, value in groupDict.iteritems():
                 valueStr = ' '.join(value)
                 line = 'chimera %s\n' % valueStr
                 f.write(line)
+                counter += 1
+                avgFn = 'map_average_class_%02d.mrc' %counter
+                avgNp,_ = npIh.getAverageMap(value)
+                npIh.saveMrc(avgNp, avgFn)
             f.close()
-            print(labels)
+
+        # import shutil
+        # for fn in volList:
+        #     dir = '/home/josuegbl/PROCESSING/30S_delta_yjeQ/'
+        #     newFn = dir + 'map_id-4.' + fn.split('map_id-')[1]
+        #     shutil.move(fn, newFn)
 
         # for line in matrix:
         #     l = map(abs, line)
@@ -219,11 +229,11 @@ class TestAlignVolumes(TestBase):
         # claseId = 0
 
     def _getVolList(self):
-       # volList = glob('/home/josuegbl/PROCESSING/PAPERS/AUTOCLASSIFY/'
-       #                'WIlliamsonCell/MAPS_Cell_Reproc/map_id-??.???.mrc')
+       # volList = glob('/home/josuegbl/PROCESSING/30S_delta_yjeQ/map_id'
+       #                '-?.??.???.mrc')
        volList = []
-       fixedPath = '/home/josuegbl/ScipionUserData/projects/Test3DAutoClasifier/'
-       filePath = 'Runs/000121_Prot3DAutoClassifier/extra/raw_final_model.star'
+       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/30S_delta_yjeQ_Autoclass/'
+       filePath = 'Runs/001544_Prot3DAutoClassifier/extra/raw_final_model.star'
        wholePath = fixedPath + filePath
        mdModel = md.MetaData(wholePath)
        for row in md.iterRows(mdModel):
