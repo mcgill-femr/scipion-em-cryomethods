@@ -205,17 +205,6 @@ class Prot3DAutoClassifier(ProtAutoBase):
         return self._getFileName('relionMap', lev=self._level,
                                      iter=iters, ref3d=clsPart, rLev=rLev)
 
-    def _doAverageMaps(self, listVol):
-        for vol in listVol:
-            npVol = loadMrc(vol, False)
-            if vol == listVol[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
-
-        npAvgVol = np.divide(npAvgVol, len(listVol))
-        return npAvgVol, dType
-
     def _getArea(self, modelMd):
         resolution = []
         ssnr = []
@@ -225,16 +214,6 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
         area = np.trapz(ssnr, resolution)
         return area
-
-    def _mrcToNp(self, volList):
-        listNpVol = []
-        for vol in volList:
-            volNp = loadMrc(vol, False)
-            dim = volNp.shape[0]
-            lenght = dim**3
-            volList = volNp.reshape(lenght)
-            listNpVol.append(volList)
-        return listNpVol, listNpVol[0].dtype
 
     def _convertStar(self, copyAlignment, imgStar):
         imgSet = self._getInputParticles()

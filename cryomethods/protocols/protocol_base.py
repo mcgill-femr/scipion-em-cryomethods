@@ -24,9 +24,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import re
 from glob import glob
-from os.path import exists
 import numpy as np
 from scipy import stats
 

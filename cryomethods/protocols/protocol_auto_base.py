@@ -39,6 +39,7 @@ from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 from cryomethods import Plugin
 from cryomethods.convert import (rowToAlignment, relionToLocation, loadMrc,
                                  saveMrc, alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler, MlMethods
 from .protocol_base import ProtocolBase
 
 
@@ -178,15 +179,14 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def mergeClassesStep(self):
-
         if self.doGrouping:
-
+            from cryomethods.functions import NumpyImgHandler
+            npIh = NumpyImgHandler()
             makePath(self._getLevelPath(self._level))
-            # matrix = self._estimatePCA()
             listVol = self._getFinalMaps()
-            matrix, _ = self._mrcToNp(listVol)
-
+            matrix = npIh.getAllNpList(listVol, 2)
             labels = self._clusteringData(matrix)
+
             prevStar = self._getFileName('rawFinalData')
             mdData = md.MetaData(prevStar)
 
@@ -201,10 +201,9 @@ class ProtAutoBase(ProtocolBase):
                     clsChange = newClass
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=newClass)
-                    mdOutput = md.MetaData()
+                    mdOutput = self._getMetadata(fn)
                 row.addToMd(mdOutput)
             mdOutput.write(fn)
-
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
@@ -215,7 +214,7 @@ class ProtAutoBase(ProtocolBase):
 
     def runFinalClassifStep(self):
         mapIds = self._getFinalMapIds()
-        print ("rLev list", self._getRLevList())
+        print ("runFinalClassifStep rLev list: ", self._getRLevList())
         for rLev in self._getRLevList():
             makePath(self._getRunPath(self._level, rLev))
             self._rLev = rLev
@@ -548,26 +547,22 @@ class ProtAutoBase(ProtocolBase):
         return md.MetaData(file) if os.path.exists(fList[-1]) else md.MetaData()
 
     def _getAverageVol(self, listVol=[]):
-
         listVol = self._getPathMaps() if not bool(listVol) else listVol
-
         try:
             avgVol = self._getFileName('avgMap', lev=self._level)
         except:
             avgVol = self._getPath('map_average.mrc')
-        npAvgVol, dType = self._doAverageMaps(listVol)
-        saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _doAverageMaps(self, listVol):
-        for vol in listVol:
-            npVol = loadMrc(vol, False)
-            if vol == listVol[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
+        npIh = NumpyImgHandler()
+        npAvgVol, _ = npIh.getAverageMap(listVol)
+        npIh.saveMrc(npAvgVol, avgVol)
 
-        npAvgVol = np.divide(npAvgVol, len(listVol))
-        return npAvgVol, dType
+    def _getVolNp(self, vol):
+        mapNp = loadMrc(vol, False)
+        std = 2 * mapNp.std()
+        npMask = 1 * (mapNp >= std)
+        mapNp = mapNp * npMask
+        return mapNp, npMask
 
     def _getFunc(self, modelMd):
         resolution = []
@@ -608,18 +603,20 @@ class ProtAutoBase(ProtocolBase):
 
             saveMrc(npVol.astype(dType), vol)
 
-    def _mrcToNp(self, volList):
+    def _mrcToNp(self, volList, avgVol=None):
         """ Implemented in subclasses. """
         pass
 
     def _estimatePCA(self):
+        from cryomethods.functions import MlMethods
+        ml = MlMethods()
         listVol = self._getFinalMaps()
 
         volNp = loadMrc(listVol[0], False)
         dim = volNp.shape[0]
         dType = volNp.dtype
 
-        matProj, newBaseAxis = self._doPCA(listVol)
+        matProj, newBaseAxis = ml.doPCAuto(listVol, 2, 1)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
@@ -628,38 +625,6 @@ class ProtAutoBase(ProtocolBase):
                     self._getLevelPath(self._level, nameVol))
         return matProj
 
-    def _doPCA(self, listVol):
-        npAvgVol, _ = self._doAverageMaps(listVol)
-
-        listNpVol, _ = self._mrcToNp(listVol)
-
-        covMatrix = np.cov(listNpVol)
-        u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) *0.95
-        sCut = 0
-
-        for i in s:
-            if cuttOffMatrix > 0:
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-
-        eigValsFile = 'eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        newBaseAxis = vhDel.T.dot(listNpVol)
-        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
-        projFile = 'projection_matrix.txt'
-        self._createMFile(matProj, projFile)
-        return matProj, newBaseAxis
-
     def _getFinalMaps(self):
         return [self._getMapById(k) for k in self._getFinalMapIds()]
 
@@ -667,30 +632,12 @@ class ProtAutoBase(ProtocolBase):
         return [k for k, v in self.stopDict.items() if v is True]
 
     def _clusteringData(self, matProj):
+        ml = MlMethods()
         method = self.classMethod.get()
         if method == 0:
-            return self._doSklearnKmeans(matProj)
+            return ml.doSklearnKmeans(matProj)
         else:
-            return self._doSklearnAffProp(matProj)
-
-    def _doSklearnKmeans(self, matProj):
-        from sklearn.cluster import KMeans
-        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
-        return kmeans.labels_
-
-    def _doSklearnAffProp(self, matProj):
-        from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(damping=0.9).fit(matProj)
-        return ap.labels_
-
-    # def _getDistance(self, m1, m2, neg=False):
-    #     #estimatation of the distance bt row vectors
-    #     distances = np.zeros(( m1.shape[0], m1.shape[1]))
-    #     for i, row in enumerate(m2):
-    #         distances[:, i] = np.linalg.norm(m1 - row, axis=1)
-    #     if neg == True:
-    #         distances = -distances
-    #     return distances
+            return ml.doSklearnAffProp(matProj)
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')
