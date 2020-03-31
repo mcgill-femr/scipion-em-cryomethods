@@ -184,8 +184,7 @@ class Plugin(pyworkflow.em.Plugin):
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
                        url=url,
-                       commands=[(commands, target)],
-                       deps=['fftw3', 'fftw3f'])
+                       commands=[(commands, target)])
         ## PIP PACKAGES ##
         def addPipModule(moduleName, *args, **kwargs):
             """ To try to add certain pipModule.
