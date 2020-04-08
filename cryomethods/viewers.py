@@ -293,7 +293,7 @@ class VolumeSelectorViewer(ProtocolViewer):
         return self.protocol._getFileName(prefix + 'model', iter=it)
 
 #  --------------------------NMA_Landscape VIEWER-------------------------------
-#
+
 # class NmaLandscapeViewer(ProtocolViewer):
 #     _label = 'viewer resolution3D'
 #     _targets = [ProtLandscapeNMA]
@@ -365,8 +365,64 @@ class VolumeSelectorViewer(ProtocolViewer):
 #     def _viewPlot(self, paramName=None):
 #         if self.plot.get() == 0:
 #             self._view2DPlot()
-#         # else:
-#         #     self._view3DHeatMap()
+#         else:
+#             self._view3DHeatMap()
+#
+#     def _view2DPlot(self):
+#         fn= self.protocol._getExtraPath("particles.npy")
+#         weight = np.load(fn)
+#         print (weight, "weight")
+#         nBins = self.binSize.get()
+#         coords = self._genralplot()
+#         xedges, yedges, counts=self._getEdges(coords, nBins, weight)
+#
+#         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+#         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+#
+#         a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+#         b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+#         H2 = counts.reshape(counts.size)
+#         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+#         if self.interpolateType == LINEAR:
+#             intType = 'linear'
+#         else:
+#             intType = 'cubic'
+#         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+#                                     bounds_error='True')
+#         znew = f(a2, b2)
+#         print (znew, "znew")
+#         # ---------------------------finding maxima on 2d map-------------------
+#         minima = znew.max()
+#         print (minima, "minimaaa")
+#         tempValue= -25
+#         fac= np.true_divide(znew, minima)
+#         boltzFac = tempValue * fac
+#         boltzParts = self.protocol._getExtraPath('boltzFac')
+#         np.save(boltzParts, boltzFac)
+#         boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
+#
+#         # ---------------------------------------------------------------
+#
+#         plt.figure()
+#         plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+#         plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+#                           vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+#         # ----------showing x,y,z under cursor---------------------------
+#         Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+#         def fmt(x, y):
+#             # get closest point with known data
+#             dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+#             idx = np.argmin(dist)
+#             z = Zflat[idx]
+#             return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+#         # -------------------------------------------------------------------
+#
+#         plt.gca().format_coord = fmt
+#         plt.colorbar()
+#         savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+#         plt.savefig(savePlot)
+#         # draw colorbar
+#         plt.show()
 #
 #     def _genralplot(self, paramName=None):
 #         nPCA = self.pcaCount.get()
@@ -390,63 +446,7 @@ class VolumeSelectorViewer(ProtocolViewer):
 #             coords = man.fit_transform(matProj[:, 0:nPCA])
 #         return coords
 #
-#     def _view2DPlot(self):
-#         fn = self.protocol._getExtraPath('Particle_Weights.npy')
-#         weight = np.load(fn)
-#         print (weight, "weight")
-#         nBins = self.binSize.get()
-#         coords = self._genralplot()
-#         xedges, yedges, counts = self._getEdges(coords, nBins, weight)
 #
-#         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
-#         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
-#
-#         a2 = np.linspace(xedges.min(), xedges.max(), num=100)
-#         b2 = np.linspace(yedges.min(), yedges.max(), num=100)
-#         H2 = counts.reshape(counts.size)
-#         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-#         if self.interpolateType == LINEAR:
-#             intType = 'linear'
-#         else:
-#             intType = 'cubic'
-#         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
-#                                     bounds_error='True')
-#         znew = f(a2, b2)
-#         print (znew, "znew")
-#         # ---------------------------finding maxima on 2d map-------------------
-#         minima = znew.max()
-#         print (minima, "minimaaa")
-#         tempValue = -25
-#         fac = np.true_divide(znew, minima)
-#         boltzFac = tempValue * fac
-#         boltzParts = self.protocol._getExtraPath('boltzFac')
-#         np.save(boltzParts, boltzFac)
-#         boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
-#
-#         # ---------------------------------------------------------------
-#
-#         plt.figure()
-#         plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
-#         plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
-#                      vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
-#         # ----------showing x,y,z under cursor---------------------------
-#         Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
-#
-#         def fmt(x, y):
-#             # get closest point with known data
-#             dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
-#             idx = np.argmin(dist)
-#             z = Zflat[idx]
-#             return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
-#
-#         # -------------------------------------------------------------------
-#
-#         plt.gca().format_coord = fmt
-#         plt.colorbar()
-#         savePlot = self.protocol._getExtraPath('2d_PLOT.png')
-#         plt.savefig(savePlot)
-#         # draw colorbar
-#         plt.show()
 #
 #     def _loadPcaCoordinates(self):
 #         """ Check if the PCA data is generated and if so,
@@ -607,7 +607,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _viewHeatMap(self, paramName=None):
-        fn = self.protocol._getExtraPath("particles.npy")
+        fn = self.protocol._getExtraPath("all_good_particles.npy")
         weight = np.load(fn)
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
@@ -743,7 +743,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        fn= self.protocol._getExtraPath("particles.npy")
+        fn= self.protocol._getExtraPath("all_good_particles.npy")
         weight = np.load(fn)
         print (weight, "weight")
         nBins = self.binSize.get()
