@@ -64,7 +64,7 @@ from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
 import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
+                                 relionToLocation,
                                  alignVolumes, applyTransforms)
 from numpy.core import transpose
 from matplotlib import pyplot as plt
@@ -73,6 +73,7 @@ from matplotlib import *
 import traceback
 from matplotlib.colors import LogNorm
 from scipy.interpolate import griddata
+from cryomethods.convert import (loadMrc, saveMrc)
 
 
 
@@ -161,8 +162,11 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form, expertLev=em.LEVEL_ADVANCED, cond='True'):
         form.addSection(label='Input')
-        form.addParam('inputVolume', PointerParam, label="Input Volume",
-                      important=True, pointerClass='Volume')
+        form.addParam('inputVolumes', params.PointerParam,
+                      pointerClass='SetOfVolumes',
+                      important=True,
+                      label='Input volumes',
+                      help='Initial reference 3D maps')
 
         form.addParam('inputParticles', params.PointerParam,
                       pointerClass='SetOfParticles',
@@ -210,7 +214,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         #----------------------------------NMA------------------------------
         form.addSection(label='Normal Mode Analysis')
-        form.addParam('numberOfModes', IntParam, default=90,
+        form.addParam('numberOfModes', IntParam, default=10,
                       label='Number of modes',
                       help='The maximum number of modes allowed by the method for \n'
                            'atomic normal mode analysis is 6 times the number of  \n'
@@ -230,7 +234,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       label="Cut-off distance (A)",
                       condition='cutoffMode==%d' % NMA_CUTOFF_ABS,
                       help='Atoms or pseudoatoms beyond this distance will not interact.')
-        form.addParam('rcPercentage', FloatParam, default=99,
+        form.addParam('rcPercentage', FloatParam, default=95,
                       label="Cut-off percentage",
                       condition='cutoffMode==%d' % NMA_CUTOFF_REL,
                       help='The interaction cutoff distance is calculated as the distance\n'
@@ -826,54 +830,113 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
     #--------------------------- STEP functions --------------------------------
-    def convertVolumeStep(self):
-        inputVol = self.inputVolume.get()
-        print (inputVol, "inputVol")
-        fnMask = None
-        fnIn = getImageLocation(inputVol)
+    def _getMrcVolumes(self):
+        return sorted(glob(self._getExtraPath('*.mrc')))
 
-
+    def _insertMaskStep(self, fnIn, prefix=''):
+        """ Check the mask selected and insert the necessary steps.
+        Return the mask filename if needed.
+        """
+        fnMask = ''
         if self.maskMode == NMA_MASK_THRE:
-            fnMask = self._getExtraPath('mask.vol')
+            self.maskThreshold.get()
+            fnMask = self._getExtraPath('mask%s.vol' % prefix)
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
                          % (fnIn, fnMask, self.maskThreshold.get())
+            print (maskParams, "maskParams")
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
         elif self.maskMode == NMA_MASK_FILE:
             fnMask = getImageLocation(self.volumeMask.get())
 
-        print ("fnmask1")
+        print (fnMask,"fnMask")
+        return fnMask
+
+    def convertToPseudoAtomsStep(self, fnIn, fnMask, sampling, prefix=''):
         pseudoatoms = 'pseudoatoms'
         outputFn = self._getPath(pseudoatoms)
         print (outputFn, "outputFn")
-        sampling = inputVol.getSamplingRate()
+        sampling = fnIn.getSamplingRate()
         sigma = sampling * self.pseudoAtomRadius.get()
         targetErr = self.pseudoAtomTarget.get()
         nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
-        params = "-i %(fnIn)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+        params = "-i %(vols)s -o %(outputFn)s --sigma %(sigma)f --thr " \
                  "%(nthreads)d "
         params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
                   "-v 2 --intensityColumn Bfactor"
-
+        #
         print ("fnmask1")
 
         if fnMask:
             params += " --mask binary_file %(fnMask)s"
         self.runJob("xmipp_volume_to_pseudoatoms", params % locals(),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         for suffix in ["_approximation.vol", "_distance.hist"]:
             moveFile(self._getPath(pseudoatoms + suffix),
                      self._getExtraPath(pseudoatoms + suffix))
+
         self.runJob("xmipp_image_convert",
                     "-i %s_approximation.vol -o %s_approximation.mrc -t vol"
                     % (self._getExtraPath(pseudoatoms),
                        self._getExtraPath(pseudoatoms)),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         self.runJob("xmipp_image_header",
                     "-i %s_approximation.mrc --sampling_rate %f" %
                     (self._getExtraPath(pseudoatoms), sampling),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         cleanPattern(self._getPath(pseudoatoms + '_*'))
+
+
+    def convertVolumeStep(self):
+        Plugin.setEnviron()
+        inputVols = self.inputVolumes.get()
+        ih = em.ImageHandler()
+        for i, vol in enumerate(inputVols):
+            num = vol.getObjId()
+            newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
+            ih.convert(vol, newFn)
+
+        # ----get multiple vols--------
+        fnIn= self._getMrcVolumes()
+        counter= 0
+        for vols in fnIn:
+            print (vols, 'fnIn')
+            fnMask= self._insertMaskStep(vols)
+            pseudoatoms = 'pseudoatoms%02d'% (counter)
+            outputFn = self._getPath(pseudoatoms)
+            print (outputFn, "outputFn")
+            sampling = inputVols.getSamplingRate()
+            sigma = sampling * self.pseudoAtomRadius.get()
+            targetErr = self.pseudoAtomTarget.get()
+            nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
+            params = "-i %(vols)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+                     "%(nthreads)d "
+            params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
+                      "-v 2 --intensityColumn Bfactor"
+            #
+            print ("fnmask1")
+
+            if fnMask:
+                params += " --mask binary_file %(fnMask)s"
+            self.runJob("xmipp_volume_to_pseudoatoms", params % locals(),
+                        numberOfMpi=1, numberOfThreads=1)
+            for suffix in ["_approximation.vol", "_distance.hist"]:
+                moveFile(self._getPath(pseudoatoms + suffix),
+                         self._getExtraPath(pseudoatoms + suffix))
+
+            self.runJob("xmipp_image_convert",
+                        "-i %s_approximation.vol -o %s_approximation.mrc -t vol"
+                        % (self._getExtraPath(pseudoatoms),
+                           self._getExtraPath(pseudoatoms)),
+                        numberOfMpi=1, numberOfThreads=1)
+            self.runJob("xmipp_image_header",
+                        "-i %s_approximation.mrc --sampling_rate %f" %
+                        (self._getExtraPath(pseudoatoms), sampling),
+                        numberOfMpi=1, numberOfThreads=1)
+            cleanPattern(self._getPath(pseudoatoms + '_*'))
+            print (fnMask)
+            counter+=1
+
     # ---------------------view perturbed vol----------------------------------
     # def _showVolumes(self, paramName=None):
     #     view = []
@@ -888,84 +951,92 @@ class ProtLandscapeNMA(em.EMProtocol):
 
     def computeNMAStep(self):
         # Link the input
-        pseudoFn = 'pseudoatoms.pdb'
-        distanceFn = 'atoms_distance.hist'
-        inputFn = self._getPath(pseudoFn)
-        localFn = self._getPath(replaceBaseExt(basename(inputFn), 'pdb'))
-        """ Copy the input pdb file and also create a link 'atoms.pdb'
-         """
-        cifToPdb(inputFn, localFn)
+        pdbFns = self._getPath("*.pdb")
+        # print(pdbFns, type(pdbFns), self._currentDir)
+        fnListl = glob(pdbFns)
 
-        if not os.path.exists(inputFn):
-            createLink(localFn, inputFn)
+        for pdbL in fnListl:
+            # pseudoFn = 'pseudoatoms.pdb'
+            distanceFn = 'atoms_distance.hist'
+            # inputFn = self._getPath(pseudoFn)
+            print (pdbL, "inputFn")
+
+            localFn = self._getPath(replaceBaseExt(basename(pdbL), 'pdb'))
+            print(localFn, "localFn")
+            """ Copy the input pdb file and also create a link 'atoms.pdb'
+             """
+            cifToPdb(pdbL, localFn)
+
+            if not os.path.exists(pdbL):
+                createLink(localFn, pdbL)
 
 
-        # Construct string for relative-absolute cutoff
-        # This is used to detect when to reexecute a step or not
-        cutoffStr = ''
+            # Construct string for relative-absolute cutoff
+            # This is used to detect when to reexecute a step or not
+            cutoffStr = ''
 
-        if self.cutoffMode == NMA_CUTOFF_REL:
-            cutoffStr = 'Relative %f' % self.rcPercentage.get()
-        else:
-            cutoffStr = 'Absolute %f' % self.rc.get()
+            if self.cutoffMode == NMA_CUTOFF_REL:
+                cutoffStr = 'Relative %f' % self.rcPercentage.get()
+            else:
+                cutoffStr = 'Absolute %f' % self.rc.get()
 
-        print("cutoffStr", cutoffStr)
-        # Compute modes
-        if self.cutoffMode == NMA_CUTOFF_REL:
-            print ("NMA_CUTOFF_REL", NMA_CUTOFF_REL)
-            params = '-i %s --operation distance_histogram %s' \
-                     % (localFn, self._getExtraPath(distanceFn))
-            self.runJob("xmipp_pdb_analysis", params,
-                        numberOfMpi=1, numberOfThreads=1)
-            print "i ran xmipp pdb analysis"
+            print("cutoffStr", cutoffStr)
+            # Compute modes
+            if self.cutoffMode == NMA_CUTOFF_REL:
+                print ("NMA_CUTOFF_REL", NMA_CUTOFF_REL)
+                params = '-i %s --operation distance_histogram %s' \
+                         % (localFn, self._getExtraPath(distanceFn))
+                self.runJob("xmipp_pdb_analysis", params,
+                            numberOfMpi=1, numberOfThreads=1)
+                print "i ran xmipp pdb analysis"
 
-        # fnBase = localFn.replace(".pdb", "")
-        fnDistanceHist = self._getExtraPath(distanceFn)
-        (baseDir, fnBase) = os.path.split(fnDistanceHist)
-        rc = self._getRc(fnDistanceHist)
-        self._enterWorkingDir()
-        self.runJob('nma_record_info.py',
-                    "%d %s %d" % (self.numberOfModes.get(), pseudoFn, rc),
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
+            # fnBase = localFn.replace(".pdb", "")
+            fnDistanceHist = self._getExtraPath(distanceFn)
+            (baseDir, fnBase) = os.path.split(fnDistanceHist)
+            rc = self._getRc(fnDistanceHist)
+            self._enterWorkingDir()
+            self.runJob('nma_record_info.py',
+                        "%d %s %d" % (self.numberOfModes.get(), pdbL, rc),
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
 
-        self.runJob("nma_pdbmat.pl", "pdbmat.dat", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_diag_arpack", "", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        if not exists("fort.11"):
-            self._printWarnings(redStr(
-                'Modes cannot be computed. Check the number of '
-                'modes you asked to compute and/or consider increasing '
-                'cut-off distance. The maximum number of modes allowed by '
-                'the method for pseudoatomic normal mode analysis is 3 times '
-                'the number of pseudoatoms but the protocol allows only up to '
-                '200 modes as 20-100 modes are usually enough.  '
-                'If the number of modes is below the minimum between 200 and 3 '
-                'times the number of pseudoatoms, consider increasing cut-off distance.'))
-        cleanPath("diag_arpack.in", "pdbmat.dat")
+            self.runJob("nma_pdbmat.pl", "pdbmat.dat", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_diag_arpack", "", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            if not exists("fort.11"):
+                self._printWarnings(redStr(
+                    'Modes cannot be computed. Check the number of '
+                    'modes you asked to compute and/or consider increasing '
+                    'cut-off distance. The maximum number of modes allowed by '
+                    'the method for pseudoatomic normal mode analysis is 3 times '
+                    'the number of pseudoatoms but the protocol allows only up to '
+                    '200 modes as 20-100 modes are usually enough.  '
+                    'If the number of modes is below the minimum between 200 and 3 '
+                    'times the number of pseudoatoms, consider increasing cut-off distance.'))
+            cleanPath("diag_arpack.in", "pdbmat.dat")
 
-        # self._leaveWorkingDir()
-        n = self._countAtoms(pseudoFn)
-        self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("cat", "vec.1* > vec_ani.txt",
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("rm", "-f vec.1*",
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_reformat_vector.pl", "%d fort.11" % n,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        fnModesDir = "modes"
-        makePath(fnModesDir)
-        self.runJob("mv", "-f vec.* %s" % fnModesDir,
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_prepare_for_animate.py", "", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("rm", "-f vec_ani.txt fort.11 matrice.sdijf",
-                        numberOfMpi=1, numberOfThreads=1)
-        moveFile('vec_ani.pkl', 'extra/vec_ani.pkl')
+            # self._leaveWorkingDir()
+            n = self._countAtoms(pdbL)
+            self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("cat", "vec.1* > vec_ani.txt",
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("rm", "-f vec.1*",
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_reformat_vector.pl", "%d fort.11" % n,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            fnModesDir = "modes"
+            makePath(fnModesDir)
+            self.runJob("mv", "-f vec.* %s" % fnModesDir,
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_prepare_for_animate.py", "", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("rm", "-f vec_ani.txt fort.11 matrice.sdijf",
+                            numberOfMpi=1, numberOfThreads=1)
+            moveFile('vec_ani.pkl', 'extra/vec_ani.pkl')
 
 
 
