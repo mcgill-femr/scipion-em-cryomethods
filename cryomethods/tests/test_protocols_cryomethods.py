@@ -319,3 +319,23 @@ class TestClass3DRansac(TestBase):
         # DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
         # DransacProt2.inputParticles.set(protSubset.outputParticles)
         # self.launchProtocol(DransacProt2)
+
+class TestVolumeClustering(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+
+    def testVolumeClustering(self):
+        protImport = self.newProtocol(ProtImportVolumes,
+                                     filesPath='/home/josuegbl/SOFTWARE/SCIPION/scipion/data/tests/BetaGClass',
+                                     filesPattern='*.mrc',
+                                     samplingRate=1.7)
+        self.launchProtocol(protImport)
+
+        prot = self.newProtocol(ProtVolClustering,
+                                alignVolumes=False)
+        prot.setObjLabel('test')
+        prot.inputVolumes.set(protImport.outputVolumes)
+        self.launchProtocol(prot)
+        self.assertIsNotNone(prot.outputVolumes, "There was a problem...")
+
