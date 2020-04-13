@@ -953,22 +953,23 @@ class ProtLandscapeNMA(em.EMProtocol):
         # Link the input
         pdbFns = self._getPath("*.pdb")
         # print(pdbFns, type(pdbFns), self._currentDir)
-        fnListl = glob(pdbFns)
-
+        fnListl = sorted(glob(pdbFns))
+        counter = 0
         for pdbL in fnListl:
             # pseudoFn = 'pseudoatoms.pdb'
             distanceFn = 'atoms_distance.hist'
-            # inputFn = self._getPath(pseudoFn)
-            print (pdbL, "inputFn")
+            inputFn = os.path.basename(pdbL)
+            print (inputFn, "inputFn")
+            print (pdbL, "pdbL")
 
             localFn = self._getPath(replaceBaseExt(basename(pdbL), 'pdb'))
             print(localFn, "localFn")
             """ Copy the input pdb file and also create a link 'atoms.pdb'
              """
-            cifToPdb(pdbL, localFn)
+            cifToPdb(inputFn, localFn)
 
-            if not os.path.exists(pdbL):
-                createLink(localFn, pdbL)
+            if not os.path.exists(inputFn):
+                createLink(localFn, inputFn)
 
 
             # Construct string for relative-absolute cutoff
@@ -988,7 +989,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                          % (localFn, self._getExtraPath(distanceFn))
                 self.runJob("xmipp_pdb_analysis", params,
                             numberOfMpi=1, numberOfThreads=1)
-                print "i ran xmipp pdb analysis"
+                print ("i ran xmipp pdb analysis")
 
             # fnBase = localFn.replace(".pdb", "")
             fnDistanceHist = self._getExtraPath(distanceFn)
@@ -996,7 +997,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             rc = self._getRc(fnDistanceHist)
             self._enterWorkingDir()
             self.runJob('nma_record_info.py',
-                        "%d %s %d" % (self.numberOfModes.get(), pdbL, rc),
+                        "%d %s %d" % (self.numberOfModes.get(), inputFn, rc),
                         env=getNMAEnviron(),
                             numberOfMpi=1, numberOfThreads=1)
 
@@ -1017,7 +1018,8 @@ class ProtLandscapeNMA(em.EMProtocol):
             cleanPath("diag_arpack.in", "pdbmat.dat")
 
             # self._leaveWorkingDir()
-            n = self._countAtoms(pdbL)
+            n = self._countAtoms(inputFn)
+            print (n, "n")
             self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
                         env=getNMAEnviron(),
                             numberOfMpi=1, numberOfThreads=1)
@@ -1040,43 +1042,44 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
 
-        #self.PseudoAtomThreshold = 0.0
+            #self.PseudoAtomThreshold = 0.0
 
-        fnVec = glob("modes/vec.*")
+            fnVec = glob("modes/vec.*")
 
-        if len(fnVec) < self.numberOfModes.get():
-            msg = "There are only %d modes instead of %d. "
-            msg += "Check the number of modes you asked to compute and/or consider increasing cut-off distance."
-            msg += "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times"
-            msg += "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms. "
-            msg += "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of"
-            msg += "modes is below the minimum between these two numbers, consider increasing cut-off distance."
-            self._printWarnings(redStr(msg % (len(fnVec), self.numberOfModes.get())))
-            print redStr('Warning: There are only %d modes instead of %d.' % (
-            len(fnVec), self.numberOfModes.get()))
-            print redStr(
-                "Check the number of modes you asked to compute and/or consider increasing cut-off distance.")
-            print redStr(
-                "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times")
-            print redStr(
-                "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms.")
-            print redStr(
-                "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of")
-            print redStr(
-                "modes is below the minimum between these two numbers, consider increasing cut-off distance.")
+            if len(fnVec) < self.numberOfModes.get():
+                msg = "There are only %d modes instead of %d. "
+                msg += "Check the number of modes you asked to compute and/or consider increasing cut-off distance."
+                msg += "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times"
+                msg += "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms. "
+                msg += "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of"
+                msg += "modes is below the minimum between these two numbers, consider increasing cut-off distance."
+                self._printWarnings(redStr(msg % (len(fnVec), self.numberOfModes.get())))
+                print (redStr('Warning: There are only %d modes instead of %d.' %
+                             (len(fnVec), self.numberOfModes.get())))
+                print (redStr(
+                    "Check the number of modes you asked to compute and/or consider"
+                    " increasing cut-off distance."))
+                print (redStr("The maximum number of modes allowed by the method"
+                              " for atomic normal mode analysis is 6 times"))
+                print (redStr("the number of RTB blocks and for pseudoatomic normal"
+                              " mode analysis 3 times the number of pseudoatoms."))
+                print (redStr("However, the protocol allows only up to 200 modes as"
+                              " 20-100 modes are usually enough. If the number of"))
+                print (redStr("modes is below the minimum between these two numbers,"
+                              " consider increasing cut-off distance."))
 
-        fnDiag = "diagrtb.eigenfacs"
+            fnDiag = "diagrtb.eigenfacs"
 
 
-        self.runJob("nma_reformatForElNemo.sh", "%d" % len(fnVec),
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        fnDiag = "diag_arpack.eigenfacs"
+            self.runJob("nma_reformatForElNemo.sh", "%d" % len(fnVec),
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            fnDiag = "diag_arpack.eigenfacs"
 
-        self.runJob("echo", "%s | nma_check_modes" % fnDiag,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        cleanPath(fnDiag)
+            self.runJob("echo", "%s | nma_check_modes" % fnDiag,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            cleanPath(fnDiag)
 
 
         fh = open("Chkmod.res")
@@ -1159,7 +1162,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         # sys.exit()
 #
 
-        makePath('extra/animations')
+        makePath('extra/animations %02d' % counter)
 
         fn = "pseudoatoms.pdb"
         print ("animation step eneter")
@@ -1171,7 +1174,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                      self.nframes.get(), self.downsample.get(),
                      self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
                         numberOfMpi=1, numberOfThreads=1)
-        print "madre mia animaaaaaaaaaaaa"
+        print ("madre mia animaaaaaaaaaaaa")
 
         for mode in range(7, self.numberOfModes.get() + 1):
             fnAnimation = join("extra", "animations", "animated_mode_%03d"
@@ -1222,7 +1225,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 md.setValue(xmippLib.MDL_NMA_ATOMSHIFT, maxShift[i], objId)
                 md.setValue(xmippLib.MDL_NMA_MODEFILE, fnVec, objId)
         md.write(self._getExtraPath('maxAtomShifts.xmd'))
-
+        counter +=1
 
         self._leaveWorkingDir()
 
