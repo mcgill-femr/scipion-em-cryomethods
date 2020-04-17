@@ -794,7 +794,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         cleanPath(self._getExtraPath('scaled_particles.stk'))
         cleanPath(self._getExtraPath('scaled_particles.xmd'))
         cleanPath(self._getExtraPath('volume.vol'))
-        cleanPath(self._getExtraPath('recons_vols'))
+        #cleanPath(self._getExtraPath('recons_vols'))
 
     def createOutputStep(self):
         volumes = self._createSetOfVolumes()
