@@ -100,7 +100,8 @@ class Plugin(pyworkflow.em.Plugin):
         pythonPath = [cls.getHome('imageLib'),
                       cls.getHome('alignLib'),
                       cls.getHome('alignLib/frm/swig'),
-                      cls.getHome('alignLib/tompy')]
+                      cls.getHome('alignLib/tompy'),
+                      cls.getHome('programs/bin')]
 
         for path in pythonPath:
             if not path in sys.path:
@@ -180,9 +181,9 @@ class Plugin(pyworkflow.em.Plugin):
         libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
         environ = cls.getEnviron()
         environ.update(cls.getVars())
-        # commands = ('python alignLib/compile.py; python programs/src/programs_compile.py'
-        #             ' ; ln -sf %s ../../lib/ ; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
-        commands = ('python programs/src/programs_compile.py')
+        commands = ('python alignLib/compile.py; ln -sf %s ../../lib/; '
+                    'python programs/src/programs_compile.py;'
+                    ' ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
         target = cls.getHome('programs/bin/angular_neighbourhood')
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
