@@ -27,8 +27,7 @@
 import sys
 from glob import glob
 import numpy as np
-
-from pyworkflow.utils import basename
+from pyworkflow.utils import basename, copyFile
 from pyworkflow.tests import *
 import pyworkflow.em.metadata as md
 from cryomethods import Plugin
@@ -51,7 +50,6 @@ class TestAlignVolumes(TestBase):
         Manager().deleteProject(projName)
         setupTestProject(cls)
         TestBase.setData()
-
 
     def testAlignVolumes(self):
         Plugin.setEnviron()
@@ -116,7 +114,6 @@ class TestAlignVolumes(TestBase):
 
     def testAffinityProp(self):
         from cryomethods.functions import MlMethods, NumpyImgHandler
-        from matplotlib import pyplot as plt
         from itertools import izip
         Plugin.setEnviron()
         volList = self._getVolList()
@@ -140,7 +137,8 @@ class TestAlignVolumes(TestBase):
             f = open('volumes_clustered.txt', 'w')
             for vol, label in izip (volList, labels):
                 dictNames[vol] = label
-
+                destFn = '/home/josuegbl/PROCESSING/TESLA/projects/RNC_HTLnd2/MAPS' + basename(vol)
+                copyFile(vol, destFn)
             for key, value in sorted(dictNames.iteritems()):
                 groupDict.setdefault(value, []).append(key)
 
@@ -232,8 +230,8 @@ class TestAlignVolumes(TestBase):
        # volList = glob('/home/josuegbl/PROCESSING/30S_delta_yjeQ/map_id'
        #                '-?.??.???.mrc')
        volList = []
-       fixedPath = '/home/josuegbl/PROCESSING/CAJAL/30S_delta_yjeQ_Autoclass/'
-       filePath = 'Runs/001544_Prot3DAutoClassifier/extra/raw_final_model.star'
+       fixedPath = '/home/josuegbl/PROCESSING/TESLA/projects/RNC_HTLnd2/'
+       filePath = 'Runs/001034_Prot3DAutoClassifier/extra/final_model.star'
        wholePath = fixedPath + filePath
        mdModel = md.MetaData(wholePath)
        for row in md.iterRows(mdModel):
