@@ -862,89 +862,89 @@ class PcaLandscapeViewer(ProtocolViewer):
         # draw colorbar
         plt.show()
     # --------------decide pca count to reconstruct vols-----------------
-    # def _pcaReconstruction(self, paramName=None):
-    #     Plugin.setEnviron()
-    #     if not os.path.exists(self.protocol._getExtraPath('Select_PC')):
-    #         os.mkdir(self.protocol._getExtraPath('Select_PC'))
-    #     nPCA = self.pcaCount.get()
-    #     print (nPCA)
-    #     avgVol = self.protocol._getPath('extramap_average.mrc')
-    #     npAvgVol = loadMrc(avgVol, False)
-    #     print ("average map is here")
-    #     dType = npAvgVol.dtype
-    #     fnIn = self.protocol._getMrcVolumes()
-    #     volNum = self.volNumb.get()
-    #     initVolNum = volNum - 1
-    #     iniVolNp = loadMrc(fnIn[0], False)
-    #
-    #     dim = iniVolNp.shape[0]
-    #     print (len(iniVolNp), "iniVolNp")
-    #     lenght = dim ** 3
-    #     reshapeVol = iniVolNp.reshape(lenght)
-    #     subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
-    #     # -------------------------covariance matrix----------------------
-    #     cov_matrix= np.load(
-    #         self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
-    #     print (len(cov_matrix), "cov_matrix")
-    #     u, s, vh = np.linalg.svd(cov_matrix)
-    #     sCut = int(self.pcaCount.get())
-    #     print (sCut, "scut")
-    #     vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-    #     # --------------------obatining base-----------------------------
-    #     for eignRow in vhDel.T:
-    #         base = np.zeros(lenght)
-    #         # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
-    #         volSelect= fnIn[initVolNum:volNum]
-    #         print(volSelect, "volSelect")
-    #         for (vol, eigenCoef) in izip(volSelect,eignRow):
-    #             volInp = loadMrc(vol, False)
-    #             volInpR = volInp.reshape(lenght)
-    #             volSubs = volInpR - npAvgVol.reshape(lenght)
-    #             base += volSubs * eigenCoef
-    #             volBase = base.reshape((dim, dim, dim))
-    #             # break
-    #         break
-    #     nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
-    #     print('-------------saving map %s-----------------' % nameVol)
-    #     saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
-    #     #
-    #     # # ----------------matproj-----------------------------------------
-    #     matProj = []
-    #     baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
-    #     baseMrcFile = sorted(glob(baseMrc))
-    #     volSelect = fnIn[initVolNum:volNum]
-    #     for vol in volSelect:
-    #         volNp = loadMrc(vol, False)
-    #         restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
-    #         volRow = restNpVol.reshape(lenght)
-    #         rowCoef = []
-    #         for baseVol in baseMrcFile:
-    #             npVol = loadMrc(baseVol, writable=False)
-    #             baseVol_row = npVol.reshape(lenght)
-    #             baseVol_col = baseVol_row.transpose()
-    #             projCoef = np.dot(volRow, baseVol_col)
-    #             rowCoef.append(projCoef)
-    #     matProj.append(rowCoef)
-    #     print (matProj, "matProj")
-    #     print ("length of bese file", len(baseMrcFile))
-    #     #
-    #     # # obtaining volumes from coordinates-----------------------------------
-    #     for projRow in matProj:
-    #         vol = np.zeros((dim, dim, dim))
-    #         for baseVol, proj in zip(baseMrcFile, projRow):
-    #             volNpo = loadMrc(baseVol, False)
-    #             vol += volNpo * proj
-    #         finalVol = vol + npAvgVol
-    #         nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-    #         print('-------------saving reconstruct_vols %s-----------------' % nameRes)
-    #         saveMrc(finalVol.astype(dType),
-    #                     self.protocol._getExtraPath('Select_PC', nameRes))
-    #     finalVol= fnIn[volNum]
-    #
-    #     orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-    #     dst = self.protocol._getExtraPath('Select_PC', orgVol)
-    #     # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
-    #     copyfile(finalVol, dst)
+    def _pcaReconstruction(self, paramName=None):
+        Plugin.setEnviron()
+        if not os.path.exists(self.protocol._getExtraPath('Select_PC')):
+            os.mkdir(self.protocol._getExtraPath('Select_PC'))
+        nPCA = self.pcaCount.get()
+        print (nPCA)
+        avgVol = self.protocol._getPath('extramap_average.mrc')
+        npAvgVol = loadMrc(avgVol, False)
+        print ("average map is here")
+        dType = npAvgVol.dtype
+        fnIn = self.protocol._getMrcVolumes()
+        volNum = self.volNumb.get()
+        initVolNum = volNum - 1
+        iniVolNp = loadMrc(fnIn[0], False)
+
+        dim = iniVolNp.shape[0]
+        print (len(iniVolNp), "iniVolNp")
+        lenght = dim ** 3
+        reshapeVol = iniVolNp.reshape(lenght)
+        subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
+        # -------------------------covariance matrix----------------------
+        cov_matrix= np.load(
+            self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
+        print (len(cov_matrix), "cov_matrix")
+        u, s, vh = np.linalg.svd(cov_matrix)
+        sCut = int(self.pcaCount.get())
+        print (sCut, "scut")
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        # --------------------obatining base-----------------------------
+        for eignRow in vhDel.T:
+            base = np.zeros(lenght)
+            # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
+            volSelect= fnIn[initVolNum:volNum]
+            print(volSelect, "volSelect")
+            for (vol, eigenCoef) in izip(volSelect,eignRow):
+                volInp = loadMrc(vol, False)
+                volInpR = volInp.reshape(lenght)
+                volSubs = volInpR - npAvgVol.reshape(lenght)
+                base += volSubs * eigenCoef
+                volBase = base.reshape((dim, dim, dim))
+                # break
+            break
+        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving map %s-----------------' % nameVol)
+        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+        #
+        # # ----------------matproj-----------------------------------------
+        matProj = []
+        baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
+        baseMrcFile = sorted(glob(baseMrc))
+        volSelect = fnIn[initVolNum:volNum]
+        for vol in volSelect:
+            volNp = loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseVol in baseMrcFile:
+                npVol = loadMrc(baseVol, writable=False)
+                baseVol_row = npVol.reshape(lenght)
+                baseVol_col = baseVol_row.transpose()
+                projCoef = np.dot(volRow, baseVol_col)
+                rowCoef.append(projCoef)
+        matProj.append(rowCoef)
+        print (matProj, "matProj")
+        print ("length of bese file", len(baseMrcFile))
+        #
+        # # obtaining volumes from coordinates-----------------------------------
+        for projRow in matProj:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in zip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
+            finalVol = vol + npAvgVol
+            nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+            print('-------------saving reconstruct_vols %s-----------------' % nameRes)
+            saveMrc(finalVol.astype(dType),
+                        self.protocol._getExtraPath('Select_PC', nameRes))
+        finalVol= fnIn[volNum]
+
+        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        dst = self.protocol._getExtraPath('Select_PC', orgVol)
+        # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
+        copyfile(finalVol, dst)
 
 
 
