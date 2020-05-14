@@ -24,15 +24,14 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import re
 from glob import glob
-from os.path import exists
 import numpy as np
 from scipy import stats
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
+import pyworkflow.utils.path as pwpath
 from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
@@ -160,6 +159,11 @@ class ProtocolBase(em.EMProtocol):
                                 'particles and maps to a pisel size = resol/2. '
                                 'If set to 0, no rescale will be applied to '
                                 'the initial references.')
+            group.addParam('changeMaps', params.BooleanParam,
+                           default=False,
+                           label='change initial maps every 5 iterations?',
+                           help='')
+
         elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
 
@@ -690,9 +694,19 @@ class ProtocolBase(em.EMProtocol):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(15, 55, 5):
+        for i in range(10, 55, 5):
             stop = self._stopRunCondition(rLev, i-5)
             if not stop:
+                chgMaps = self.getAttributeValue('changeMaps', False)
+                if chgMaps:
+                    fnPath = self._getFileName('volFind', ruNum=rLev, iter=1)
+                    fnList = glob(fnPath)
+                    for fn in fnList:
+                        classId = int(fn.split('class')[-1].split('.')[0])
+                        vol = self._getFileName('volume', ruNum=rLev,
+                                                iter=i-5, ref3d=classId)
+                        pwpath.copyFile(fn, vol)
+
                 basicArgs['--iter'] = i
                 self._setContinueArgs(basicArgs, rLev)
                 self._setComputeArgs(basicArgs)
@@ -816,7 +830,7 @@ class ProtocolBase(em.EMProtocol):
                      '--oversampling': self.oversampling.get(),
                      '--tau2_fudge': self.regularisationParamT.get()
                      })
-        args['--iter'] = 10
+        args['--iter'] = 5
 
         if not self.IS_VOLSELECTOR:
             self._setSubsetArgs(args)
