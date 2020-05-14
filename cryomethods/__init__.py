@@ -63,7 +63,7 @@ class Plugin(pyworkflow.em.Plugin):
                       cls.getHome('alignLib/frm/swig'),
                       cls.getHome('alignLib/tompy')]
 
-        libPath = [cls.getHome('alignLib/frm/swig'),
+        libPath = [cls.getHome('acryoMethHomelignLib/frm/swig'),
                    cls.getHome('alignLib/SpharmonicKit27')]
 
         # for lPath in libPath:
@@ -100,7 +100,8 @@ class Plugin(pyworkflow.em.Plugin):
         pythonPath = [cls.getHome('imageLib'),
                       cls.getHome('alignLib'),
                       cls.getHome('alignLib/frm/swig'),
-                      cls.getHome('alignLib/tompy')]
+                      cls.getHome('alignLib/tompy'),
+                      cls.getHome('programs/bin')]
 
         for path in pythonPath:
             if not path in sys.path:
@@ -178,12 +179,15 @@ class Plugin(pyworkflow.em.Plugin):
     def defineBinaries(cls, env):
         libSphPath = cls.getHome('alignLib/SpharmonicKit27/libsphkit.so')
         libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
-        commands = ('python alignLib/compile.py ; ln -sf %s ../../lib/ '
-                    '; ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
-        target = libFrmPath
+        environ = cls.getEnviron()
+        environ.update(cls.getVars())
+        commands = ('python alignLib/compile.py; ln -sf %s ../../lib/; '
+                    'python programs/src/programs_compile.py;'
+                    ' ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
+        target = cls.getHome('programs/bin/angular_neighbourhood')
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
-                       url=url,
+                       url=url, vars=environ,
                        commands=[(commands, target)])
         ## PIP PACKAGES ##
         def addPipModule(moduleName, *args, **kwargs):
@@ -218,3 +222,4 @@ class Plugin(pyworkflow.em.Plugin):
         #                       target="cv2", default=False)
 
 pyworkflow.em.Domain.registerPlugin(__name__)
+# ; python programs/src/programs_compile.py

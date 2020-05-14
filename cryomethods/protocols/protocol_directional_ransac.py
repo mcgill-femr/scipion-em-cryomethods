@@ -1,6 +1,7 @@
 # **************************************************************************
 # *
 # * Authors:         Javier Vargas (jvargas@cnb.csic.es) (2016)
+# *                  Swathi Adinarayanan(swathi.adinarayanan@mail.mcgill.ca)
 # *
 # * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
@@ -20,51 +21,34 @@
 # * 02111-1307  USA
 # *
 # *  All comments concerning this program package may be sent to the
-# *  e-mail address 'jmdelarosa@cnb.csic.es'
+# *  e-mail address 'swathi.adinarayanan@mail.mcgill.ca'
 # *
 # **************************************************************************
-
-
-
-from pyworkflow.protocol.params import (PointerParam, FloatParam, STEPS_PARALLEL,EnumParam,
-                                        StringParam, BooleanParam, IntParam,LabelParam, PathParam,LEVEL_ADVANCED)
-
+from pyworkflow.protocol.params import (PointerParam, FloatParam, EnumParam,
+                                        StringParam, BooleanParam, IntParam,
+                                        LabelParam, PathParam,LEVEL_ADVANCED)
 import pyworkflow.em.metadata as md
 from cryomethods.protocols import ProtDirectionalPruning
-
-#from .protocol_base import ProtocolBase
-from pyworkflow.utils.path import cleanPath,makePath
-
-from pyworkflow.em.protocol import ProtClassify3D ,ProtAnalysis3D
-
+from pyworkflow.utils.path import cleanPath,makePath,cleanPattern
 from cryomethods.convert import writeSetOfParticles,splitInCTFGroups,rowToAlignment
 from pyworkflow.em.metadata.utils import getSize
 import xmippLib
 import math
 import numpy as np
-import random
-from cryomethods.convert import  relionToLocation, loadMrc, saveMrc,alignVolumes, applyTransforms
+from pyworkflow.em.data import Volume
+from cryomethods.convert import loadMrc, saveMrc
 from cryomethods import Plugin
 from pyworkflow.em.convert import ImageHandler
-from matplotlib import *
-from matplotlib import pyplot as plt
-import matplotlib.cm as cm
-from scipy.interpolate import griddata
-
-
 import random
 import pyworkflow.em as em
 from os.path import join, exists
-from os import remove
-
-
-
 import cryomethods.convertXmp as convXmp
+from glob import glob
+from itertools import *
+import collections
 
-
-class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
-
-    """    
+class ProtClass3DRansac(ProtDirectionalPruning):
+    """
     Performs 3D classification of input particles with previous alignment
     """
     _label = 'directional_ransac'
@@ -72,23 +56,19 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
     CL2D = 0
     ML2D = 1
     RL2D = 2
-    Kmeans = 3
-    AP = 4
+    KM = 0
+    AP = 1
 
-    
     def __init__(self, *args, **kwargs):
-        ProtClassify3D.__init__(self, *args, **kwargs)
-        ProtAnalysis3D.__init__(self, *args, **kwargs)
         ProtDirectionalPruning.__init__(self, *args, **kwargs)
-        #ProtocolBase.__init__(self, *args, **kwargs)
-        
+
     #--------------------------- DEFINE param functions --------------------------------------------   
     def _defineParams(self, form):
 
         form.addSection(label='Input')
         form.addParam('inputVolume', PointerParam, pointerClass='Volume',
-                      label="Input volume",  
-                      help='Select the input volume.')     
+                      label="Input volume",
+                      help='Select the input volume.')
         form.addParam('inputParticles', PointerParam,
                       pointerClass='SetOfParticles', pointerCondition='hasAlignment',
                       label="Input particles", important=True,
@@ -101,9 +81,9 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                       'reason to modify the 10 A value')
 
         form.addParam('symmetryGroup', StringParam, default='c1',
-                      label="Symmetry group", 
+                      label="Symmetry group",
                       help='See [[Xmipp Symmetry][http://www2.mrc-lmb.cam.ac.uk/Xmipp/index.php/Conventions_%26_File_formats#Symmetry]] page '
-                           'for a description of the symmetry format accepted by Xmipp') 
+                           'for a description of the symmetry format accepted by Xmipp')
 
         form.addSection(label='Directional Classes')
 
@@ -119,14 +99,17 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                       label='Number of 2D classes in per directions',
                       expertLevel=LEVEL_ADVANCED)
         groupClass2D = form.addSection(label='2D Classification')
-        groupClass2D.addParam('Class2D', EnumParam, choices=['ML2D','CL2D','RL2D'], default= 2,
-                     label="2D classification method", display=EnumParam.DISPLAY_COMBO,
-                     help='2D classification algorithm used to be applied to the directional classes. \n ')
-        
+        groupClass2D.addParam('Class2D', EnumParam,
+                              choices=['ML2D','CL2D','RL2D'], default=2,
+                              label="2D classification method",
+                              display=EnumParam.DISPLAY_COMBO,
+                              help='2D classification algorithm used to be '
+                                   'applied to the directional classes.')
+
         groupClass2D.addParam('CL2D_it', IntParam, default=20, condition='Class2D == 0',
                      label='number of iterations',
                      help='This is the radius (in pixels) of the spherical mask ')
-        
+
         groupClass2D.addParam('CL2D_shift', IntParam, default=5, condition='Class2D == 0',
                      label='Maximum allowed shift',
                      help='Maximum allowed shift ')
@@ -150,12 +133,10 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                            '*Continue from iteration* is set 3 and this '
                            'param is set 25, the final iteration of the '
                            'protocol will be the 28th.')
-        form.addParam('randomIteration', IntParam, default=5,
-                      label='Number of random iterations',
-                      help="Number of random iterations to be performed.One"
-                           " class average will be randomly selected per "
-                           "iteration in all direction.This number corresponds"
-                           " to 3D classes will be obtained")
+        form.addParam('randomVolume', IntParam, default=5,
+                      label='Number of random volume',
+                      help="Number of random volume to be genrated.This number"
+                           " of volume will be consider for PCA")
         form.addSection(label='Optimisation')
         form.addParam('regularisationParamT', IntParam,
                       default=2,
@@ -418,67 +399,39 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                            'per defocus group is reached')
         form.addSection(label='Clustering')
         groupClass2D.addParam('ClusteringMethod', EnumParam,
-                              choices=['Kmeans','AffinityPropagation'], default=3,
+                              choices=['Kmeans','AffinityPropagation'], default=0,
                               label="clustering method",
                               display=EnumParam.DISPLAY_COMBO,
                               help='Select a method to cluster the data. \n ')
-
-        
+        form.addParam('clusterCentres', IntParam, default =5,
+                      label = 'Number of Cluster centres',
+                      condition = 'ClusteringMethod==KM',
+                      help =' This value corresponds to the final number of 3D volumes '
+                            'to be reconstructed')
         form.addParallelSection(threads=1, mpi=1)
 
     def _insertAllSteps(self):
-        
-        convertId = self._insertFunctionStep('convertInputStep',
-                                             self.inputParticles.get().getObjId(), self.inputVolume.get().getObjId(), 
-                                             self.targetResolution.get())
-        
-        self._insertFunctionStep('constructGroupsStep', self.inputParticles.get().getObjId(),
-                                 self.angularSampling.get(), self.angularDistance.get(), self.symmetryGroup.get())
-        
-
-
+        particlesId = self.inputParticles.get().getObjId()
+        volId = self.inputVolume.get().getObjId()
+        convertId = self._insertFunctionStep('convertInputStep', particlesId,
+                                             volId, self.targetResolution.get())
+        self._insertFunctionStep('constructGroupsStep', particlesId,
+                                 self.angularSampling.get(),
+                                 self.angularDistance.get(),
+                                 self.symmetryGroup.get())
         self._insertFunctionStep('classify2DStep')
         self._insertFunctionStep('randomSelectionStep')
-        
         self._insertFunctionStep('reconstruct3DStep')
         self._insertFunctionStep('pcaStep')
+        self._insertFunctionStep('cleanStep')
+        self._insertFunctionStep('createOutputStep')
 
-        #deps = [] # store volumes steps id to use as dependencies for last step
-        
-        #consGS = self._insertFunctionStep('constructGroupsStep', self.inputParticles.get().getObjId(),
-                                 
-        #commonParams    = self._getCommonParams()
-        #deps.append(convertId)
+
         
     def convertInputStep(self, particlesId, volId, targetResolution):
-        #XmippProtDirectionalClasses.convertInputStep(self, particlesId, volId, targetResolution)
-        """ 
-        Write the input images as a Xmipp metadata file. 
-        particlesId: is only need to detect changes in
-        input particles and cause restart from here.
-        """
-        convXmp.writeSetOfParticles(self.inputParticles.get(), self._getPath('input_particles.xmd'))
-        Xdim = self.inputParticles.get().getDimensions()[0]
-        Ts = self.inputParticles.get().getSamplingRate()
-        newTs = self.targetResolution.get()*0.4
-        newTs = max(Ts,newTs)
-        newXdim = Xdim*Ts/newTs
-        
+        ProtDirectionalPruning.convertInputStep(self, particlesId,
+                                                   volId,targetResolution)
 
-        params =  '  -i %s' % self._getPath('input_particles.xmd')
-        params +=  '  -o %s' % self._getExtraPath('scaled_particles.stk')
-        params +=  '  --save_metadata_stack %s' % self._getExtraPath('scaled_particles.xmd')
-        params +=  '  --dim %d' % newXdim
-        
-        self.runJob('xmipp_image_resize',params)
-        from pyworkflow.em.convert import ImageHandler
-        img = ImageHandler()
-        img.convert(self.inputVolume.get(), self._getExtraPath("volume.vol"))
-        Xdim = self.inputVolume.get().getDim()[0]
-        if Xdim!=newXdim:
-            self.runJob("xmipp_image_resize","-i %s --dim %d"%\
-                        (self._getExtraPath("volume.vol"),
-                        newXdim), numberOfMpi=1)
 
     def constructGroupsStep(self, particlesId, angularSampling, angularDistance, symmetryGroup):
        ProtDirectionalPruning.constructGroupsStep(self, particlesId, angularSampling, angularDistance, symmetryGroup)
@@ -493,21 +446,16 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
         fnDirectional = self._getPath("directionalClasses.xmd")
         mdOut = xmippLib.MetaData()
         mdRef = xmippLib.MetaData(self._getExtraPath("gallery.doc"))
-
-
         for block in xmippLib.getBlocksInMetaDataFile(fnNeighbours):
             imgNo = block.split("_")[1]
             galleryImgNo = int(block.split("_")[1])
-
 
             fnDir = self._getExtraPath("direction_%s" % imgNo)
             rot = mdRef.getValue(xmippLib.MDL_ANGLE_ROT,galleryImgNo)
             tilt = mdRef.getValue(xmippLib.MDL_ANGLE_TILT,galleryImgNo )
             psi = 0.0
-
             if not exists(fnDir):
                 makePath(fnDir)
-
             if self.Class2D.get() == self.CL2D:
                 Nlevels = int(math.ceil(math.log(self.directionalClasses.get())
                                         / math.log(2)))
@@ -515,22 +463,18 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                 if not exists(fnOut):
                     fnBlock = "%s@%s" % (block, fnNeighbours)
                     if getSize(fnBlock) > nop:
-                        totset = getSize(fnBlock)
-                        finset = int(totset / nop)+1
-
                         args = "-i %s --odir %s --ref0 %s@%s --iter %d " \
                                    "--nref %d --distance correlation " \
                                    "--classicalMultiref --maxShift %d" % \
                                    (fnBlock, fnDir, imgNo, fnGallery,
                                     self.CL2D_it.get(),
-                                    finset,
+                                    self.directionalClasses.get(),
                                     self.CL2D_shift.get())
                         self.runJob("xmipp_classify_CL2D", args)
                         fnAlignRoot = join(fnDir, "classes")
                         fnOut = join(fnDir, "level_%02d/class_classes.stk" % (
-                                    finset - 1))
-
-                        for n in range(finset):
+                                self.directionalClasses.get() - 1))
+                        for n in range(self.directionalClasses.get()):
                             objId = mdOut.addObject()
                             mdOut.setValue(xmippLib.MDL_REF,int(imgNo), objId)
                             mdOut.setValue(xmippLib.MDL_IMAGE,
@@ -546,27 +490,20 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                                         xmippLib.MD_APPEND)
                         mdOut.clear()
 
-
-
             elif self.Class2D.get() == self.ML2D:
                 fnOut = join(fnDir, "class_")
                 fnBlock = "%s@%s" % (block, fnNeighbours)
-
                 if getSize(fnBlock) > nop:
-                        totset = getSize(fnBlock)
-                        finset = int(totset / nop)+1
-
-
                         params = "-i %s --oroot %s --nref %d --fast --mirror --iter %d" \
                                  % (fnBlock,
                                     fnOut,
-                                    finset,
+                                    self.directionalClasses.get(),
                                     self.maxIters.get())
 
                         self.runJob("xmipp_ml_align2d", params)
                         fnOut = self._getExtraPath(
                             "direction_%s/class_classes.stk" % imgNo)
-                        for n in range(finset):
+                        for n in range(self.directionalClasses.get()):
                             objId = mdOut.addObject()
                             mdOut.setValue(xmippLib.MDL_REF,int(imgNo), objId)
                             mdOut.setValue(xmippLib.MDL_IMAGE,
@@ -583,70 +520,60 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                         mdOut.clear()
 
             else:
-
-                relPart = self._createSetOfParticles()
-                relPart.copyInfo(self.inputParticles.get())
-                fnRelion = self._getExtraPath('relion_%s.star' % imgNo)
-                fnBlock = "%s@%s" % (block, fnNeighbours)
-                fnRef = "%s@%s" % (imgNo, fnGallery)
-                if getSize > nop:
-                        totset = getSize(fnBlock)
-                        finset = int(totset / 100) +1
-                        print(finset)
+                    relPart = self._createSetOfParticles()
+                    relPart.copyInfo(self.inputParticles.get())
+                    fnRelion = self._getExtraPath('relion_%s.star' % imgNo)
+                    fnBlock = "%s@%s" % (block, fnNeighbours)
+                    fnRef = "%s@%s" % (imgNo, fnGallery)
+                    if getSize(fnBlock) > nop:
                         convXmp.readSetOfParticles(fnBlock, relPart)
-
                         if self.copyAlignment.get():
                             alignType = relPart.getAlignment()
                             alignType != em.ALIGN_NONE
                         else:
                             alignType = em.ALIGN_NONE
-
                         alignToPrior = getattr(self, 'alignmentAsPriors',
                                                True)
                         fillRandomSubset = getattr(self, 'fillRandomSubset',
                                                    False)
-
                         writeSetOfParticles(relPart, fnRelion,
                                             self._getExtraPath(),
                                             alignType=alignType,
                                             postprocessImageRow=self._postprocessParticleRow,
                                             fillRandomSubset=fillRandomSubset)
-
                         if alignToPrior:
                             mdParts = md.MetaData(fnRelion)
                             self._copyAlignAsPriors(mdParts, alignType)
                             mdParts.write(fnRelion)
                         if self.doCtfManualGroups:
                             self._splitInCTFGroups(fnRelion)
-
-                        fnOut = join(fnDir, "class")
-                        print("SAAAA", fnOut)
+                        fnOut = join(fnDir, "class_")
                         args = {}
                         self._setNormalArgs(args)
                         args['--i'] = fnRelion
                         args['--o'] = fnOut
-                        args['--K'] = finset
                         if self.referenceClassification.get():
                             args['--ref'] = fnRef
                         self._setComputeArgs(args)
-
                         params = ' '.join(['%s %s' % (k, str(v)) for k, v in
                                            args.iteritems()])
-
                         self.runJob(self._getRelionProgram(), params)
                         it = self.numberOfIterations.get()
                         if it < 10:
                             model = '_it00%d_' % it
                         else:
                             model = '_it0%d_' % it
-
-                        fnModel = (fnOut + model + 'classes.mrcs')
-                        for n in range(finset):
+                        fnModel = (fnOut + model + 'model.star')
+                        Newblock = md.getBlocksInMetaDataFile(fnModel)[1]
+                        fnNewBlock = "%s@%s" % (Newblock, fnModel)
+                        mdBlocks = xmippLib.MetaData()
+                        mdBlocks.read(fnNewBlock)
+                        fnClass = (fnOut + model + 'classes.mrcs')
+                        for n in range(self.directionalClasses):
                             objId = mdOut.addObject()
-                            print(objId)
                             mdOut.setValue(xmippLib.MDL_REF, int(imgNo), objId)
                             mdOut.setValue(xmippLib.MDL_IMAGE,
-                                           "%d@%s" % (n + 1, fnModel), objId)
+                                           "%d@%s" % (n + 1, fnClass), objId)
                             mdOut.setValue(xmippLib.MDL_IMAGE_IDX, long(n + 1),
                                            objId)
                             mdOut.setValue(xmippLib.MDL_ANGLE_ROT, rot, objId)
@@ -654,38 +581,42 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                             mdOut.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
                             mdOut.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
                             mdOut.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
-
+                            mdOut.setValue(xmippLib.MDL_ENABLED, 1, objId)
                             mdOut.write("%s@%s" % (block, fnDirectional),
                                         xmippLib.MD_APPEND)
                         mdOut.clear()
-
-
+                        for num in range(it):
+                            if num != it:
+                                if num < 10:
+                                    fmt = '_it00%d_' % num
+                                else:
+                                    fmt = '_it0%d_' % num
+                                fnMod = (fnOut + fmt + 'model.star')
+                                fnCla =  (fnOut +fmt + 'classes.mrcs')
+                                fnDat = (fnOut + fmt +'data.star')
+                                fnOpt =(fnOut + fmt + 'optimiser.star')
+                                fnSam = (fnOut + fmt + 'sampling.star')
+                                cleanPattern(fnMod)
+                                cleanPattern(fnCla)
+                                cleanPattern(fnDat)
+                                cleanPattern(fnOpt)
+                                cleanPattern(fnSam)
+            cleanPattern(self._getExtraPath('relion_*.star'))
 
     def randomSelectionStep(self):
         mdRandom=xmippLib.MetaData()
         mdClass=xmippLib.MetaData()
         mdRef = xmippLib.MetaData(self._getExtraPath("gallery.doc"))
         fnDirectional = self._getPath("directionalClasses.xmd")
-
-
-        for i in range (self.randomIteration):
+        for i in range (self.randomVolume):
             stack=i+1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
             #nop = self.noOfParticles.get()
             for indx, block in enumerate(
                     xmippLib.getBlocksInMetaDataFile(fnDirectional)[:]):
-
                 fnClasses = "%s@%s" % (block, fnDirectional)
                 mdClass.read(fnClasses)
-                #numClass= self.directionalClasses.get()
-                totset = getSize(fnClasses)
-                finset = int(totset / 100) + 1
-                if finset > 1:
-                   rc = random.randint(1, finset)
-                else:
-                   rc = 1
-
-
+                rc = random.randint(1,  self.directionalClasses.get())
                 imgNo = block.split("_")[1]
                 galleryImgNo = int(block.split("_")[1])
                 rot = mdRef.getValue(xmippLib.MDL_ANGLE_ROT, galleryImgNo)
@@ -701,16 +632,12 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                 mdRandom.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
                 mdRandom.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
                 mdRandom.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
-
             mdRandom.write(fnRandomAverages+'.xmd')
             mdRandom.clear()
-            print("Direction in %s and class in %s" %(imgNo,rc))
-
-
+        cleanPath(fnDirectional)
 
 
     def reconstruct3DStep(self):
-
         self.Xdim = self.inputParticles.get().getDimensions()[0]
         ts = self.inputParticles.get().getSamplingRate()
         maxFreq=self.targetResolution.get()
@@ -722,190 +649,158 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
         if self.Xdim2 < 32:
             self.Xdim2 = 32
             K = self.Xdim / self.Xdim2
-
         freq = ts / maxFreq
         ts = K * ts
         Mc = (self.backRadius.get()) * (self.Xdim2/2)
-
-
-
-        for i in range (self.randomIteration):
+        Sym = self.symmetryGroup.get()
+        for i in range(self.randomVolume):
             stack=i+1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
-            self.runJob("xmipp_reconstruct_fourier","-i %s.xmd -o %s.vol --sym %s --max_resolution %f" %(fnRandomAverages,fnRandomAverages,self.symmetryGroup.get(),normFreq))
+            self.runJob("xmipp_reconstruct_fourier","-i %s.xmd -o %s.vol --sym %s --max_resolution %f" %(fnRandomAverages,fnRandomAverages,Sym,normFreq))
             self.runJob("xmipp_transform_filter",   "-i %s.vol -o %s.vol --fourier low_pass %f --bad_pixels outliers 0.5" %(fnRandomAverages,fnRandomAverages,freq))
             self.runJob("xmipp_transform_mask","-i %s.vol  -o %s.vol --mask circular %f" %(fnRandomAverages,fnRandomAverages,Mc))
 
-
     def pcaStep(self):
-
         ##"".vol to .mrc conversion""##
-
         listVol = []
         Plugin.setEnviron()
-        for i in range (self.randomIteration):
-            stack=i+1
+        for i in range (self.randomVolume):
+            stack = i + 1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
             inputVol = fnRandomAverages +'.vol'
             img = ImageHandler()
-            img.convert(inputVol, self._getExtraPath("volume_%s.mrc" %stack))
-            MrcFile = self._getExtraPath("volume_%s.mrc" %stack)
-            listVol.append(MrcFile)
+            mrcFn = self._getExtraPath("volume_%s.mrc" %stack)
+            img.convert(inputVol, mrcFn)
+            listVol.append(mrcFn)
+
+
         # ""AVERAGE VOLUME GENERATION""#
-        listVol = self._getPathMaps() if not bool(listVol) else listVol
-
-
-        try:
-           avgVol = self._getFileName('avgMap', lev=self._level)
-        except:
-            avgVol = self._getPath('map_average.mrc')
-
+        avgVol = self._getPath('map_average.mrc')
         for vol in listVol:
-            print (vol, "vol2")
             npVol = loadMrc(vol, writable=False)
-
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
-
-
-        print (npAvgVol, "npAvgVol1")
-        npAvgVol = np.divide(npAvgVol, len(listVol))
-        print('saving average volume')
+        npAvgVol = npAvgVol/ len(listVol)
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-        ##""PCA ESTIMATION""##
-        npVol = loadMrc(listVol.__getitem__(0), False)
+        ##""PCA ESTIMATION- generates covariance matrix""##
+        npVol = loadMrc(listVol[0], False)
         dim = npVol.shape[0]
         lenght = dim ** 3
-        cov_matrix = []
-
-        for vol in listVol:
-            npVol = loadMrc(vol, False)
-            volList = npVol.reshape(lenght)
-
+        covMatrix = []
+        for vol1 in listVol:
+            npVol1 = loadMrc(vol1, False)
+            restNpVol1 = npVol1 - npAvgVol
+            listRestNpVol1 = restNpVol1.reshape(lenght)
             row = []
-            b = volList - npAvgVol.reshape(lenght)
-            print (b, 'b')
-            for j in listVol:
-                npVol = loadMrc(j, writable=False)
-                volList = npVol.reshape(lenght)
-                volList_two = volList - npAvgVol.reshape(lenght)
-                print (volList, "vollist")
-                temp_a = np.corrcoef(volList_two, b).item(1)
-                print (temp_a, "temp_a")
-                row.append(temp_a)
-            cov_matrix.append(row)
-            print("Doing PCA now now now")
+            for vol2 in listVol:
+                npVol2 = loadMrc(vol2, writable=False)
+                restNpVol2  = npVol2 - npAvgVol
+                listRestNpVol2 = restNpVol2.reshape(lenght)
+                coef = np.cov(listRestNpVol1,listRestNpVol2)[0][1]
+                row.append(coef)
+            covMatrix.append(row)
 
-
-        ##""DO PCA""##
-
-        u, s, vh = np.linalg.svd(cov_matrix)
-        cuttOffMatrix = sum(s) * 0.95
+        ##""DO PCA - generated principal components""##
+        u, s, vh = np.linalg.svd(covMatrix)
+        cuttOffMatrix = sum(s) * 0.60
         sCut = 0
-
-        print('cuttOffMatrix & s: ', cuttOffMatrix, s)
         for i in s:
-            print('cuttOffMatrix: ', cuttOffMatrix)
             if cuttOffMatrix > 0:
-                print("Pass, i = %s " % i)
                 cuttOffMatrix = cuttOffMatrix - i
                 sCut += 1
             else:
                 break
-        print('sCut: ', sCut)
 
+        ###'Generates eigenvalues and vectors"###
         eigValsFile = 'eigenvalues.txt'
         self._createMFile(s, eigValsFile)
-
         eigVecsFile = 'eigenvectors.txt'
         self._createMFile(vh, eigVecsFile)
-
         vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
         self._createMFile(vhDel, 'matrix_vhDel.txt')
 
+        # Generates base volumes
+        counter = 0
+        for eigenRow in vhDel.T:
+            volBase = np.zeros((dim, dim, dim))
+            for (volFn, eigenCoef) in izip(listVol, eigenRow):
+                npVol = loadMrc(volFn, False)
+                restNpVol = npVol - npAvgVol
+                volBase += eigenCoef * restNpVol
+            nameVol = 'volume_base_%02d.mrc' % (counter)
+            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
+            counter += 1
 
-
-        ###""MATCH PROJECTION"""####
-
-        mat_one = []
+        # Generates the matrix projection
+        matProj = []
+        baseMrc = self._getExtraPath("volume_base_??.mrc")
+        baseMrcFile = sorted(glob(baseMrc))
         for vol in listVol:
-            volNp = loadMrc(vol, False)
-            volList = volNp.reshape(lenght)
-            print (volList, "volList")
-            row_one = []
-            for j in listVol:
-                npVol = loadMrc(j, writable=False)
-                volList_three = npVol.reshape(lenght)
-                j_trans = volList_three.transpose()
-                matrix_two = np.dot(volList, j_trans)
-                row_one.append(matrix_two)
-            mat_one.append(row_one)
-
-        matProj = np.dot(mat_one, vhDel)
-        print (matProj, "matProj")
-
-        ##""Construct PCA histogram""##
-        x_proj = [item[0] for item in matProj]
-        y_proj = [item[1] for item in matProj]
-        print (x_proj, "x_proj")
-        print (y_proj, "y_proj")
-        print (len(x_proj), "xlength")
-        print (len(y_proj), "ylength")
-
-        ## save coordinates:
-        mat_file = 'matProj_splic.txt'
-        self._createMFile(matProj, mat_file)
-        x_file = 'x_proj_splic.txt'
-        self._createMFile(x_proj, x_file)
-        y_file = 'y_proj_splic.txt'
-        self._createMFile(y_proj, y_file)
-
-        ##Kmeans&AffinityPropagation
-
-        if self.ClusteringMethod.get() == 3:
-            from sklearn.cluster import KMeans
-            print('projections: ', matProj.shape[1])
-            kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
-            op = kmeans.labels_
-            print(op)
-
-        elif self.ClusteringMethod.get() == 4:
-            from sklearn.cluster import AffinityPropagation
-            ap = AffinityPropagation(damping=0.9).fit(matProj)
-            print("cluster_centers", ap.cluster_centers_)
-            op= ap.labels_
-            print(op)
+            npVol = loadMrc(vol, False)
+            restNpVol = npVol - npAvgVol
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseFn in baseMrcFile:
+                npBase = loadMrc(baseFn, writable=False)
+                npBaseRow = npBase.reshape(lenght)
+                npBaseCol = npBaseRow.transpose()
+                projCoef = np.dot(volRow, npBaseCol)
+                rowCoef.append(projCoef)
+            matProj.append(rowCoef)
 
 
+        ###Clustering Methods ####
+        if self.ClusteringMethod.get() == 0:
+          from sklearn.cluster import KMeans
+          nC=self.clusterCentres.get()
+          kmeans = KMeans(n_clusters=nC).fit(matProj)
+          cc = kmeans.cluster_centers_
 
+        else:
+             from sklearn.cluster import AffinityPropagation
+             ap = AffinityPropagation(damping=0.9).fit(matProj)
+             print("cluster_centers", ap.cluster_centers_)
+             cc = ap.cluster_centers_
 
+        ####Coordinates to volume ######
+        fnVolume = self._getExtraPath('recons_vols')
+        orignCount = 0
+        if not exists(fnVolume):
+            makePath(fnVolume)
+        for projRow in cc:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in izip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
+            finalVol = vol + npAvgVol
+            nameVol = 'volume_reconstructed_%03d.mrc' % (orignCount)
+            saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
+            orignCount += 1
+            ####for output step####
+            fnRecon = join(fnVolume + '/' + nameVol)
+            ih = ImageHandler()
+            img = ih.read(fnRecon)
+            print(img)
+            img.write(self._getPath('output_volumes_%03d.vol' %(orignCount)))
+        cleanPattern(self._getExtraPath('volume_base_*.mrc'))
+        cleanPattern(self._getExtraPath('volume_*.mrc'))
+        cleanPattern(self._getExtraPath('randomAverages_*.xmd'))
+        cleanPattern(self._getExtraPath('randomAverages_.vol'))
 
+    def cleanStep(self):
+        cleanPath(self._getExtraPath('scaled_particles.stk'))
+        cleanPath(self._getExtraPath('scaled_particles.xmd'))
+        cleanPath(self._getExtraPath('volume.vol'))
+        #cleanPath(self._getExtraPath('recons_vols'))
 
     def createOutputStep(self):
-        pass
-        #partSet = self.inputParticles.get()
-        #classes3D = self._createSetOfClasses3D(partSet)
-        #self._fillClassesFromIter(classes3D, self._lastIter())
-
-        #self._defineOutputs(outputClasses=classes3D)
-        #self._defineSourceRelation(self.inputParticles, classes3D)
-
-        ## create a SetOfVolumes and define its relations
-        #volumes = self._createSetOfVolumes()
-        #volumes = self._createSetOfVolumes()
-        #self._fillVolSetFromIter(volumes, self._lastIter())
-        #volumes.setSamplingRate(partSet.getSamplingRate())
-
-        #for class3D in classes3D:
-         #   vol = class3D.getRepresentative()
-          #  vol.setObjId(class3D.getObjId())
-           # volumes.append(vol)
-
-        #self._defineOutputs(outputVolumes=volumes)
-        #self._defineSourceRelation(self.inputParticles, volumes)
+        volumes = self._createSetOfVolumes()
+        self._fillVolSetFromIter(volumes)
+        self._defineOutputs(outputVolumes=volumes)
+        self._defineSourceRelation(self.inputParticles, volumes)
     #--------------------------- INFO functions -------------------------------------------- 
     def _validate(self):
         pass
@@ -931,11 +826,10 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
         if maskDiameter <= 0:
           x = self._getInputParticles().getDim()[0]
           maskDiameter = self._getInputParticles().getSamplingRate() * x
-
-          args.update({'--particle_diameter': maskDiameter,
+        args.update({'--particle_diameter': maskDiameter,
                      '--angpix': newTs,
                      })
-
+        args['--K'] = self.directionalClasses.get()
         args['--zero_mask'] = ''
 
 
@@ -1036,107 +930,19 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
                          self.defocusRange.get(),
                          self.numParticles.get())
 
-    def _getIterVolumes(self, it, clean=False):
-        """ Return a volumes .sqlite file for this iteration.
-        If the file doesn't exists, it will be created by
-        converting from this iteration data.star file.
-        """
-        sqlteVols = self._getFileName('volumes_scipion', iter=it)
 
-        if clean:
-            cleanPath(sqlteVols)
-
-        if not exists(sqlteVols):
-            volSet = self.OUTPUT_TYPE(filename=sqlteVols)
-            self._fillVolSetFromIter(volSet, it)
-            volSet.write()
-            volSet.close()
-        return sqlteVols
-
-    def _fillVolSetFromIter(self, volSet, it):
-        volSet.setSamplingRate(self._getInputParticles().getSamplingRate())
-        modelStar = md.MetaData('model_classes@' +
-                                self._getFileName('model', iter=it))
-        for row in md.iterRows(modelStar):
-            fn = row.getValue('rlnReferenceImage')
-            fnMrc = fn + ":mrc"
-            itemId = self._getClassId(fn)
-            classDistrib = row.getValue('rlnClassDistribution')
-            accurracyRot = row.getValue('rlnAccuracyRotations')
-            accurracyTras = row.getValue('rlnAccuracyTranslations')
-            resol = row.getValue('rlnEstimatedResolution')
-
-            if classDistrib > 0:
-                vol = em.Volume()
-                self._invertScaleVol(fnMrc)
-                vol.setFileName(self._getOutputVolFn(fnMrc))
-                vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Float(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
-                volSet.append(vol)
-
-
-    def _fillClassesFromIter(self, clsSet, iteration):
-        """ Create the SetOfClasses3D from a given iteration. """
-        self._loadClassesInfo(iteration)
-        dataStar = self._getFileName('data', iter=iteration)
-        clsSet.classifyItems(updateItemCallback=self._updateParticle,
-                             updateClassCallback=self._updateClass,
-                             itemDataIterator=md.iterRows(dataStar,
-                                                          sortByLabel=md.RLN_IMAGE_ID))
-
-    def _updateParticle(self, item, row):
-        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
-
-        item._rlnLogLikeliContribution = em.Float(
-            row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
-            row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
-
-    def _updateClass(self, item):
-        classId = item.getObjId()
-        if classId in self._classesInfo:
-            index, fn, row = self._classesInfo[classId]
-            fn += ":mrc"
-            item.setAlignmentProj()
-            item.getRepresentative().setLocation(index, fn)
-            item._rlnclassDistribution = em.Float(
-                row.getValue('rlnClassDistribution'))
-            item._rlnAccuracyRotations = em.Float(
-                row.getValue('rlnAccuracyRotations'))
-            item._rlnAccuracyTranslations = em.Float(
-                row.getValue('rlnAccuracyTranslations'))
+    def _callBack(self, newItem, row):
+        if row.getValue(xmippLib.MDL_ENABLED) == -1:
+            setattr(newItem, "_appendItem", False)
 
     def _createMFile(self, matrix, name='matrix.txt'):
-        print (name, "name")
+
         f = open(name, 'w')
         for list in matrix:
             s = "%s\n" % list
             f.write(s)
         f.close()
 
-    def _clusteringData(self, matProj):
-        method = self.ClusteringMethod.get()
-        if method == 3:
-            return self._doSklearnKmeans(matProj)
-        else:
-            return self._doSklearnAffProp(matProj)
-
-    def _doSklearnKmeans(self, matProj):
-        from sklearn.cluster import KMeans
-        print('projections: ', matProj.shape[1])
-        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
-        return kmeans.labels_
-
-    def _doSklearnAffProp(self, matProj):
-        from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(damping=0.9).fit(matProj)
-        print("cluster_centers", ap.cluster_centers_)
-        return ap.labels_
 
     def _mrcToNp(self, volList):
         listNpVol = []
@@ -1148,6 +954,14 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
 
+    def _fillVolSetFromIter(self, volumes):
+        volumes.setSamplingRate(self._getInputParticles().getSamplingRate())
+        nC = self.clusterCentres.get()
+        for val in range(nC):
+            vol = em.Volume()
+            fnOutVol = self._getPath('output_volumes_%03d.vol' % (val + 1))
+            vol.setFileName(fnOutVol)
+            volumes.append(vol)
 
 
 
@@ -1159,3 +973,14 @@ class ProtClass3DRansac(ProtClassify3D,ProtDirectionalPruning ,ProtAnalysis3D):
     #plt.colorbar()
     #plt.savefig('interpolated_controlPCA_splic.png', dpi=100)
     #plt.close(fig)
+        ##""Construct PCA histogram""##
+        #x_proj = [item[0] for item in matProj]
+        #y_proj = [item[1] for item in matProj]
+
+        ## save coordinates:
+        #mat_file = 'matProj_splic.txt'
+        #self._createMFile(matProj, mat_file)
+        #x_file = 'x_proj_splic.txt'
+        #self._createMFile(x_proj, x_file)
+        #y_file = 'y_proj_splic.txt'
+        #self._createMFile(y_proj, y_file)

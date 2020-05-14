@@ -472,7 +472,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         self.runJob("xmipp_angular_project_library", params)
 
         paramsNeib = self._getParams(argsNeib)
-        self.runJob("xmipp_angular_neighbourhood", paramsNeib, numberOfMpi=1)
+        self.runJob("angular_neighbourhood", paramsNeib, numberOfMpi=1)
 
     def classifyGroupsStep(self):
         fnNeighbours = self._getExtraPath("neighbours.xmd")
