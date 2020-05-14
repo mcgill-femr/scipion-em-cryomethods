@@ -33,12 +33,14 @@ import pyworkflow.em.metadata as md
 from cryomethods import Plugin
 from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
+from cryomethods.functions import correctAnisotropy
 
 
 class TestBase(BaseTest):
     @classmethod
     def setData(cls, dataProject='relion_tutorial'):
         cls.dataset = DataSet.getDataSet(dataProject)
+        cls.volume1 = cls.dataset.getFile('import/case2/relion_it015_class003.mrc')
         cls.volumes = cls.dataset.getFile('import/case2/*class00?.mrc')
         cls.clsVols = cls.dataset.getFile('classVols/map_rLev-0??.mrc')
 
@@ -260,3 +262,21 @@ class TestAlignVolumes(TestBase):
             s = "%s\n" % list
             f.write(s)
         f.close()
+
+
+class TestCorrection(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        projName = cls.__name__
+        Manager().deleteProject(projName)
+        setupTestProject(cls)
+        TestBase.setData()
+
+
+    def testCorrectAnisotrophy(self):
+        Plugin.setEnviron()
+        volNp = loadMrc(self.volume1)
+        vol, volFt = correctAnisotropy(volNp, 0.5, 0.55, 0.1,0.45)
+        print ("shape: ", vol.shape)
+        saveMrc(vol.astype(volNp.dtype), "corrected.mrc")
+        saveMrc(volFt.astype(volNp.dtype), "corrected_ft.mrc")
