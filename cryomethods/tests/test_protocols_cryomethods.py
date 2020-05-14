@@ -32,6 +32,7 @@ from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
 from cryomethods.protocols import ProtDirectionalPruning
 from cryomethods.protocols import ProtClass3DRansac
+from cryomethods.protocols import ProtVolClustering
 
 
 class TestBase(BaseTest):
@@ -135,7 +136,7 @@ class Test2DAutoClasifier(TestBase):
             print label
             autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
                                                   numberOfIterations=10,
-                                                  minPartsToStop=200,
+                                                  minPartsToStop=700,
                                                   classMethod=1,
                                                   numberOfMpi=4,
                                                   numberOfThreads=1)
@@ -149,7 +150,7 @@ class Test2DAutoClasifier(TestBase):
             return autoClassifierProt
 
         def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+            self.assertIsNotNone(relionProt.outputClasses, "There was a "
                                                            "problem")
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
@@ -168,7 +169,6 @@ class TestVolumeSelector(TestBase):
         def _runVolumeSelector(doGpu=False, label=''):
             volSelectorProt = self.newProtocol(ProtInitialVolumeSelector,
                                                targetResol=28.32,
-                                               numberOfIterations=15,
                                                numOfVols=2,
                                                numberOfMpi=3, numberOfThreads=1)
 
@@ -323,4 +323,24 @@ class TestClass3DRansac(TestBase):
         DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
         DransacProt2.inputParticles.set(protSubset.outputParticles)
         self.launchProtocol(DransacProt2)
+
+
+class TestVolumeClustering(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+
+    def testVolumeClustering(self):
+        protImport = self.newProtocol(ProtImportVolumes,
+                                     filesPath='/home/josuegbl/SOFTWARE/SCIPION/scipion/data/tests/BetaGClass',
+                                     filesPattern='*.mrc',
+                                     samplingRate=1.7)
+        self.launchProtocol(protImport)
+
+        prot = self.newProtocol(ProtVolClustering,
+                                alignVolumes=False)
+        prot.setObjLabel('test')
+        prot.inputVolumes.set(protImport.outputVolumes)
+        self.launchProtocol(prot)
+        self.assertIsNotNone(prot.outputVolumes, "There was a problem...")
 
