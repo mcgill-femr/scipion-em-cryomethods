@@ -24,15 +24,14 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import re
 from glob import glob
-from os.path import exists
 import numpy as np
 from scipy import stats
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
+import pyworkflow.utils.path as pwpath
 from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
@@ -160,6 +159,11 @@ class ProtocolBase(em.EMProtocol):
                                 'particles and maps to a pisel size = resol/2. '
                                 'If set to 0, no rescale will be applied to '
                                 'the initial references.')
+            group.addParam('changeMaps', params.BooleanParam,
+                           default=False,
+                           label='change initial maps every 5 iterations?',
+                           help='')
+
         elif self.IS_AUTOCLASSIFY:
             group = form.addGroup('Auto classify')
 
@@ -175,18 +179,24 @@ class ProtocolBase(em.EMProtocol):
                                 'a single reference by division of the data '
                                 'into random subsets during the first '
                                 'iteration.')
-            group.addParam('useReslog', params.BooleanParam,
-                           default=True,
-                           label='Use reslog as stop condition?:',
-                           help='')
-            group.addParam('doGrouping', params.BooleanParam,
-                           default=True,
-                           label='Grouping the classes:',
-                           help='')
-            group.addParam('classMethod', params.EnumParam, default=1,
-                           choices=METHOD, condition='doGrouping',
-                           label='Method to determine the classes:',
-                           help='')
+            if not self.IS_2D:
+                group.addParam('useReslog', params.BooleanParam,
+                               default=True,
+                               label='Use reslog as stop condition?:',
+                               help='')
+                group.addParam('doGrouping', params.BooleanParam,
+                               default=True,
+                               label='Grouping the classes:',
+                               help='')
+                group.addParam('classMethod', params.EnumParam, default=1,
+                               choices=METHOD, condition='doGrouping',
+                               label='Method to determine the classes:',
+                               help='')
+            else:
+                group.addHidden('useReslog', params.BooleanParam,
+                               default=False)
+                group.addHidden('doGrouping', params.BooleanParam,
+                               default=False)
 
     def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
         form.addSection('Reference 3D map')
@@ -684,14 +694,23 @@ class ProtocolBase(em.EMProtocol):
         params = self._getParams(normalArgs)
         self._runClassifyStep(params)
 
-        for i in range(11, 75, 1):
-            basicArgs['--iter'] = i
-            self._setContinueArgs(basicArgs, rLev)
-            self._setComputeArgs(basicArgs)
-            paramsCont = self._getParams(basicArgs)
-
-            stop = self._stopRunCondition(rLev, i)
+        for i in range(10, 55, 5):
+            stop = self._stopRunCondition(rLev, i-5)
             if not stop:
+                chgMaps = self.getAttributeValue('changeMaps', False)
+                if chgMaps:
+                    fnPath = self._getFileName('volFind', ruNum=rLev, iter=1)
+                    fnList = glob(fnPath)
+                    for fn in fnList:
+                        classId = int(fn.split('class')[-1].split('.')[0])
+                        vol = self._getFileName('volume', ruNum=rLev,
+                                                iter=i-5, ref3d=classId)
+                        pwpath.copyFile(fn, vol)
+
+                basicArgs['--iter'] = i
+                self._setContinueArgs(basicArgs, rLev)
+                self._setComputeArgs(basicArgs)
+                paramsCont = self._getParams(basicArgs)
                 self._runClassifyStep(paramsCont)
             else:
                 break
@@ -811,7 +830,7 @@ class ProtocolBase(em.EMProtocol):
                      '--oversampling': self.oversampling.get(),
                      '--tau2_fudge': self.regularisationParamT.get()
                      })
-        args['--iter'] = 10
+        args['--iter'] = 5
 
         if not self.IS_VOLSELECTOR:
             self._setSubsetArgs(args)
@@ -1040,7 +1059,7 @@ class ProtocolBase(em.EMProtocol):
         x = np.array([])
         y = np.array([])
 
-        for i in range(iter-5, iter, 1):
+        for i in range(iter-5, iter+1, 1):
             x = np.append(x, i)
             if self.IS_AUTOCLASSIFY:
                 modelFn = self._getFileName('model', iter=i,
@@ -1052,7 +1071,7 @@ class ProtocolBase(em.EMProtocol):
             y = np.append(y, modelMd.getValue(md.RLN_MLMODEL_AVE_PMAX))
 
         slope, _, _, _, _ = stats.linregress(x, y)
-        return True if slope <= 0.001 else False
+        return True if slope <= 0.005 else False
 
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()

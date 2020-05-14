@@ -27,9 +27,12 @@
 from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes
+from pyworkflow.em import ProtImportParticles, ProtImportVolumes , ProtSubSet
 from cryomethods.protocols import Prot3DAutoClassifier, Prot2DAutoClassifier
 from cryomethods.protocols import ProtInitialVolumeSelector
+from cryomethods.protocols import ProtDirectionalPruning
+from cryomethods.protocols import ProtClass3DRansac
+from cryomethods.protocols import ProtVolClustering
 
 
 class TestBase(BaseTest):
@@ -147,7 +150,7 @@ class Test2DAutoClasifier(TestBase):
             return autoClassifierProt
 
         def _checkAsserts(relionProt):
-            self.assertIsNotNone(relionProt.outputVolumes, "There was a "
+            self.assertIsNotNone(relionProt.outputClasses, "There was a "
                                                            "problem")
 
         volSelGpu = _runAutoClassifier(True, "Run Auto-classifier GPU")
@@ -194,4 +197,150 @@ class TestVolumeSelector(TestBase):
             volSelNoGPU.numberOfThreads.set(2)
             self.launchProtocol(volSelNoGPU)
             _checkAsserts(volSelNoGPU)
+
+
+class TestDirectionalPruning(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
+
+    def test_solidAndSplit(self):
+        # Let's keep a smaller subset of particles to speed-up computations
+        protSubset = self.newProtocol(ProtSubSet,
+                                      objLabel='subset 1K',
+                                      chooseAtRandom=True,
+                                      nElements=1000)
+
+        protSubset.inputFullSet.set(self.protImport.outputParticles)
+        self.launchProtocol(protSubset)
+
+        # We use a coarse angular sampling of 20 to speed-up test
+        protSolid = self.newProtocol(ProtDirectionalPruning,
+                                objLabel='directional classes 1',
+                                angularSampling=20,
+                                angularDistance=25,
+                                numberOfMpi=4
+                                )
+
+        protSolid.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid)
+        self.checkOutput(protSolid, 'outputParticles')
+
+        protSolid1 = self.newProtocol(ProtDirectionalPruning,
+                                objLabel='directional classes 1',
+                                classMethod=1,
+                                angularSampling=20,
+                                angularDistance=25,
+
+                                numberOfMpi=4
+                                )
+
+        protSolid1.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid1.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid1)
+        self.checkOutput(protSolid1, 'outputParticles')
+
+        protSolid2 = self.newProtocol(ProtDirectionalPruning,
+                                      objLabel='directional classes 1',
+                                      classMethod=2,
+                                      numberOfIterations=5,
+                                      regularisationParamT=2,
+                                      numberOfMpi=4
+                                      )
+
+        protSolid2.inputVolume.set(self.protImportVol.outputVolume)
+        protSolid2.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(protSolid2)
+        self.checkOutput(protSolid2, 'outputParticles')
+
+
+class TestClass3DRansac(TestBase):
+
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+        TestBase.setData()
+
+        cls.protImport = cls.runImportParticles(cls.particlesFn, 7.08)
+        cls.protImportVol = cls.runImportSingleVolume(cls.volumes, 7.08)
+
+    def test_solidAndSplit(self):
+
+        # Let's keep a smaller subset of particles to speed-up computations
+        protSubset = self.newProtocol(ProtSubSet,
+                                      objLabel='subset 1K',
+                                      chooseAtRandom=True,
+                                      nElements=1000)
+
+        protSubset.inputFullSet.set(self.protImport.outputParticles)
+        self.launchProtocol(protSubset)
+
+
+        # We use a coarse angular sampling of 20 to speed-up test
+        DransacProt = self.newProtocol(ProtClass3DRansac,
+                                    objLabel='directional classes 1',
+                                    Class2D=0,
+                                    angularSampling=20,
+                                    angularDistance=25,
+                                    numClasses=5,
+                                    numberOfMpi=4
+                                    )
+
+
+        DransacProt.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt)
+
+
+        DransacProt1= self.newProtocol(ProtClass3DRansac,
+                                    objLabel='directional classes 1',
+                                    Class2D=1,
+                                    angularSampling=20,
+                                    angularDistance=25,
+                                    numClasses=5,
+                                    numberOfMpi=4
+                                    )
+
+        DransacProt1.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt1.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt1)
+
+
+        DransacProt2 = self.newProtocol(ProtClass3DRansac,
+                                          objLabel='directional classes 1',
+                                          Class2D=2,
+                                          numberOfIterations=5,
+                                          regularisationParamT=2,
+                                          numClasses=5,
+                                          numberOfMpi=4
+                                          )
+
+        DransacProt2.inputVolume.set(self.protImportVol.outputVolume)
+        DransacProt2.inputParticles.set(protSubset.outputParticles)
+        self.launchProtocol(DransacProt2)
+
+
+class TestVolumeClustering(TestBase):
+    @classmethod
+    def setUpClass(cls):
+        setupTestProject(cls)
+
+    def testVolumeClustering(self):
+        protImport = self.newProtocol(ProtImportVolumes,
+                                     filesPath='/home/josuegbl/SOFTWARE/SCIPION/scipion/data/tests/BetaGClass',
+                                     filesPattern='*.mrc',
+                                     samplingRate=1.7)
+        self.launchProtocol(protImport)
+
+        prot = self.newProtocol(ProtVolClustering,
+                                alignVolumes=False)
+        prot.setObjLabel('test')
+        prot.inputVolumes.set(protImport.outputVolumes)
+        self.launchProtocol(prot)
+        self.assertIsNotNone(prot.outputVolumes, "There was a problem...")
 

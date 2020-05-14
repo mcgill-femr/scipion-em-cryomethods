@@ -39,6 +39,7 @@ from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 from cryomethods import Plugin
 from cryomethods.convert import (rowToAlignment, relionToLocation, loadMrc,
                                  saveMrc, alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler, MlMethods
 from .protocol_base import ProtocolBase
 
 
@@ -68,7 +69,13 @@ class ProtAutoBase(ProtocolBase):
         # Iterations will be identify by _itXXX_ where XXX is the iteration
         # number and is restricted to only 3 digits.
         self._iterRegex = re.compile('_it(\d{3,3})_')
-        self._classRegex = re.compile('_class(\d{2,2}).')
+
+    def _createRLevTemplates(self):
+        """ Setup the regex on how to find iterations. """
+        self._rLevTemplate = self._getFileName('input_star', lev=self._level,
+                                               rLev=0).replace('000', '???')
+        self._rLevRegex = re.compile('rLev-(\d{3,3}).')
+
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -90,6 +97,9 @@ class ProtAutoBase(ProtocolBase):
         deps = self._insertLevelSteps()
         self._insertFunctionStep('mergeClassesStep', wait=True,
                                  prerequisites=deps)
+        if self.doGrouping:
+            self._insertFunctionStep('runFinalClassifStep')
+            self._insertFunctionStep('createFinalFilesStep')
         self._insertFunctionStep('createOutputStep')
 
     def _insertLevelSteps(self):
@@ -147,29 +157,6 @@ class ProtAutoBase(ProtocolBase):
         """ Implemented in subclasses. """
         pass
 
-    def runContinueClasfStep(self, i):
-        args = {}
-
-        iters = self._lastIter(1)
-        imgStar = self._getFileName('data', iter=iters, lev=self._level, rLev=1)
-
-        mdData = self._getMetadata(imgStar)
-        size = mdData.size()/2
-        mdAux1 = self._getMetadata()
-        mdAux2 = self._getMetadata()
-        mdAux1.randomize(mdData)
-        mdAux2.selectPart(mdAux1, 1, size)
-        mdAux2.write(imgStar)
-
-        self._setBasicArgs(args)
-        self._setContinueArgs(args, 1)
-        self._setComputeArgs(args)
-        args['--iter'] = iters+6
-
-        paramsCont = self._getParams(args)
-
-        self._runClassifyStep(paramsCont)
-
     def resLogStep(self, rLev):
         iters = self._lastIter(rLev)
         modelFn = self._getFileName('model', iter=iters,lev=self._level,
@@ -192,16 +179,14 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def mergeClassesStep(self):
-
         if self.doGrouping:
-            levelRuns = []
-
+            from cryomethods.functions import NumpyImgHandler
+            npIh = NumpyImgHandler()
             makePath(self._getLevelPath(self._level))
-            # matrix = self._estimatePCA()
             listVol = self._getFinalMaps()
-            matrix, _ = self._mrcToNp(listVol)
-
+            matrix = npIh.getAllNpList(listVol, 2)
             labels = self._clusteringData(matrix)
+
             prevStar = self._getFileName('rawFinalData')
             mdData = md.MetaData(prevStar)
 
@@ -211,77 +196,14 @@ class ProtAutoBase(ProtocolBase):
                 newClass = labels[clsPart-1] + 1
                 row.setValue(md.RLN_PARTICLE_CLASS, newClass)
                 if not newClass == clsChange:
-                    levelRuns.append(newClass)
                     if not clsChange == 0:
                         mdOutput.write(fn)
                     clsChange = newClass
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=newClass)
-                    mdOutput = md.MetaData()
+                    mdOutput = self._getMetadata(fn)
                 row.addToMd(mdOutput)
             mdOutput.write(fn)
-
-            mapIds = self._getFinalMapIds()
-            print("final mapIds:", mapIds)
-
-            #-----metadata to save all final models-------
-            finalModel = self._getFileName('finalModel')
-            finalModelMd = self._getMetadata()
-
-            #-----metadata to save all final particles-----
-            finalData = self._getFileName('finalData')
-            finalDataMd = self._getMetadata()
-            print('BEFORE FINAL LOOP ')
-
-            for rLev in levelRuns:
-                makePath(self._getRunPath(self._level, rLev))
-                self._rLev = rLev
-                iters = 15
-                args = {}
-
-                self._setNormalArgs(args)
-                self._setComputeArgs(args)
-
-                # if self.IS_2D:
-                args['--K'] = 1
-                args['--iter'] = iters
-
-                mapId = mapIds[rLev-1]
-                if self.IS_3D:
-                    args['--ref'] = self._getRefArg(mapId)
-
-                params = self._getParams(args)
-                self.runJob(self._getProgram(), params)
-
-                modelFn = self._getFileName('model', iter=iters,
-                                            lev=self._level, rLev=rLev)
-                modelMd = self._getMetadata('model_classes@' + modelFn)
-
-                refLabel = md.RLN_MLMODEL_REF_IMAGE
-                imgRow = md.getFirstRow(modelMd)
-                fn = imgRow.getValue(refLabel)
-
-                mapId = self._getRunLevId(rLev=rLev)
-                newMap = self._getMapById(mapId)
-                imgRow.setValue(refLabel, newMap)
-                if self.IS_2D:
-                    ih = em.ImageHandler()
-                    ih.convert(fn, newMap)
-                else:
-                    copyFile(fn, newMap)
-                self._mapsDict[fn] = mapId
-
-                imgRow.addToMd(finalModelMd)
-
-                dataFn = self._getFileName('data', iter=iters,
-                                           lev=self._level, rLev=rLev)
-                dataMd = self._getMetadata(dataFn)
-                for row in md.iterRows(dataMd):
-                    row.setValue(md.RLN_PARTICLE_CLASS, rLev)
-                    row.addToMd(finalDataMd)
-
-            finalDataMd.write(finalData)
-            finalModelMd.write('model_classes@' + finalModel)
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
@@ -290,6 +212,64 @@ class ProtAutoBase(ProtocolBase):
             copyFile(prevData, finalData)
             copyFile(prevModel, finalModel)
 
+    def runFinalClassifStep(self):
+        mapIds = self._getFinalMapIds()
+        print ("runFinalClassifStep rLev list: ", self._getRLevList())
+        for rLev in self._getRLevList():
+            makePath(self._getRunPath(self._level, rLev))
+            self._rLev = rLev
+            iters = 15
+            args = {}
+
+            self._setNormalArgs(args)
+            self._setComputeArgs(args)
+
+            args['--K'] = 1
+            args['--iter'] = iters
+
+            mapId = mapIds[rLev - 1]
+            if self.IS_3D:
+                args['--ref'] = self._getRefArg(mapId)
+
+            params = self._getParams(args)
+            self.runJob(self._getProgram(), params)
+
+    def createFinalFilesStep(self):
+        # -----metadata to save all final models-------
+        finalModel = self._getFileName('finalModel')
+        finalModelMd = self._getMetadata()
+
+        # -----metadata to save all final particles-----
+        finalData = self._getFileName('finalData')
+        finalDataMd = self._getMetadata()
+
+        for rLev in self._getRLevList():
+            it = self._lastIter(rLev)
+            modelFn = self._getFileName('model', iter=it,
+                                        lev=self._level, rLev=rLev)
+            modelMd = self._getMetadata('model_classes@' + modelFn)
+
+            refLabel = md.RLN_MLMODEL_REF_IMAGE
+            imgRow = md.getFirstRow(modelMd)
+            fn = imgRow.getValue(refLabel)
+
+            mapId = self._getRunLevId(rLev=rLev)
+            newMap = self._getMapById(mapId)
+            imgRow.setValue(refLabel, newMap)
+            copyFile(fn, newMap)
+            self._mapsDict[fn] = mapId
+
+            imgRow.addToMd(finalModelMd)
+
+            dataFn = self._getFileName('data', iter=it,
+                                       lev=self._level, rLev=rLev)
+            dataMd = self._getMetadata(dataFn)
+            for row in md.iterRows(dataMd):
+                row.setValue(md.RLN_PARTICLE_CLASS, rLev)
+                row.addToMd(finalDataMd)
+
+        finalDataMd.write(finalData)
+        finalModelMd.write('model_classes@' + finalModel)
 
     def createOutputStep(self):
         """ Implemented in subclasses. """
@@ -470,9 +450,13 @@ class ProtAutoBase(ProtocolBase):
             self._lastCls = None
 
             self._mergeModelStar(rLev)
-            self._mergeDataStar(rLev)
+            self._mergeDataStar(rLev, callback=self._getRelionFn)
 
             self._doneList.append(rLevId)
+
+    def _getRelionFn(self, iters, rLev, clsPart):
+        "Implemented in subclasses"
+        pass
 
     def _mergeModelStar(self, rLev):
         iters = self._lastIter(rLev)
@@ -511,35 +495,74 @@ class ProtAutoBase(ProtocolBase):
         if finalMd.size() != 0:
             finalMd.write('model_classes@' + finalModel)
 
-    def _mergeDataStar(self, rLev):
-        """ Implemented in subclasses. """
-        pass
+    def _mergeDataStar(self, rLev, callback):
+        iters = self._lastIter(rLev)
+
+        #metadata to save all particles that continues
+        outData = self._getFileName('outputData', lev=self._level)
+        outMd = self._getMetadata(outData)
+
+        #metadata to save all final particles
+        finalData = self._getFileName('rawFinalData')
+        finalMd = self._getMetadata(finalData)
+        imgStar = self._getFileName('data', iter=iters,
+                                    lev=self._level, rLev=rLev)
+        mdData = md.MetaData(imgStar)
+
+        def _getMapId(rMap):
+            try:
+                return self._mapsDict[rMap]
+            except:
+                return None
+
+        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
+            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            rMap = callback(iters, rLev, clsPart)
+            mapId = _getMapId(rMap)
+
+            while mapId is None:
+                for clsPart in range(1, self.numberOfClasses.get()+1):
+                    rMap = callback(iters, rLev, clsPart)
+                    mapId = _getMapId(rMap)
+                    if mapId is not None:
+                        break
+
+            if self.stopDict[mapId]:
+                classId = self._clsIdDict[mapId]
+                row.setValue(md.RLN_PARTICLE_CLASS, classId)
+                row.addToMd(finalMd)
+            else:
+                classId = int(mapId.split('.')[1])
+                row.setValue(md.RLN_PARTICLE_CLASS, classId)
+                row.addToMd(outMd)
+
+        if finalMd.size() != 0:
+            finalMd.write(finalData)
+
+        if outMd.size() != 0:
+            outMd.write(outData)
 
     def _getMetadata(self, file='filepath'):
         fList = file.split("@")
         return md.MetaData(file) if os.path.exists(fList[-1]) else md.MetaData()
 
     def _getAverageVol(self, listVol=[]):
-
         listVol = self._getPathMaps() if not bool(listVol) else listVol
-
         try:
             avgVol = self._getFileName('avgMap', lev=self._level)
         except:
             avgVol = self._getPath('map_average.mrc')
-        npAvgVol, dType = self._doAverageMaps(listVol)
-        saveMrc(npAvgVol.astype(dType), avgVol)
 
-    def _doAverageMaps(self, listVol):
-        for vol in listVol:
-            npVol = loadMrc(vol, False)
-            if vol == listVol[0]:
-                dType = npVol.dtype
-                npAvgVol = np.zeros(npVol.shape)
-            npAvgVol += npVol
+        npIh = NumpyImgHandler()
+        npAvgVol, _ = npIh.getAverageMap(listVol)
+        npIh.saveMrc(npAvgVol, avgVol)
 
-        npAvgVol = np.divide(npAvgVol, len(listVol))
-        return npAvgVol, dType
+    def _getVolNp(self, vol):
+        mapNp = loadMrc(vol, False)
+        std = 2 * mapNp.std()
+        npMask = 1 * (mapNp >= std)
+        mapNp = mapNp * npMask
+        return mapNp, npMask
 
     def _getFunc(self, modelMd):
         resolution = []
@@ -580,18 +603,20 @@ class ProtAutoBase(ProtocolBase):
 
             saveMrc(npVol.astype(dType), vol)
 
-    def _mrcToNp(self, volList):
+    def _mrcToNp(self, volList, avgVol=None):
         """ Implemented in subclasses. """
         pass
 
     def _estimatePCA(self):
+        from cryomethods.functions import MlMethods
+        ml = MlMethods()
         listVol = self._getFinalMaps()
 
         volNp = loadMrc(listVol[0], False)
         dim = volNp.shape[0]
         dType = volNp.dtype
 
-        matProj, newBaseAxis = self._doPCA(listVol)
+        matProj, newBaseAxis = ml.doPCAuto(listVol, 2, 1)
 
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
@@ -600,38 +625,6 @@ class ProtAutoBase(ProtocolBase):
                     self._getLevelPath(self._level, nameVol))
         return matProj
 
-    def _doPCA(self, listVol):
-        npAvgVol, _ = self._doAverageMaps(listVol)
-
-        listNpVol, _ = self._mrcToNp(listVol)
-
-        covMatrix = np.cov(listNpVol)
-        u, s, vh = np.linalg.svd(covMatrix)
-        cuttOffMatrix = sum(s) *0.95
-        sCut = 0
-
-        for i in s:
-            if cuttOffMatrix > 0:
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-
-        eigValsFile = 'eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
-        newBaseAxis = vhDel.T.dot(listNpVol)
-        matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
-        projFile = 'projection_matrix.txt'
-        self._createMFile(matProj, projFile)
-        return matProj, newBaseAxis
-
     def _getFinalMaps(self):
         return [self._getMapById(k) for k in self._getFinalMapIds()]
 
@@ -639,30 +632,12 @@ class ProtAutoBase(ProtocolBase):
         return [k for k, v in self.stopDict.items() if v is True]
 
     def _clusteringData(self, matProj):
+        ml = MlMethods()
         method = self.classMethod.get()
         if method == 0:
-            return self._doSklearnKmeans(matProj)
+            return ml.doSklearnKmeans(matProj)
         else:
-            return self._doSklearnAffProp(matProj)
-
-    def _doSklearnKmeans(self, matProj):
-        from sklearn.cluster import KMeans
-        kmeans = KMeans(n_clusters=matProj.shape[1]).fit(matProj)
-        return kmeans.labels_
-
-    def _doSklearnAffProp(self, matProj):
-        from sklearn.cluster import AffinityPropagation
-        ap = AffinityPropagation(damping=0.9).fit(matProj)
-        return ap.labels_
-
-    # def _getDistance(self, m1, m2, neg=False):
-    #     #estimatation of the distance bt row vectors
-    #     distances = np.zeros(( m1.shape[0], m1.shape[1]))
-    #     for i, row in enumerate(m2):
-    #         distances[:, i] = np.linalg.norm(m1 - row, axis=1)
-    #     if neg == True:
-    #         distances = -distances
-    #     return distances
+            return ml.doSklearnAffProp(matProj)
 
     def _createMFile(self, matrix, name='matrix.txt'):
         f = open(name, 'w')
@@ -722,3 +697,14 @@ class ProtAutoBase(ProtocolBase):
             item._rlnAccuracyTranslations = em.Float(
                 row.getValue('rlnAccuracyTranslations'))
 
+    def _getRLevList(self):
+        """ Return the list of iteration files, give the rLevTemplate. """
+        self._createRLevTemplates()
+        result = []
+        files = sorted(glob(self._rLevTemplate))
+        if files:
+            for f in files:
+                s = self._rLevRegex.search(f)
+                if s:
+                    result.append(int(s.group(1)))
+        return result

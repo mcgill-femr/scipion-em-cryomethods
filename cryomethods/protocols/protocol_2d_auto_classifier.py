@@ -76,10 +76,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
             'finalData': self._getExtraPath('final_data.star'),
             'finalAvgMap': self._getExtraPath('map_average.mrc'),
             'optimiser': self.rLevIter + 'optimiser.star',
-            'all_avgPmax_xmipp': self._getTmpPath(
-                'iterations_avgPmax_xmipp.xmd'),
-            'all_changes_xmipp': self._getTmpPath(
-                'iterations_changes_xmipp.xmd'),
         }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
@@ -100,27 +96,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
         self._defineOptimizationParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineSamplingParams(form, expertLev=cons.LEVEL_NORMAL)
         self._defineAdditionalParams(form)
-
-    # -------------------------- INSERT steps functions ------------------------
-    def _insertLevelSteps(self):
-        deps = []
-        levelRuns = self._getLevRuns(self._level)
-
-        self._insertFunctionStep('convertInputStep',
-                                 self._getResetDeps(),
-                                 self.copyAlignment,
-                                 prerequisites=deps)
-
-        for rLev in levelRuns:
-            clsDepList = []
-            self._rLev = rLev  # Just to generate the proper input star file.
-            classDep = self._insertClassifyStep()
-            clsDepList.append(classDep)
-            self._setNewEvalIds()
-
-        evStep = self._insertEvaluationStep(clsDepList)
-        deps.append(evStep)
-        return deps
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
@@ -217,44 +192,11 @@ class Prot2DAutoClassifier(ProtAutoBase):
         level = int(mapId.split('.')[0])
         return self._getFileName('image', lev=level, id=mapId)
 
-    def _mergeDataStar(self, rLev):
-        iters = self._lastIter(rLev)
-        print ("last iteration _mergeDataStar:", iters)
+    def _getRelionFn(self, iters, rLev, clsPart):
+        return self._getFileName('relionImage', lev=self._level,
+                                 iter=iters, clsImg=clsPart, rLev=rLev)
 
-        #metadata to save all particles that continues
-        outData = self._getFileName('outputData', lev=self._level)
-        outMd = self._getMetadata(outData)
-
-        #metadata to save all final particles
-        finalData = self._getFileName('rawFinalData')
-        finalMd = self._getMetadata(finalData)
-
-        imgStar = self._getFileName('data', iter=iters,
-                                    lev=self._level, rLev=rLev)
-        mdData = md.MetaData(imgStar)
-
-        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-            rMap = self._getFileName('relionImage', lev=self._level,
-                                     iter=iters,
-                                     clsImg=clsPart, rLev=rLev)
-            mapId = self._mapsDict[rMap]
-            if self.stopDict[mapId]:
-                classId = self._clsIdDict[mapId]
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(finalMd)
-            else:
-                classId = int(mapId.split('.')[1])
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(outMd)
-
-        if finalMd.size() != 0:
-            finalMd.write(finalData)
-
-        if outMd.size() != 0:
-            outMd.write(outData)
-
-    def _mrcToNp(self, volList):
+    def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []
         for vol in volList:
             volNp = loadMrc(vol, False)
