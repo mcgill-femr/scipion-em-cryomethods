@@ -249,6 +249,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
     def _getClassId(self, volFile):
         result = None
         s = self._classRegex.search(volFile)
+        print (s, "ssssssssss")
         if s:
             result = int(s.group(1)) # group 1 is 2 digits class number
         return self.volDict[result]

@@ -32,7 +32,7 @@ import pyworkflow.em
 import pyworkflow.utils as pwutils
 
 from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0, \
-    XMIPP_CRYOMETHODS_HOME
+    XMIPP_CRYOMETHODS_HOME, NMA_HOME
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
@@ -50,6 +50,7 @@ class Plugin(pyworkflow.em.Plugin):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
         cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
         cls._defineEmVar(XMIPP_CRYOMETHODS_HOME, 'xmipp')
+        cls._defineEmVar(NMA_HOME, 'nma')
 
 
     @classmethod
@@ -76,7 +77,11 @@ class Plugin(pyworkflow.em.Plugin):
             if not pPath in os.environ['PYTHONPATH']:
                 env.update({'PYTHONPATH': pPath},
                                position=pwutils.Environ.BEGIN)
+        env.update({'PATH': Plugin.getVar(NMA_HOME)},
+                    position=pwutils.Environ.BEGIN)
         return env
+
+        return environ
 
 
     @classmethod
