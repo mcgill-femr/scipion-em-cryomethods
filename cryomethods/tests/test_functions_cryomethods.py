@@ -26,10 +26,16 @@
 # **************************************************************************
 import sys
 from glob import glob
+from os.path import basename
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
+
 import numpy as np
-from pyworkflow.utils import basename, copyFile
+from pyworkflow.utils import copyFile
 from pyworkflow.tests import *
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 from cryomethods import Plugin
 from cryomethods.protocols import Prot3DAutoClassifier
 from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
@@ -78,7 +84,7 @@ class TestAlignVolumes(TestBase):
                 npVol = applyTransforms(volNp, shifts, angles, axis)
                 print('original map is better ', vol)
 
-            saveMrc(npVol, '/home/josuegbl/'+basename(vol))
+            saveMrc(npVol, '/home/josuegbl/'+ basename(vol))
 
     def testPCA(self):
         Plugin.setEnviron()
@@ -88,7 +94,6 @@ class TestAlignVolumes(TestBase):
         print(matProj)
 
     def testClustering(self):
-        from itertools import izip
         Plugin.setEnviron()
         volList = self._getVolList()
         self._getAverageVol(volList)
@@ -105,10 +110,10 @@ class TestAlignVolumes(TestBase):
             for vol, label in izip (volList, labels):
                 dictNames[vol] = label
 
-            for key, value in sorted(dictNames.iteritems()):
+            for key, value in sorted(dictNames.items()):
                 groupDict.setdefault(value, []).append(key)
 
-            for key, value in groupDict.iteritems():
+            for key, value in groupDict.items():
                 line = '%s %s\n' % (key, value)
                 f.write(line)
             f.close()
@@ -116,7 +121,6 @@ class TestAlignVolumes(TestBase):
 
     def testAffinityProp(self):
         from cryomethods.functions import MlMethods, NumpyImgHandler
-        from itertools import izip
         Plugin.setEnviron()
         volList = self._getVolList()
         ml = MlMethods()
@@ -141,11 +145,11 @@ class TestAlignVolumes(TestBase):
                 dictNames[vol] = label
                 destFn = '/home/josuegbl/PROCESSING/TESLA/projects/RNC_HTLnd2/MAPS' + basename(vol)
                 copyFile(vol, destFn)
-            for key, value in sorted(dictNames.iteritems()):
+            for key, value in sorted(dictNames.items()):
                 groupDict.setdefault(value, []).append(key)
 
             counter = 0
-            for key, value in groupDict.iteritems():
+            for key, value in groupDict.items():
                 valueStr = ' '.join(value)
                 line = 'chimera %s\n' % valueStr
                 f.write(line)

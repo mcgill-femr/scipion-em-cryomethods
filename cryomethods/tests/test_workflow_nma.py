@@ -24,16 +24,21 @@
 # *
 # **************************************************************************
 
-from pyworkflow.tests.em.workflows.test_workflow import TestWorkflow
+from pyworkflow.tests import *
 
+from pwem.protocols import ProtImportParticles, ProtImportVolumes
+from pwem import Domain
 
 
 from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
 
-from xmipp3.protocols.pdb.protocol_pseudoatoms_base import NMA_MASK_THRE
-from pyworkflow.tests import *
-
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes
+try:
+    NMA_MASK_THRE = Domain.importFromPlugin('xmipp3.protocols.pdb.protocol_pseudoatoms_base',
+                                            'NMA_MASK_THRE',
+                                            doRaise=True)
+except Exception as ex:
+    print("Xmipp3 must be installed. Please, go to Plugin Manager and "
+          "installed it!!!", ex)
 
 
 class TestBase(BaseTest):
@@ -77,7 +82,6 @@ class TestBase(BaseTest):
                                      samplingRate=samplingRate)
         cls.launchProtocol(protImport)
         return protImport
-
 
 
 class CryoMetTestNMA(TestBase):

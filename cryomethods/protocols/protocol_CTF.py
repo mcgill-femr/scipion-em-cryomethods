@@ -13,9 +13,9 @@ from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
 
 from .protocol_base import ProtocolBase
 
-from ..functions import num_flat_features, calcAvgPsd
+from cryomethods.functions import num_flat_features, calcAvgPsd
 
-from pyworkflow.em.data import CTFModel
+from pwem.objects import CTFModel
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -378,6 +378,7 @@ class LoaderPredict(Dataset):
         psd = calcAvgPsd(img[0,:,:], windows_size = 512, step_size = 128)
         # img = np.resize(img, (1, 512, 512))
         return torch.from_numpy(np.float32(psd))
+
 
 class LoaderTrain(Dataset):
     """

@@ -27,13 +27,14 @@
 import os
 import numpy as np
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
-from pyworkflow.utils import (makePath, copyFile)
+from pwem import ALIGN_NONE
+from pwem.emlib.image import ImageHandler
+from pyworkflow.utils import makePath
 
 from cryomethods import Plugin
-from cryomethods.convert import writeSetOfParticles, loadMrc
+from cryomethods.convert import writeSetOfParticles
 
 from .protocol_auto_base import ProtAutoBase
 
@@ -100,7 +101,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
             self._convertStar(copyAlignment, imgStar)
             mdInput = self._getMetadata(imgStar)
             mdSize = mdInput.size()
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
+            self._convertVol(ImageHandler(), self.inputVolumes.get())
 
             for i in range(2, 10, 1):
                 makePath(self._getRunPath(self._level, i))
@@ -118,7 +119,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
             self._convertStar(copyAlignment, imgStar)
 
             # find a clever way to avoid volume conversion if its already done.
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
+            self._convertVol(ImageHandler(), self.inputVolumes.get())
 
         else:
             lastCls = None
@@ -222,9 +223,9 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
         # Pass stack file as None to avoid write the images files
         # If copyAlignment is set to False pass alignType to ALIGN_NONE
-        alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment else ALIGN_NONE
 
-        hasAlign = alignType != em.ALIGN_NONE
+        hasAlign = alignType != ALIGN_NONE
         alignToPrior = hasAlign and self.alignmentAsPriors.get()
         fillRandomSubset = hasAlign and self.fillRandomSubset.get()
 

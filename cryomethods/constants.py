@@ -24,7 +24,7 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 
 #------------------ Constants values --------------------------------------
 

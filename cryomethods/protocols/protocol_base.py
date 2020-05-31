@@ -26,11 +26,14 @@
 # **************************************************************************
 from glob import glob
 import numpy as np
+from pwem.emlib.image import ImageHandler
 from scipy import stats
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+from pwem.protocols import EMProtocol
+from pwem.objects import SetOfVolumes, Volume, Float, ALIGN_PROJ
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.params as params
+from pyworkflow.protocol import LEVEL_ADVANCED
 import pyworkflow.utils.path as pwpath
 from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
@@ -39,20 +42,20 @@ from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
 import cryomethods.convert as conv
 
 
-class ProtocolBase(em.EMProtocol):
+class ProtocolBase(EMProtocol):
     """ This class contains the common functions for protocols developed by
     cryomethods that uses Relion programs.
     """
     IS_2D = False
     IS_VOLSELECTOR = False
     IS_AUTOCLASSIFY = False
-    OUTPUT_TYPE = em.SetOfVolumes
+    OUTPUT_TYPE = SetOfVolumes
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
 
 
     def __init__(self, **args):
-        em.EMProtocol.__init__(self, **args)
+        EMProtocol.__init__(self, **args)
 
     def _initialize(self):
         """ This function is mean to be called after the
@@ -122,7 +125,7 @@ class ProtocolBase(em.EMProtocol):
         form.addParam('alignmentAsPriors', params.BooleanParam,
                       default=False,
                       condition='copyAlignment',
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Consider alignment as priors?',
                       help='If set to Yes, then alignment information from '
                            'input particles will be considered as PRIORS. '
@@ -130,7 +133,7 @@ class ProtocolBase(em.EMProtocol):
                            'local searches')
         form.addParam('fillRandomSubset', params.BooleanParam,
                       default=False, condition='copyAlignment',
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Consider random subset value?',
                       help='If set to Yes, then random subset value '
                            'of input particles will be put into the'
@@ -139,7 +142,7 @@ class ProtocolBase(em.EMProtocol):
         if self.IS_2D:
             form.addParam('referenceAverages', params.PointerParam,
                           pointerClass='SetOfAverages', allowsNull=True,
-                          expertLevel=em.LEVEL_ADVANCED,
+                          expertLevel=LEVEL_ADVANCED,
                           label='Reference averages',
                           help='This option is not recommended and should be '
                                'used with care. The provided averages will be '
@@ -198,7 +201,7 @@ class ProtocolBase(em.EMProtocol):
                 group.addHidden('doGrouping', params.BooleanParam,
                                default=False)
 
-    def _defineReferenceParams(self, form, expertLev=em.LEVEL_ADVANCED):
+    def _defineReferenceParams(self, form, expertLev=LEVEL_ADVANCED):
         form.addSection('Reference 3D map')
         referenceClass = 'SetOfVolumes'
         referenceLabel = 'Input volumes'
@@ -234,7 +237,7 @@ class ProtocolBase(em.EMProtocol):
                            'select another volume mask')
         form.addParam('solventMask', params.PointerParam,
                       pointerClass='VolumeMask',
-                      expertLevel=em.LEVEL_ADVANCED, allowsNull=True,
+                      expertLevel=LEVEL_ADVANCED, allowsNull=True,
                       label='Second reference mask (optional)',
                       help='For all white (value 1) pixels in this second '
                            'mask the corresponding pixels in the '
@@ -246,7 +249,7 @@ class ProtocolBase(em.EMProtocol):
                            'zero-values in the capsid and the solvent '
                            'areas.')
         form.addParam('solventFscMask', params.BooleanParam, default=False,
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Use solvent-flattened FSCs?',
                       help='If set to Yes, then instead of using '
                            'unmasked maps to calculate the gold-standard '
@@ -314,7 +317,7 @@ class ProtocolBase(em.EMProtocol):
                            'no low-pass filter will be applied to the '
                            'initial reference(s).')
 
-    def _defineCTFParams(self, form, expertLev=em.LEVEL_ADVANCED):
+    def _defineCTFParams(self, form, expertLev=LEVEL_ADVANCED):
         form.addSection('CTF')
         form.addParam('doCTF', params.BooleanParam, default=True,
                       expertLevel=expertLev,
@@ -347,7 +350,7 @@ class ProtocolBase(em.EMProtocol):
                            'CTF-correction. However, if the phases have been '
                            'flipped, the program will handle it.')
         form.addParam('ignoreCTFUntilFirstPeak', params.BooleanParam,
-                      default=False, expertLevel=em.LEVEL_ADVANCED,
+                      default=False, expertLevel=LEVEL_ADVANCED,
                       label='Ignore CTFs until first peak?',
                       help='If set to Yes, then CTF-amplitude correction will '
                            'only be performed from the first peak '
@@ -373,7 +376,7 @@ class ProtocolBase(em.EMProtocol):
                            'it will be expanded until number of particles '
                            'per defocus group is reached')
 
-    def _defineOptimizationParams(self, form, expertLev=em.LEVEL_ADVANCED):
+    def _defineOptimizationParams(self, form, expertLev=LEVEL_ADVANCED):
         form.addSection(label='Optimisation')
         form.addParam('regularisationParamT', params.IntParam, default=4,
                       expertLevel=expertLev,
@@ -436,7 +439,7 @@ class ProtocolBase(em.EMProtocol):
                                'of particles in the data set, then more than 1 '
                                'iteration will be split into subsets.')
         form.addParam('limitResolEStep', params.FloatParam, default=-1,
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Limit resolution E-step to (A)',
                       help='If set to a positive number, then the '
                            'expectation step (i.e. the alignment) will be '
@@ -453,7 +456,7 @@ class ProtocolBase(em.EMProtocol):
                            'in the range of 7-12 Angstroms have proven '
                            'useful.')
 
-    def _defineSamplingParams(self, form, expertLev=em.LEVEL_ADVANCED):
+    def _defineSamplingParams(self, form, expertLev=LEVEL_ADVANCED):
         form.addSection('Sampling')
         if self.IS_AUTOCLASSIFY:
             form.addParam('doImageAlignment', params.BooleanParam, default=True,
@@ -568,7 +571,7 @@ class ProtocolBase(em.EMProtocol):
                            'access, is a problem. It has a modest cost of '
                            'increased RAM usage.')
         if self.IS_3D:
-            form.addParam('skipPadding', em.BooleanParam, default=False,
+            form.addParam('skipPadding', params.BooleanParam, default=False,
                           label='Skip padding',
                           help='If set to Yes, the calculations will not use '
                                'padding in Fourier space for better '
@@ -889,7 +892,7 @@ class ProtocolBase(em.EMProtocol):
                                                    iter=continueIter)
 
     def _getParams(self, args):
-        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
 
     def _getScratchDir(self):
         """ Returns the scratch dir value without spaces.
@@ -915,7 +918,7 @@ class ProtocolBase(em.EMProtocol):
             f = files[index]
             s = self._iterRegex.search(f)
             if s:
-                result = long(s.group(1))  # group 1 is 3 digits iteration
+                result = int(s.group(1))  # group 1 is 3 digits iteration
                 # number
         return result
 
@@ -950,14 +953,14 @@ class ProtocolBase(em.EMProtocol):
             resol = row.getValue('rlnEstimatedResolution')
 
             if classDistrib > 0:
-                vol = em.Volume()
+                vol = Volume()
                 self._invertScaleVol(fnMrc)
                 vol.setFileName(self._getOutputVolFn(fnMrc))
                 vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Float(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
+                vol._rlnClassDistribution = Float(classDistrib)
+                vol._rlnAccuracyRotations = Float(accurracyRot)
+                vol._rlnAccuracyTranslations = Float(accurracyTras)
+                vol._rlnEstimatedResolution = Float(resol)
                 volSet.append(vol)
 
     def _getRefArg(self):
@@ -967,7 +970,7 @@ class ProtocolBase(em.EMProtocol):
         It will return None if no --ref should be used. """
         if self.IS_3D:
             inputObj = self.inputVolumes.get()
-            if isinstance(inputObj, em.SetOfVolumes):
+            if isinstance(inputObj, SetOfVolumes):
                 # input SetOfVolumes as references
                 return self._getRefStar()
         return None  # No --ref should be used at this point
@@ -993,7 +996,7 @@ class ProtocolBase(em.EMProtocol):
 
     def _convertRef(self):
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         inputObj = self.inputVolumes.get()
         row = md.Row()
         refMd = md.MetaData()
@@ -1010,7 +1013,7 @@ class ProtocolBase(em.EMProtocol):
         nyquist = 2 * partSet.getSamplingRate()
 
         if tgResol > nyquist:
-            newSize = long(round(size * nyquist / tgResol))
+            newSize = int(round(size * nyquist / tgResol))
             if newSize % 2 == 1:
                 newSize += 1
             return newSize
@@ -1030,7 +1033,7 @@ class ProtocolBase(em.EMProtocol):
         newFn = self._getTmpPath('particles_subset.mrcs')
         xdim = self._getNewDim()
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         image = ih.read((index, fn))
         image.scale(xdim, xdim)
 
@@ -1042,7 +1045,7 @@ class ProtocolBase(em.EMProtocol):
 
     def _convertInput(self, imgSet):
         newDim = self._getNewDim()
-        bg = newDim / 2
+        bg = int(newDim / 2)
 
         args = '--operate_on %s --operate_out %s --norm --bg_radius %d'
 
@@ -1076,7 +1079,7 @@ class ProtocolBase(em.EMProtocol):
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()
         outputFn = self._getOutputVolFn(fn)
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         img = ih.read(fn)
         img.scale(xdim, xdim, xdim)
         img.write(outputFn)
@@ -1086,7 +1089,7 @@ class ProtocolBase(em.EMProtocol):
 
     def _postprocessImageRow(self, img, imgRow):
         partId = img.getParticleId()
-        imgRow.setValue(md.RLN_PARTICLE_ID, long(partId))
+        imgRow.setValue(md.RLN_PARTICLE_ID, int(partId))
         imgRow.setValue(md.RLN_MICROGRAPH_NAME,
                         "%06d@fake_movie_%06d.mrcs"
                         % (img.getFrameId(), img.getMicId()))
@@ -1118,7 +1121,7 @@ class ProtocolBase(em.EMProtocol):
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
         mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
-        if alignType == em.ALIGN_PROJ:
+        if alignType == ALIGN_PROJ:
             mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
             mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
 

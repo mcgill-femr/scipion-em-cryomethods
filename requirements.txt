@@ -1,0 +1,7 @@
+torch
+mrc
+scipy
+lapack
+matplotlib
+cython
+scikit-learn

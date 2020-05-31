@@ -27,12 +27,14 @@
 import os
 import re
 import numpy as np
+from pwem import ALIGN_PROJ
+from pwem.emlib.image import ImageHandler
+from pyworkflow.object import Float, String
 from scipy import stats, interpolate
 from glob import glob
-from collections import Counter, defaultdict
+from collections import Counter
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
@@ -75,7 +77,6 @@ class ProtAutoBase(ProtocolBase):
         self._rLevTemplate = self._getFileName('input_star', lev=self._level,
                                                rLev=0).replace('000', '???')
         self._rLevRegex = re.compile('rLev-(\d{3,3}).')
-
 
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -375,7 +376,7 @@ class ProtAutoBase(ProtocolBase):
                     print("Meth: _copyLevelMaps, clasDist: ", clasDist)
                     mapId = self._getRunLevId(rLev=claseId)
                     newFn = self._getMapById(mapId)
-                    ih = em.ImageHandler()
+                    ih = ImageHandler()
                     ih.convert(fn, newFn)
                     self._mapsDict[fn] = mapId
 
@@ -675,13 +676,13 @@ class ProtAutoBase(ProtocolBase):
 
     def _updateParticle(self, item, row):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
+        item.setTransform(rowToAlignment(row, ALIGN_PROJ))
 
-        item._rlnLogLikeliContribution = em.Float(
+        item._rlnLogLikeliContribution = Float(
             row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
+        item._rlnMaxValueProbDistribution = Float(
             row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+        item._rlnGroupName = String(row.getValue('rlnGroupName'))
 
     def _updateClass(self, item):
         classId = item.getObjId()
@@ -690,11 +691,11 @@ class ProtAutoBase(ProtocolBase):
             fn += ":mrc"
             item.setAlignmentProj()
             item.getRepresentative().setLocation(index, fn)
-            item._rlnclassDistribution = em.Float(
+            item._rlnclassDistribution = Float(
                 row.getValue('rlnClassDistribution'))
-            item._rlnAccuracyRotations = em.Float(
+            item._rlnAccuracyRotations = Float(
                 row.getValue('rlnAccuracyRotations'))
-            item._rlnAccuracyTranslations = em.Float(
+            item._rlnAccuracyTranslations = Float(
                 row.getValue('rlnAccuracyTranslations'))
 
     def _getRLevList(self):

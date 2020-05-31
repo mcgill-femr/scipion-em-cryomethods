@@ -1,2 +1,3 @@
+31-May-2020 - Python3 migration
 23-April-2019 - First plugin version
 

@@ -27,7 +27,8 @@
 from pyworkflow.utils import Environ
 from pyworkflow.tests import *
 
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes , ProtSubSet, ProtImportMicrographs
+from pwem.protocols import (ProtImportParticles, ProtImportVolumes , ProtSubSet,
+                            ProtImportMicrographs)
 from cryomethods.protocols import *
 
 
@@ -94,7 +95,7 @@ class Test3DAutoClasifier(TestBase):
 
     def testAutoClassify(self):
         def _runAutoClassifier(doGpu=False, label=''):
-            print label
+            print(label)
             autoClassifierProt = self.newProtocol(Prot3DAutoClassifier,
                                                   numberOfIterations=10,
                                                   resolToStop=27.0,
@@ -129,7 +130,7 @@ class Test2DAutoClasifier(TestBase):
 
     def testAutoClassify(self):
         def _runAutoClassifier(doGpu=False, label=''):
-            print label
+            print(label)
             autoClassifierProt = self.newProtocol(Prot2DAutoClassifier,
                                                   numberOfIterations=10,
                                                   minPartsToStop=700,
@@ -366,7 +367,7 @@ class TestCNNClasifier(TestBase):
 
     def testCnnClassify(self):
         def _runCnnClassifier(useGPU=False, label=''):
-            print label
+            print(label)
             cnnProt = self.newProtocol(ProtSCNN, predictEnable=True, useGPU=False,
                                        weightsfile="/home/alex/CryoEM/clasifica/model_weight.pt")
 

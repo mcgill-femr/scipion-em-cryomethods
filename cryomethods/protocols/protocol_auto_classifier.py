@@ -26,16 +26,16 @@
 # **************************************************************************
 import os
 import re
-import copy
-import random
 import numpy as np
 from glob import glob
 from collections import Counter
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
+from pwem import ALIGN_NONE, ALIGN_PROJ
+from pwem.emlib.image import ImageHandler
+from pyworkflow.object import Float, String
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
@@ -233,9 +233,9 @@ class Prot3DAutoClassifier(ProtocolBase):
             # Pass stack file as None to avoid write the images files
             # If copyAlignment is set to False pass alignType to ALIGN_NONE
             alignType = imgSet.getAlignment() if copyAlignment \
-                else em.ALIGN_NONE
+                else ALIGN_NONE
 
-            hasAlign = alignType != em.ALIGN_NONE
+            hasAlign = alignType != ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
             fillRandomSubset = hasAlign and self._getBoolAttr(
                 'fillRandomSubset')
@@ -250,7 +250,7 @@ class Prot3DAutoClassifier(ProtocolBase):
             if self.doCtfManualGroups:
                 self._splitInCTFGroups(imgStar)
 
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
+            self._convertVol(ImageHandler(), self.inputVolumes.get())
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
@@ -486,9 +486,9 @@ class Prot3DAutoClassifier(ProtocolBase):
             rLevList = [int(k.split('.')[-1]) for k,v in self.stopDict.items()
                         if v is False and k.split('.')[0] == '%02d' % l]
 
-            print "level",  l, "self.stopDict",  self.stopDict
-            print "mapsIds", mapsIds, "mapsLevelIds", mapsLevelIds
-            print "rLevList", rLevList
+            print("level",  l, "self.stopDict",  self.stopDict)
+            print("mapsIds", mapsIds, "mapsLevelIds", mapsLevelIds)
+            print("rLevList", rLevList)
 
             return rLevList
 
@@ -627,7 +627,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         #metadata to save all final models
         finalModel = self._getFileName('rawFinalModel')
         finalMd = self._getMetadata(finalModel)
-        print "final MD has at beggining: ", finalMd, "\n*******************\n"
+        print("final MD has at beggining: ", finalMd, "\n*******************\n")
 
         #read model metadata
         modelFn = self._getFileName('model', iter=iters,
@@ -642,17 +642,17 @@ class Prot3DAutoClassifier(ProtocolBase):
             row.setValue(refLabel, newMap)
             row.writeToMd(modelMd, row.getObjId())
             if self.stopDict[mapId]:
-                print "this MapId %s is finished" % mapId
+                print("this MapId %s is finished" % mapId)
                 row.addToMd(finalMd)
             else:
-                print "this MapId %s is not finished" % mapId
+                print("this MapId %s is not finished" % mapId)
                 row.addToMd(outMd)
 
         if outMd.size() != 0:
             outMd.write(outModel)
 
         if finalMd.size() != 0:
-            print "final MD has: ", finalMd
+            print("final MD has: ", finalMd)
             finalMd.write('model_classes@' + finalModel)
 
     def _mergeDataStar(self, rLev):
@@ -695,7 +695,7 @@ class Prot3DAutoClassifier(ProtocolBase):
     def _getMetadata(self, file):
         return md.MetaData(file) if os.path.exists(file) else md.MetaData()
 
-    def _getAverageVol(self, listVol=[]):
+    def _getAverageVol(self, listVol=None):
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
         print('creating average map: ', listVol)
@@ -880,13 +880,13 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def _updateParticle(self, item, row):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, em.ALIGN_PROJ))
+        item.setTransform(rowToAlignment(row, ALIGN_PROJ))
 
-        item._rlnLogLikeliContribution = em.Float(
+        item._rlnLogLikeliContribution = Float(
             row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
+        item._rlnMaxValueProbDistribution = Float(
             row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+        item._rlnGroupName = String(row.getValue('rlnGroupName'))
 
     def _updateClass(self, item):
         classId = item.getObjId()
@@ -895,10 +895,10 @@ class Prot3DAutoClassifier(ProtocolBase):
             fn += ":mrc"
             item.setAlignmentProj()
             item.getRepresentative().setLocation(index, fn)
-            item._rlnclassDistribution = em.Float(
+            item._rlnclassDistribution = Float(
                 row.getValue('rlnClassDistribution'))
-            item._rlnAccuracyRotations = em.Float(
+            item._rlnAccuracyRotations = Float(
                 row.getValue('rlnAccuracyRotations'))
-            item._rlnAccuracyTranslations = em.Float(
+            item._rlnAccuracyTranslations = Float(
                 row.getValue('rlnAccuracyTranslations'))
 

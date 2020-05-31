@@ -32,17 +32,15 @@ import numpy as np
 from glob import glob
 from collections import Counter
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
-from pyworkflow.em.convert import ImageHandler
+import pwem as em
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
+from pyworkflow.object import Float, String
+from pyworkflow.utils import makePath
 
 from cryomethods import Plugin
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+                                 loadMrc)
 
 from .protocol_auto_base import ProtAutoBase
 
@@ -144,7 +142,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
                         mdInput.write(fn)
                     paths = self._getRunPath(self._level, clsPart)
                     makePath(paths)
-                    print ("Path: %s and newRlev: %d" % (paths, clsPart))
+                    print("Path: %s and newRlev: %d" % (paths, clsPart))
                     lastCls = clsPart
                     mdInput = md.MetaData()
                     fn = self._getFileName('input_star', lev=self._level,
@@ -210,9 +208,9 @@ class Prot2DAutoClassifier(ProtAutoBase):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
         item.setTransform(rowToAlignment(row, em.ALIGN_2D))
 
-        item._rlnLogLikeliContribution = em.Float(
+        item._rlnLogLikeliContribution = Float(
             row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
+        item._rlnMaxValueProbDistribution = Float(
             row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+        item._rlnGroupName = String(row.getValue('rlnGroupName'))
 

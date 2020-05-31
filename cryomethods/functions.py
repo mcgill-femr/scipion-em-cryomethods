@@ -24,7 +24,11 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-from itertools import izip
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
+
 import numpy as np
 
 
@@ -278,7 +282,6 @@ class MlMethods(object):
 
 
 def correctAnisotropy(volNp, weight, q, minFreq, maxFreq):
-    from correct_anysotropy import correctAnisotropy
     # minFreq and maxFreq are in normalized frequency (max 0.5)
     size = volNp.shape[0]
     minFr = int(minFreq * size)

@@ -39,8 +39,12 @@ from os import path
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
-with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
+
+# Load requirements.txt
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
 
 # Arguments marked as "Required" below must be included for upload to PyPI.
 # Fields marked as "Optional" may be commented out.
@@ -65,7 +69,7 @@ setup(
     # For a discussion on single-sourcing the version across setup.py and the
     # project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='1.2.0',  # Required
+    version='3.0.0',  # Required
 
     # This is a one-line description or tagline of what your project does. This
     # corresponds to the "Summary" metadata field:
@@ -165,6 +169,9 @@ setup(
      #package_data={  # Optional
      #   'cryoef': ['cryoef_logo.jpg'],
      #},
+     package_data={  # Optional
+        'cryomethods': ['protocols.conf'],
+     },
 
      # Although 'package_data' is the preferred approach, in some case you may
      # need to place data files outside of your packages. See:
@@ -199,4 +206,8 @@ setup(
          'Bug Reports': 'https://github.com/mcgill-femr/scipion-em-cryomethods/issues/',
          'Source': 'https://github.com/mcgill-femr/scipion-em-cryomethods/',
      },
+    install_requires=[requirements],
+    entry_points={
+        'pyworkflow.plugin': 'cryomethods = cryomethods'
+    },
  )

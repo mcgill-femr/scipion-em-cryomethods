@@ -25,7 +25,7 @@
 # *
 # **************************************************************************
 
-from test_functions_cryomethods import *
-from test_protocols_cryomethods import *
-from test_workflow_nma import *
-from test_control_pca import *
+from .test_functions_cryomethods import *
+from .test_protocols_cryomethods import *
+from .test_workflow_nma import *
+from .test_control_pca import *

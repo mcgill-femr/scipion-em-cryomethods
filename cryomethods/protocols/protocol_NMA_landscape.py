@@ -25,57 +25,49 @@
 # *  e-mail address 'satinder.kaur@mail.mcgill.ca'
 # *
 # **************************************************************************
-
-import math
-import xmippLib
+from os.path import exists, basename
 import random
-from pyworkflow.em.metadata import getSize
-from pyworkflow.utils import *
-from pyworkflow.em import *
-from os.path import join
-from pyworkflow.utils import redStr
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
 
-from xmipp3.protocols.nma.convert import getNMAEnviron
-
-from pyworkflow.utils.path import moveFile, createLink, cleanPattern, makePath
-from xmipp3.convert import getImageLocation
+from pwem.convert import cifToPdb
+from pwem.emlib.image import ImageHandler
 from pyworkflow.protocol.params import (PointerParam, EnumParam, IntParam,
                                         FloatParam,
-                                        LEVEL_ADVANCED, LabelParam)
-from xmipp3.protocols.nma.protocol_nma_base import NMA_CUTOFF_REL
-from pyworkflow.em.convert.atom_struct import cifToPdb
+                                        LEVEL_ADVANCED, Float)
 import pyworkflow.protocol.constants as const
-from xmipp3.constants import NMA_HOME
-from xmipp3 import Plugin
-from os.path import exists, basename
-from pyworkflow.em.protocol import ProtImportParticles
-import re
-import numpy as np
-from glob import glob
-import matplotlib
-import matplotlib.pyplot as plt
-import pyworkflow.em as em
 import pyworkflow.protocol.params as params
-from pyworkflow.utils.path import cleanPath, replaceBaseExt
+from pyworkflow.utils import *
+
+from pwem.objects import SetOfVolumes, SetOfParticles, Volume
+from pwem.protocols import EMProtocol
+from pwem.emlib.lib import *
+from pwem import Domain, ALIGN_NONE
+import pwem.emlib.metadata as md
+
+try:
+    getNMAEnviron = Domain.importFromPlugin('xmipp3.protocols.nma.convert',
+                                            'getNMAEnviron',
+                                            doRaise=True)
+    getImageLocation = Domain.importFromPlugin('xmipp3.convert',
+                                               'getImageLocation')
+    NMA_CUTOFF_REL = Domain.importFromPlugin('xmipp3.protocols.nma.protocol_nma_base',
+                                             'NMA_CUTOFF_REL')
+    NMA_HOME = Domain.importFromPlugin('xmipp3.constants', 'NMA_HOME')
+    Plugin = Domain.importFromPlugin('xmipp3', 'Plugin')
+
+except Exception as ex:
+    print("Xmipp3 must be installed. Please, go to Plugin Manager and "
+          "installed it!!!", ex)
 
 from cryomethods import Plugin
-from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
+from cryomethods.constants import (ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
-import pyworkflow.em.metadata as md
-from cryomethods.convert import writeSetOfParticles
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation,
-                                 alignVolumes, applyTransforms)
-from numpy.core import transpose
-from matplotlib import pyplot as plt
-import matplotlib.cm as cm
-from matplotlib import *
-import traceback
-from matplotlib.colors import LogNorm
-from scipy.interpolate import griddata
+from cryomethods.convert import (writeSetOfParticles)
+
 from cryomethods.convert import (loadMrc, saveMrc)
-
-
 
 
 NMA_MASK_NONE = 0
@@ -95,20 +87,17 @@ PCA_THRESHOLD = 0
 PCA_COUNT=1
 
 
-
-class ProtLandscapeNMA(em.EMProtocol):
+class ProtLandscapeNMA(EMProtocol):
     _label = 'Landscape NMA'
 
     IS_2D = False
     IS_VOLSELECTOR = False
     IS_AUTOCLASSIFY = False
-    OUTPUT_TYPE = em.SetOfVolumes
+    OUTPUT_TYPE = SetOfVolumes
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
 
-
-    #-------------------particleattrStep---------------------------------
-
+    # -------------------particleattrStep---------------------------------
     def _createFilenameTemplates(self):
         """ Centralize how files are called for iterations and references. """
         self.levDir = self._getExtraPath('run_%(run)02d/')
@@ -160,7 +149,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
     #--------------------------- DEFINE param functions ------------------------
-    def _defineParams(self, form, expertLev=em.LEVEL_ADVANCED, cond='True'):
+    def _defineParams(self, form, expertLev=LEVEL_ADVANCED, cond='True'):
         form.addSection(label='Input')
         form.addParam('inputVolumes', params.PointerParam,
                       pointerClass='SetOfVolumes',
@@ -332,7 +321,6 @@ class ProtLandscapeNMA(em.EMProtocol):
         self._defineConstants()
         form.addSection(label='Particle attractor')
 
-
         form.addParam('maskDiameterA', params.IntParam, default=-1,
                       label='Particle mask diameter (A)',
                       help='The experimental images will be masked with a '
@@ -364,7 +352,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'noise, some classifications go better when using '
                            'zeros.')
 
-
         group = form.addGroup('Volume Selector')
         group.addParam('finalVols', params.EnumParam, default=  VOL_ZERO,
                       choices=['all of them',
@@ -391,7 +378,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       default=5, label='Number of Volumes',
                       help='Select Volumes to work with.')
         form.addParam('referenceMask', params.PointerParam,
-                      pointerClass='VolumeMask', expertLevel=em.LEVEL_ADVANCED,
+                      pointerClass='VolumeMask', expertLevel=LEVEL_ADVANCED,
                       label='Reference mask (optional)', allowsNull=True,
                       help='A volume mask containing a (soft) mask with '
                            'the same dimensions as the reference(s), '
@@ -408,7 +395,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'select another volume mask')
         form.addParam('solventMask', params.PointerParam,
                       pointerClass='VolumeMask',
-                      expertLevel=em.LEVEL_ADVANCED, allowsNull=True,
+                      expertLevel=LEVEL_ADVANCED, allowsNull=True,
                       label='Second reference mask (optional)',
                       help='For all white (value 1) pixels in this second '
                            'mask the corresponding pixels in the '
@@ -420,7 +407,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'zero-values in the capsid and the solvent '
                            'areas.')
         form.addParam('solventFscMask', params.BooleanParam, default=False,
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Use solvent-flattened FSCs?',
                       help='If set to Yes, then instead of using '
                            'unmasked maps to calculate the gold-standard '
@@ -520,7 +507,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'CTF-correction. However, if the phases have been '
                            'flipped, the program will handle it.')
         form.addParam('ignoreCTFUntilFirstPeak', params.BooleanParam,
-                      default=False, expertLevel=em.LEVEL_ADVANCED,
+                      default=False, expertLevel=LEVEL_ADVANCED,
                       label='Ignore CTFs until first peak?',
                       help='If set to Yes, then CTF-amplitude correction will '
                            'only be performed from the first peak '
@@ -596,7 +583,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'improvements in resolution or classes.')
 
         form.addParam('limitResolEStep', params.FloatParam, default=-1,
-                      expertLevel=em.LEVEL_ADVANCED,
+                      expertLevel=LEVEL_ADVANCED,
                       label='Limit resolution E-step to (A)',
                       help='If set to a positive number, then the '
                            'expectation step (i.e. the alignment) will be '
@@ -695,7 +682,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                            'access, is a problem. It has a modest cost of '
                            'increased RAM usage.')
 
-        form.addParam('skipPadding', em.BooleanParam, default=False,
+        form.addParam('skipPadding', params.BooleanParam, default=False,
                       label='Skip padding',
                       help='If set to Yes, the calculations will not use '
                            'padding in Fourier space for better '
@@ -812,7 +799,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         the function should be called inside the working dir."""
         fWarn = open("warnings.xmd", 'wa')
         for l in lines:
-            print >> fWarn, l
+            print(l, end="", file=fWarn)
         fWarn.close()
 
 
@@ -890,7 +877,7 @@ class ProtLandscapeNMA(em.EMProtocol):
     def convertVolumeStep(self):
         Plugin.setEnviron()
         inputVols = self.inputVolumes.get()
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         for i, vol in enumerate(inputVols):
             num = vol.getObjId()
             newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
@@ -934,8 +921,8 @@ class ProtLandscapeNMA(em.EMProtocol):
                         (self._getExtraPath(pseudoatoms), sampling),
                         numberOfMpi=1, numberOfThreads=1)
             cleanPattern(self._getPath(pseudoatoms + '_*'))
-            print (fnMask)
-            counter+=1
+            print(fnMask)
+            counter += 1
 
     # ---------------------view perturbed vol----------------------------------
     # def _showVolumes(self, paramName=None):
@@ -1019,7 +1006,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
             # self._leaveWorkingDir()
             n = self._countAtoms(inputFn)
-            print (n, "n")
+            print(n, "n")
             self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
                         env=getNMAEnviron(),
                             numberOfMpi=1, numberOfThreads=1)
@@ -1040,8 +1027,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                             numberOfMpi=1, numberOfThreads=1)
             moveFile('vec_ani.pkl', 'extra/vec_ani.pkl')
 
-
-
             #self.PseudoAtomThreshold = 0.0
 
             fnVec = glob("modes/vec.*")
@@ -1054,18 +1039,18 @@ class ProtLandscapeNMA(em.EMProtocol):
                 msg += "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of"
                 msg += "modes is below the minimum between these two numbers, consider increasing cut-off distance."
                 self._printWarnings(redStr(msg % (len(fnVec), self.numberOfModes.get())))
-                print (redStr('Warning: There are only %d modes instead of %d.' %
+                print(redStr('Warning: There are only %d modes instead of %d.' %
                              (len(fnVec), self.numberOfModes.get())))
-                print (redStr(
+                print(redStr(
                     "Check the number of modes you asked to compute and/or consider"
                     " increasing cut-off distance."))
-                print (redStr("The maximum number of modes allowed by the method"
+                print(redStr("The maximum number of modes allowed by the method"
                               " for atomic normal mode analysis is 6 times"))
-                print (redStr("the number of RTB blocks and for pseudoatomic normal"
+                print(redStr("the number of RTB blocks and for pseudoatomic normal"
                               " mode analysis 3 times the number of pseudoatoms."))
-                print (redStr("However, the protocol allows only up to 200 modes as"
+                print(redStr("However, the protocol allows only up to 200 modes as"
                               " 20-100 modes are usually enough. If the number of"))
-                print (redStr("modes is below the minimum between these two numbers,"
+                print(redStr("modes is below the minimum between these two numbers,"
                               " consider increasing cut-off distance."))
 
             fnDiag = "diagrtb.eigenfacs"
@@ -1083,43 +1068,43 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
         fh = open("Chkmod.res")
-        mdOut = xmippLib.MetaData()
+        mdOut = MetaData()
         collectivityList = []
-        print (fnVec, "fnVec")
+        print(fnVec, "fnVec")
         for n in range(len(fnVec)):
-            print (n, "n")
+            print(n, "n")
             line = fh.readline()
-            print (line, "line")
+            print(line, "line")
             collectivity = float(line.split()[1])
             collectivityList.append(collectivity)
-            print (collectivity, "collectivity")
-            print (collectivityList, "collectivityList")
+            print(collectivity, "collectivity")
+            print(collectivityList, "collectivityList")
 
             objId = mdOut.addObject()
             modefile = self._getPath("modes", "vec.%d" % (n + 1))
             print (modefile, "modefile")
-            mdOut.setValue(xmippLib.MDL_NMA_MODEFILE, modefile, objId)
-            print (xmippLib.MDL_NMA_MODEFILE, "xmippLib.MDL_NMA_MODEFILE")
-            mdOut.setValue(xmippLib.MDL_ORDER, long(n + 1), objId)
-            print (xmippLib.MDL_ORDER, "xmippLib.MDL_ORDER")
+            mdOut.setValue(MDL_NMA_MODEFILE, modefile, objId)
+            print(MDL_NMA_MODEFILE, "xmippLib.MDL_NMA_MODEFILE")
+            mdOut.setValue(MDL_ORDER, int(n + 1), objId)
+            print(MDL_ORDER, "xmippLib.MDL_ORDER")
 
             if n >= 6:
-                mdOut.setValue(xmippLib.MDL_ENABLED, 1, objId)
-                print (xmippLib.MDL_ENABLED, "xmippLib.MDL_ENABLED")
+                mdOut.setValue(MDL_ENABLED, 1, objId)
+                print(MDL_ENABLED, "xmippLib.MDL_ENABLED")
             else:
-                mdOut.setValue(xmippLib.MDL_ENABLED, -1, objId)
-                print (xmippLib.MDL_ENABLED, "xmippLib.MDL_ENABLED")
-            mdOut.setValue(xmippLib.MDL_NMA_COLLECTIVITY, collectivity, objId)
-            print (mdOut, "mdOut")
+                mdOut.setValue(MDL_ENABLED, -1, objId)
+                print(MDL_ENABLED, "xmippLib.MDL_ENABLED")
+            mdOut.setValue(MDL_NMA_COLLECTIVITY, collectivity, objId)
+            print(mdOut, "mdOut")
             if collectivity < self.collectivityThreshold.get():
-                mdOut.setValue(xmippLib.MDL_ENABLED, -1, objId)
+                mdOut.setValue(MDL_ENABLED, -1, objId)
         fh.close()
         idxSorted = [i[0] for i in
                      sorted(enumerate(collectivityList), key=lambda x: x[1],
                             reverse=True)]
 
-        print (collectivityList, "collectivityList")
-        print (collectivity, "collectivity")
+        print(collectivityList, "collectivityList")
+        print(collectivity, "collectivity")
 
         score = []
         for j in range(len(fnVec)):
@@ -1138,17 +1123,17 @@ class ProtLandscapeNMA(em.EMProtocol):
             score[idxSorted[i]] = idxSorted[i] + modeNum[i] + 2
         print(score, 'score')
         i = 0
-        print (mdOut, "mdOut")
+        print(mdOut, "mdOut")
         for objId in mdOut:
             print (objId, "objId")
             # print (mdOut, "mdOut")
             score_i = float(score[i]) / (2.0 * l)
             print (score[i], "score[i]")
             print (l, "l")
-            mdOut.setValue(xmippLib.MDL_NMA_SCORE, score_i, objId)
-            mdOut.setValue(xmippLib.MDL_ENABLED, 1, objId)
+            mdOut.setValue(MDL_NMA_SCORE, score_i, objId)
+            mdOut.setValue(MDL_ENABLED, 1, objId)
 
-            print (xmippLib.MDL_NMA_SCORE, "xmippLib.MDL_NMA_SCORE")
+            print(MDL_NMA_SCORE, "xmippLib.MDL_NMA_SCORE")
             i += 1
             print(score_i, "score_i")
 
@@ -1165,7 +1150,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         makePath('extra/animations %02d' % counter)
 
         fn = "pseudoatoms.pdb"
-        print ("animation step eneter")
+        print("animation step eneter")
         self.runJob("nma_animate_pseudoatoms.py",
                     "%s extra/vec_ani.pkl 7 %d "
                     "%f extra/animations/"
@@ -1174,7 +1159,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                      self.nframes.get(), self.downsample.get(),
                      self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
                         numberOfMpi=1, numberOfThreads=1)
-        print ("madre mia animaaaaaaaaaaaa")
+        print("madre mia animaaaaaaaaaaaa")
 
         for mode in range(7, self.numberOfModes.get() + 1):
             fnAnimation = join("extra", "animations", "animated_mode_%03d"
@@ -1201,7 +1186,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             fnVec = self._getPath("modes", "vec.%d" % n)
             if exists(fnVec):
                 fhIn = open(fnVec)
-                md = xmippLib.MetaData()
+                md = MetaData()
                 atomCounter = 0
                 for line in fhIn:
                     x, y, z = map(float, line.split())
@@ -1214,18 +1199,18 @@ class ProtLandscapeNMA(em.EMProtocol):
                             maxShift[atomCounter] = d
                             maxShiftMode[atomCounter] = n
                     atomCounter += 1
-                    md.setValue(xmippLib.MDL_NMA_ATOMSHIFT, d, md.addObject())
+                    md.setValue(MDL_NMA_ATOMSHIFT, d, md.addObject())
                 md.write(join(fnOutDir, "vec%d.xmd" % n))
                 fhIn.close()
-        md = xmippLib.MetaData()
+        md = MetaData()
         for i, _ in enumerate(maxShift):
             fnVec = self._getPath("modes", "vec.%d" % (maxShiftMode[i] + 1))
             if exists(fnVec):
                 objId = md.addObject()
-                md.setValue(xmippLib.MDL_NMA_ATOMSHIFT, maxShift[i], objId)
-                md.setValue(xmippLib.MDL_NMA_MODEFILE, fnVec, objId)
+                md.setValue(MDL_NMA_ATOMSHIFT, maxShift[i], objId)
+                md.setValue(MDL_NMA_MODEFILE, fnVec, objId)
         md.write(self._getExtraPath('maxAtomShifts.xmd'))
-        counter +=1
+        counter += 1
 
         self._leaveWorkingDir()
 
@@ -1267,9 +1252,9 @@ class ProtLandscapeNMA(em.EMProtocol):
         return rc
 
     def _computeCutoff(self, fnHist, rcPercentage):
-        mdHist = xmippLib.MetaData(fnHist)
-        distances = mdHist.getColumnValues(xmippLib.MDL_X)
-        distanceCount = mdHist.getColumnValues(xmippLib.MDL_COUNT)
+        mdHist = MetaData(fnHist)
+        distances = mdHist.getColumnValues(MDL_X)
+        distanceCount = mdHist.getColumnValues(MDL_COUNT)
         # compute total number of distances
         nCounts = 0
         for count in distanceCount:
@@ -1295,12 +1280,12 @@ class ProtLandscapeNMA(em.EMProtocol):
             pdbFns = self._getExtraPath("animations", "*.pdb")
             print(pdbFns, type(pdbFns), self._currentDir)
             fnListl = glob(pdbFns)
-            ter= 'TER'
-            frames= 3
-            count= 0
+            ter = 'TER'
+            frames = 3
+            count = 0
             fnList = []
             for pdbFns in fnListl:
-                print (sorted(pdbFns), "pdbfnsssssssssss")
+                print(sorted(pdbFns), "pdbfnsssssssssss")
                 with open(pdbFns) as infile:
                     i = 0
                     filename = pdbFns[:-4] + "_" + str(i) + '.pdb'
@@ -1320,7 +1305,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
 
-            print (sorted(fnList), "fnlist")
+            print(sorted(fnList), "fnlist")
             pseudoFn = 'pseudoatoms.pdb'
             inputFn = self._getPath(pseudoFn)
             print(inputFn, type(inputFn), self._currentDir)
@@ -1358,7 +1343,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         pseudoFn = 'pseudoatoms.vol'
 
         inputFn = self._getExtraPath(pseudoFn)
-        print (inputFn, 'inputFn')
+        print(inputFn, 'inputFn')
         for i in fnList:
             # print (i, sizeList)
             if (inputFn==i):
@@ -1367,7 +1352,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 break
 
         selectedVols = self.numOfVols.get()
-        print (selectedVols, "selectedVols")
+        print(selectedVols, "selectedVols")
 
         b = np.log((1 - (float(selectedVols) / float(sizeList))))
         numOfRuns = int(-3 / b)
@@ -1380,8 +1365,8 @@ class ProtLandscapeNMA(em.EMProtocol):
             imgSet = self.inputParticles.get()
             imgStar = self._getFileName('input_star', run=run)
             os.makedirs(self._getExtraPath('run_%02d' % run))
-            subset = em.SetOfParticles(filename=":memory:")
-            print (run, "runn")
+            subset = SetOfParticles(filename=":memory:")
+            print(run, "runn")
             newIndex = 1
             for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
                 self._scaleImages(newIndex, img)
@@ -1393,7 +1378,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 if subsetSize > 0 and subset.getSize() == minSize:
                     break
             writeSetOfParticles(subset, imgStar, self._getExtraPath(),
-                                alignType=em.ALIGN_NONE,
+                                alignType=ALIGN_NONE,
                                 postprocessImageRow=self._postprocessParticleRow)
             self._convertRef()
 
@@ -1404,8 +1389,6 @@ class ProtLandscapeNMA(em.EMProtocol):
             params += ' --j %d' % self.numberOfThreads.get()
             self.runJob(self._getProgram(), params)
 
-
-    #
     def _getAverageVol(self, listVol=[]):
 
         self._createFilenameTemplates()
@@ -1422,7 +1405,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         p = ['']
         ref3d = self.numOfVols.get()
         for run in range(numOfRuns):
-            for m in range (1, ref3d+1):
+            for m in range(1, ref3d+1):
                 mf = (self._getExtraPath('run_%02d' % run,
                                                  'relion_it%03d_' % iter+
                                                  'class%03d.mrc' % m))
@@ -1455,7 +1438,6 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         saveMrc(npAvgVol.astype(dType), avgVol)
 
-
     def estimatePCAStep(self):
         Plugin.setEnviron()
         totalVolumes = self._getExtraPath("*.vol")
@@ -1477,7 +1459,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                                      'relion_it%03d_' % iter+
                                      'class%03d.mrc' % m))
             listModelStar.append(mf)
-
 
         listVol = listModelStar
         print (len(listVol), "listvol")
@@ -1748,14 +1729,14 @@ class ProtLandscapeNMA(em.EMProtocol):
             resol = row.getValue('rlnEstimatedResolution')
 
             if classDistrib > 0:
-                vol = em.Volume()
+                vol = Volume()
                 self._invertScaleVol(fnMrc)
                 vol.setFileName(self._getOutputVolFn(fnMrc))
                 vol.setObjId(itemId)
-                vol._rlnClassDistributionl = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Foat(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
+                vol._rlnClassDistributionl = Float(classDistrib)
+                vol._rlnAccuracyRotations = Float(accurracyRot)
+                vol._rlnAccuracyTranslations = Float(accurracyTras)
+                vol._rlnEstimatedResolution = Float(resol)
                 volSet.append(vol)
 
 
@@ -1775,7 +1756,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         pseudoFn = 'pseudoatoms.vol'
         inputFn = self._getExtraPath(pseudoFn)
         # print (fnList, 'fnListttttttt1')
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         for vol in fnListl:
             if vol:
                 xdim = self._getNewDim()
@@ -1822,7 +1803,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         newFn = self._getTmpPath('particles_subset.mrcs')
         xdim = self._getNewDim()
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         image = ih.read((index, fn))
         image.scale(xdim, xdim)
 
@@ -1847,7 +1828,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         size = partSet.getXDim()
         nyquist = 2 * partSet.getSamplingRate()
         if tgResol > nyquist:
-            newSize = long(round(size * nyquist / tgResol))
+            newSize = int(round(size * nyquist / tgResol))
             if newSize % 2 == 1:
                 newSize += 1
             return newSize
@@ -1855,7 +1836,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             return size
 
     def _getParams(self, args):
-        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
 
     def _setNormalArgs(self, args):
         maskDiameter = self.maskDiameterA.get()
@@ -1970,7 +1951,7 @@ class ProtLandscapeNMA(em.EMProtocol):
             f = files[index]
             s = self._iterRegex.search(f)
             if s:
-                result = long(s.group(1))  # group 1 is 3 digits iteration
+                result = int(s.group(1))  # group 1 is 3 digits iteration
                 # number
         return result
 

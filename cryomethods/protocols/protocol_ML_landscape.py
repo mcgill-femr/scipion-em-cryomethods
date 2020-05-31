@@ -1,20 +1,20 @@
-import matplotlib
-
-
 from glob import glob
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
 
 import numpy as np
-from itertools import *
 from matplotlib import *
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
 import pyworkflow.protocol.params as params
+
+from pwem.emlib.image import ImageHandler
+from pwem.protocols import EMProtocol
+
 from cryomethods import Plugin
-from cryomethods.convert import (loadMrc, saveMrc, alignVolumes, applyTransforms)
-# from xmipp3.convert import getImageLocation
-from .protocol_base import ProtocolBase
-import collections
+from cryomethods.convert import (loadMrc, saveMrc, alignVolumes,
+                                 applyTransforms, getImageLocation)
 
 
 PCA_THRESHOLD = 0
@@ -23,8 +23,7 @@ ALIGN = 0
 NOTALIGN = 1
 
 
-
-class ProtLandscapePCA(em.EMProtocol):
+class ProtLandscapePCA(EMProtocol):
     _label = 'Control PCA'
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
@@ -126,18 +125,18 @@ class ProtLandscapePCA(em.EMProtocol):
     #-------------------------step function-------------------------------------
     def convertInputStep(self, resetId):
         inputVols = self.inputVolumes.get()
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         for i, vol in enumerate(inputVols):
             num = vol.getObjId()
             newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
             ih.convert(vol, newFn)
 
         sampling_rate = inputVols.getSamplingRate()
-        print (sampling_rate, "sampling rate before")
+        print(sampling_rate, "sampling rate before")
         resLimitDig = self.resLimit.get()
-        print (resLimitDig, "resLimitDig")
+        print(resLimitDig, "resLimitDig")
         inputVols.setSamplingRate(resLimitDig)
-        print (inputVols.getSamplingRate(), "after")
+        print(inputVols.getSamplingRate(), "after")
 
     #     ----------------alignment---------------------------
     def alignVols(self):
@@ -147,6 +146,7 @@ class ProtLandscapePCA(em.EMProtocol):
         dType = npAvgVol.dtype
         fnIn = self._getMrcVolumes()
         for vols in fnIn:
+            #FIXME Who is f
             npVolAlign = f(vols, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
@@ -159,7 +159,6 @@ class ProtLandscapePCA(em.EMProtocol):
                 npVol = applyTransforms(npVolAlign, shifts, angles, axis)
 
             saveMrc(npVol.astype(dType), vols)
-
 
     def analyzePCAStep(self):
         self._createFilenameTemplates()
@@ -334,7 +333,6 @@ class ProtLandscapePCA(em.EMProtocol):
             result = int(s.group(1)) # group 1 is 2 digits class number
         return self.volDict[result]
 
-
     def _getvhDel(self, vh, s):
         if self.thresholdMode == PCA_THRESHOLD:
             thr= self.thr.get()
@@ -405,9 +403,6 @@ class ProtLandscapePCA(em.EMProtocol):
             else:
                 break
         return sCut
-
-
-
 
     def _validate(self):
         errors = []

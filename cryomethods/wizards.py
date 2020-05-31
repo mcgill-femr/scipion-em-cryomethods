@@ -24,10 +24,10 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-from pyworkflow.em.constants import FILTER_LOW_PASS_NO_DECAY
-from pyworkflow.em.wizard import (ParticleMaskRadiusWizard, UNIT_ANGSTROM,
-                                  FilterVolumesWizard, BandPassFilterDialog,
-                                  dialog)
+from pwem.constants import FILTER_LOW_PASS_NO_DECAY, UNIT_ANGSTROM
+from pwem.wizards import (ParticleMaskRadiusWizard, FilterVolumesWizard,
+                          BandPassFilterDialog, dialog)
+
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 
 #===============================================================================

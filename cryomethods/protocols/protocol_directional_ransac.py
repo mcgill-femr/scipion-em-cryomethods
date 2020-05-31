@@ -24,28 +24,34 @@
 # *  e-mail address 'swathi.adinarayanan@mail.mcgill.ca'
 # *
 # **************************************************************************
+from glob import glob
+import random
+from os.path import join, exists
+import math
+import numpy as np
+
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
+
 from pyworkflow.protocol.params import (PointerParam, FloatParam, EnumParam,
                                         StringParam, BooleanParam, IntParam,
                                         LabelParam, PathParam,LEVEL_ADVANCED)
-import pyworkflow.em.metadata as md
-from cryomethods.protocols import ProtDirectionalPruning
-from pyworkflow.utils.path import cleanPath,makePath,cleanPattern
-from cryomethods.convert import writeSetOfParticles,splitInCTFGroups,rowToAlignment
-from pyworkflow.em.metadata.utils import getSize
-import xmippLib
-import math
-import numpy as np
-from pyworkflow.em.data import Volume
+from pwem import ALIGN_NONE, ALIGN_PROJ
+from pwem.emlib.image import ImageHandler
+import pwem.emlib.metadata as md
+from pwem.emlib.lib import *
+from pwem.objects import Volume
+
 from cryomethods.convert import loadMrc, saveMrc
 from cryomethods import Plugin
-from pyworkflow.em.convert import ImageHandler
-import random
-import pyworkflow.em as em
-from os.path import join, exists
+from cryomethods.protocols import ProtDirectionalPruning
+from pyworkflow.utils.path import cleanPath,makePath,cleanPattern
+from cryomethods.convert import writeSetOfParticles,splitInCTFGroups
 import cryomethods.convertXmp as convXmp
-from glob import glob
-from itertools import *
-import collections
+
+
 
 class ProtClass3DRansac(ProtDirectionalPruning):
     """
@@ -426,33 +432,30 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         self._insertFunctionStep('cleanStep')
         self._insertFunctionStep('createOutputStep')
 
-
-        
     def convertInputStep(self, particlesId, volId, targetResolution):
         ProtDirectionalPruning.convertInputStep(self, particlesId,
                                                    volId,targetResolution)
-
 
     def constructGroupsStep(self, particlesId, angularSampling, angularDistance, symmetryGroup):
        ProtDirectionalPruning.constructGroupsStep(self, particlesId, angularSampling, angularDistance, symmetryGroup)
         
     def classify2DStep(self):
-        mdClassesParticles = xmippLib.MetaData()
+        mdClassesParticles = MetaData()
         fnClassParticles = self._getPath('input_particles.xmd')
         mdClassesParticles.read(fnClassParticles)
         fnNeighbours = self._getExtraPath("neighbours.xmd")
         fnGallery = self._getExtraPath("gallery.stk")
         nop = self.noOfParticles.get()
         fnDirectional = self._getPath("directionalClasses.xmd")
-        mdOut = xmippLib.MetaData()
-        mdRef = xmippLib.MetaData(self._getExtraPath("gallery.doc"))
-        for block in xmippLib.getBlocksInMetaDataFile(fnNeighbours):
+        mdOut = MetaData()
+        mdRef = MetaData(self._getExtraPath("gallery.doc"))
+        for block in getBlocksInMetaDataFile(fnNeighbours):
             imgNo = block.split("_")[1]
             galleryImgNo = int(block.split("_")[1])
 
             fnDir = self._getExtraPath("direction_%s" % imgNo)
-            rot = mdRef.getValue(xmippLib.MDL_ANGLE_ROT,galleryImgNo)
-            tilt = mdRef.getValue(xmippLib.MDL_ANGLE_TILT,galleryImgNo )
+            rot = mdRef.getValue(MDL_ANGLE_ROT, galleryImgNo)
+            tilt = mdRef.getValue(MDL_ANGLE_TILT, galleryImgNo )
             psi = 0.0
             if not exists(fnDir):
                 makePath(fnDir)
@@ -462,7 +465,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                 fnOut = join(fnDir, "level_%02d/class_classes.stk" % Nlevels)
                 if not exists(fnOut):
                     fnBlock = "%s@%s" % (block, fnNeighbours)
-                    if getSize(fnBlock) > nop:
+                    if md.getSize(fnBlock) > nop:
                         args = "-i %s --odir %s --ref0 %s@%s --iter %d " \
                                    "--nref %d --distance correlation " \
                                    "--classicalMultiref --maxShift %d" % \
@@ -476,24 +479,24 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                                 self.directionalClasses.get() - 1))
                         for n in range(self.directionalClasses.get()):
                             objId = mdOut.addObject()
-                            mdOut.setValue(xmippLib.MDL_REF,int(imgNo), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE,
+                            mdOut.setValue(MDL_REF,int(imgNo), objId)
+                            mdOut.setValue(MDL_IMAGE,
                                            "%d@%s" % (n + 1, fnOut), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE_IDX, long(n + 1),
+                            mdOut.setValue(MDL_IMAGE_IDX, int(n + 1),
                                            objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_ROT, rot, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_TILT, tilt, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
+                            mdOut.setValue(MDL_ANGLE_ROT, rot, objId)
+                            mdOut.setValue(MDL_ANGLE_TILT, tilt, objId)
+                            mdOut.setValue(MDL_ANGLE_PSI, psi, objId)
+                            mdOut.setValue(MDL_SHIFT_X, 0.0, objId)
+                            mdOut.setValue(MDL_SHIFT_Y, 0.0, objId)
                             mdOut.write("%s@%s" % (block, fnDirectional),
-                                        xmippLib.MD_APPEND)
+                                        MD_APPEND)
                         mdOut.clear()
 
             elif self.Class2D.get() == self.ML2D:
                 fnOut = join(fnDir, "class_")
                 fnBlock = "%s@%s" % (block, fnNeighbours)
-                if getSize(fnBlock) > nop:
+                if md.getSize(fnBlock) > nop:
                         params = "-i %s --oroot %s --nref %d --fast --mirror --iter %d" \
                                  % (fnBlock,
                                     fnOut,
@@ -505,18 +508,18 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                             "direction_%s/class_classes.stk" % imgNo)
                         for n in range(self.directionalClasses.get()):
                             objId = mdOut.addObject()
-                            mdOut.setValue(xmippLib.MDL_REF,int(imgNo), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE,
+                            mdOut.setValue(MDL_REF,int(imgNo), objId)
+                            mdOut.setValue(MDL_IMAGE,
                                            "%d@%s" % (n + 1, fnOut), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE_IDX, long(n + 1),
+                            mdOut.setValue(MDL_IMAGE_IDX, int(n + 1),
                                            objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_ROT, rot, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_TILT, tilt, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
+                            mdOut.setValue(MDL_ANGLE_ROT, rot, objId)
+                            mdOut.setValue(MDL_ANGLE_TILT, tilt, objId)
+                            mdOut.setValue(MDL_ANGLE_PSI, psi, objId)
+                            mdOut.setValue(MDL_SHIFT_X, 0.0, objId)
+                            mdOut.setValue(MDL_SHIFT_Y, 0.0, objId)
                             mdOut.write("%s@%s" % (block, fnDirectional),
-                                        xmippLib.MD_APPEND)
+                                        MD_APPEND)
                         mdOut.clear()
 
             else:
@@ -525,13 +528,13 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                     fnRelion = self._getExtraPath('relion_%s.star' % imgNo)
                     fnBlock = "%s@%s" % (block, fnNeighbours)
                     fnRef = "%s@%s" % (imgNo, fnGallery)
-                    if getSize(fnBlock) > nop:
+                    if md.getSize(fnBlock) > nop:
                         convXmp.readSetOfParticles(fnBlock, relPart)
                         if self.copyAlignment.get():
                             alignType = relPart.getAlignment()
-                            alignType != em.ALIGN_NONE
+                            alignType != ALIGN_NONE
                         else:
-                            alignType = em.ALIGN_NONE
+                            alignType = ALIGN_NONE
                         alignToPrior = getattr(self, 'alignmentAsPriors',
                                                True)
                         fillRandomSubset = getattr(self, 'fillRandomSubset',
@@ -556,7 +559,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                             args['--ref'] = fnRef
                         self._setComputeArgs(args)
                         params = ' '.join(['%s %s' % (k, str(v)) for k, v in
-                                           args.iteritems()])
+                                           args.items()])
                         self.runJob(self._getRelionProgram(), params)
                         it = self.numberOfIterations.get()
                         if it < 10:
@@ -566,24 +569,24 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                         fnModel = (fnOut + model + 'model.star')
                         Newblock = md.getBlocksInMetaDataFile(fnModel)[1]
                         fnNewBlock = "%s@%s" % (Newblock, fnModel)
-                        mdBlocks = xmippLib.MetaData()
+                        mdBlocks = MetaData()
                         mdBlocks.read(fnNewBlock)
                         fnClass = (fnOut + model + 'classes.mrcs')
                         for n in range(self.directionalClasses):
                             objId = mdOut.addObject()
-                            mdOut.setValue(xmippLib.MDL_REF, int(imgNo), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE,
+                            mdOut.setValue(MDL_REF, int(imgNo), objId)
+                            mdOut.setValue(MDL_IMAGE,
                                            "%d@%s" % (n + 1, fnClass), objId)
-                            mdOut.setValue(xmippLib.MDL_IMAGE_IDX, long(n + 1),
+                            mdOut.setValue(MDL_IMAGE_IDX, int(n + 1),
                                            objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_ROT, rot, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_TILT, tilt, objId)
-                            mdOut.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
-                            mdOut.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
-                            mdOut.setValue(xmippLib.MDL_ENABLED, 1, objId)
+                            mdOut.setValue(MDL_ANGLE_ROT, rot, objId)
+                            mdOut.setValue(MDL_ANGLE_TILT, tilt, objId)
+                            mdOut.setValue(MDL_ANGLE_PSI, psi, objId)
+                            mdOut.setValue(MDL_SHIFT_X, 0.0, objId)
+                            mdOut.setValue(MDL_SHIFT_Y, 0.0, objId)
+                            mdOut.setValue(MDL_ENABLED, 1, objId)
                             mdOut.write("%s@%s" % (block, fnDirectional),
-                                        xmippLib.MD_APPEND)
+                                        MD_APPEND)
                         mdOut.clear()
                         for num in range(it):
                             if num != it:
@@ -604,38 +607,37 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             cleanPattern(self._getExtraPath('relion_*.star'))
 
     def randomSelectionStep(self):
-        mdRandom=xmippLib.MetaData()
-        mdClass=xmippLib.MetaData()
-        mdRef = xmippLib.MetaData(self._getExtraPath("gallery.doc"))
+        mdRandom=MetaData()
+        mdClass=MetaData()
+        mdRef = MetaData(self._getExtraPath("gallery.doc"))
         fnDirectional = self._getPath("directionalClasses.xmd")
-        for i in range (self.randomVolume):
+        for i in range(self.randomVolume):
             stack=i+1
             fnRandomAverages = self._getExtraPath('randomAverages_%s' %stack)
             #nop = self.noOfParticles.get()
             for indx, block in enumerate(
-                    xmippLib.getBlocksInMetaDataFile(fnDirectional)[:]):
+                    getBlocksInMetaDataFile(fnDirectional)[:]):
                 fnClasses = "%s@%s" % (block, fnDirectional)
                 mdClass.read(fnClasses)
                 rc = random.randint(1,  self.directionalClasses.get())
                 imgNo = block.split("_")[1]
                 galleryImgNo = int(block.split("_")[1])
-                rot = mdRef.getValue(xmippLib.MDL_ANGLE_ROT, galleryImgNo)
-                tilt = mdRef.getValue(xmippLib.MDL_ANGLE_TILT, galleryImgNo)
+                rot = mdRef.getValue(MDL_ANGLE_ROT, galleryImgNo)
+                tilt = mdRef.getValue(MDL_ANGLE_TILT, galleryImgNo)
                 psi = 0.0
                 objId = mdRandom.addObject()
-                mdRandom.setValue(xmippLib.MDL_IMAGE,
-                            mdClass.getValue(xmippLib.MDL_IMAGE, rc),
+                mdRandom.setValue(MDL_IMAGE,
+                            mdClass.getValue(MDL_IMAGE, rc),
                             objId)
-                mdRandom.setValue(xmippLib.MDL_REF, int(imgNo), objId)
-                mdRandom.setValue(xmippLib.MDL_ANGLE_ROT, rot, objId)
-                mdRandom.setValue(xmippLib.MDL_ANGLE_TILT, tilt, objId)
-                mdRandom.setValue(xmippLib.MDL_ANGLE_PSI, psi, objId)
-                mdRandom.setValue(xmippLib.MDL_SHIFT_X, 0.0, objId)
-                mdRandom.setValue(xmippLib.MDL_SHIFT_Y, 0.0, objId)
+                mdRandom.setValue(MDL_REF, int(imgNo), objId)
+                mdRandom.setValue(MDL_ANGLE_ROT, rot, objId)
+                mdRandom.setValue(MDL_ANGLE_TILT, tilt, objId)
+                mdRandom.setValue(MDL_ANGLE_PSI, psi, objId)
+                mdRandom.setValue(MDL_SHIFT_X, 0.0, objId)
+                mdRandom.setValue(MDL_SHIFT_Y, 0.0, objId)
             mdRandom.write(fnRandomAverages+'.xmd')
             mdRandom.clear()
         cleanPath(fnDirectional)
-
 
     def reconstruct3DStep(self):
         self.Xdim = self.inputParticles.get().getDimensions()[0]
@@ -645,13 +647,13 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         K = 0.25 * (maxFreq / ts)
         if K < 1:
             K = 1
-        self.Xdim2 = self.Xdim / K
+        self.Xdim2 = int(self.Xdim / K)
         if self.Xdim2 < 32:
             self.Xdim2 = 32
-            K = self.Xdim / self.Xdim2
+            K = int(self.Xdim / self.Xdim2)
         freq = ts / maxFreq
         ts = K * ts
-        Mc = (self.backRadius.get()) * (self.Xdim2/2)
+        Mc = (self.backRadius.get()) * (int(self.Xdim2/2))
         Sym = self.symmetryGroup.get()
         for i in range(self.randomVolume):
             stack=i+1
@@ -682,7 +684,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
-        npAvgVol = npAvgVol/ len(listVol)
+        npAvgVol = int(npAvgVol / len(listVol))
         saveMrc(npAvgVol.astype(dType), avgVol)
 
         ##""PCA ESTIMATION- generates covariance matrix""##
@@ -897,17 +899,15 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             args['--offset_step']  = self.offsetSearchStepPix.get() * 2
             args['--psi_step'] = self.inplaneAngularSamplingDeg.get() * 2
 
-
     def _copyAlignAsPriors(self, mdParts, alignType):
         # set priors equal to orig. values
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
         mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
 
-        if alignType == em.ALIGN_PROJ:
+        if alignType == ALIGN_PROJ:
             mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
             mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
-
 
     def _postprocessParticleRow(self, part, partRow):
         if part.hasAttribute('_rlnGroupName'):
@@ -930,9 +930,8 @@ class ProtClass3DRansac(ProtDirectionalPruning):
                          self.defocusRange.get(),
                          self.numParticles.get())
 
-
     def _callBack(self, newItem, row):
-        if row.getValue(xmippLib.MDL_ENABLED) == -1:
+        if row.getValue(MDL_ENABLED) == -1:
             setattr(newItem, "_appendItem", False)
 
     def _createMFile(self, matrix, name='matrix.txt'):
@@ -942,7 +941,6 @@ class ProtClass3DRansac(ProtDirectionalPruning):
             s = "%s\n" % list
             f.write(s)
         f.close()
-
 
     def _mrcToNp(self, volList):
         listNpVol = []
@@ -958,7 +956,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         volumes.setSamplingRate(self._getInputParticles().getSamplingRate())
         nC = self.clusterCentres.get()
         for val in range(nC):
-            vol = em.Volume()
+            vol = Volume()
             fnOutVol = self._getPath('output_volumes_%03d.vol' % (val + 1))
             vol.setFileName(fnOutVol)
             volumes.append(vol)

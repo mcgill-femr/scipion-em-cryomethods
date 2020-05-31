@@ -28,10 +28,14 @@
 import os
 import re
 import numpy as np
-import pyworkflow.em as em
+
 import pyworkflow.object as pwObj
 import pyworkflow.utils as pwUtils
-import pyworkflow.em.metadata as md
+
+import pwem.emlib.metadata as md
+from pwem.emlib.image import ImageHandler
+from pwem.objects import SetOfParticles, ALIGN_NONE, Volume, Float, SetOfVolumes
+
 from cryomethods.convert import writeSetOfParticles
 from .protocol_base import ProtocolBase
 
@@ -140,7 +144,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
         imgSet = self._getInputParticles()
         imgStar = self._getFileName('input_star', run=run)
         os.makedirs(self._getExtraPath('run_%02d' % run))
-        subset = em.SetOfParticles(filename=":memory:")
+        subset = SetOfParticles(filename=":memory:")
 
         newIndex = 1
         for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
@@ -152,7 +156,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
             if subsetSize > 0 and subset.getSize() == minSize:
                 break
         writeSetOfParticles(subset, imgStar, self._getExtraPath(),
-                            alignType=em.ALIGN_NONE,
+                            alignType=ALIGN_NONE,
                             postprocessImageRow=self._postprocessParticleRow)
         if self.doCtfManualGroups:
             self._splitInCTFGroups(imgStar)
@@ -315,23 +319,23 @@ class ProtInitialVolumeSelector(ProtocolBase):
         print("score: ", score)
 
         for i, s in enumerate(score):
-            vol = em.Volume()
+            vol = Volume()
             self._invertScaleVol(volFnList[i])
             vol.setFileName(self._getOutputVolFn(volFnList[i]))
             vol.setObjId(idList[i])
             if s <= threshold:
                 vol._objEnabled = False
-            vol._cmScore = em.Float(s)
-            vol._rlnClassDistribution = em.Float(clsDistList[i])
-            vol._rlnAccuracyRotations = em.Float(accRotList[i])
-            vol._rlnAccuracyTranslations = em.Float(accTransList[i])
-            vol._rlnEstimatedResolution = em.Float(resoList[i])
+            vol._cmScore = pwObj.Float(s)
+            vol._rlnClassDistribution = Float(clsDistList[i])
+            vol._rlnAccuracyRotations = Float(accRotList[i])
+            vol._rlnAccuracyTranslations = Float(accTransList[i])
+            vol._rlnEstimatedResolution = Float(resoList[i])
             volSet.append(vol)
 
     def _convertRef(self):
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         inputObj = self.inputVolumes.get()
-        subset = em.SetOfVolumes(filename=":memory:")
+        subset = SetOfVolumes(filename=":memory:")
         refMd = md.MetaData()
 
         for vol in inputObj.iterItems(orderBy='RANDOM()'):

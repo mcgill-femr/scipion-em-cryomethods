@@ -26,10 +26,20 @@
 # **************************************************************************
 
 import os
-from itertools import izip
+
+from pwem import viewers
+from pwem.viewers import EmPlotter, ChimeraView, ChimeraClientView, showj
+from pyworkflow import gui
+
+from .convert import loadMrc, saveMrc
+
+try:
+    from itertools import izip
+except ImportError:
+    izip = zip
 from os.path import exists
 import numpy as np
-import Tkinter as tk
+import tkinter as tk
 from shutil import copyfile
 
 from sklearn import manifold
@@ -39,24 +49,12 @@ import matplotlib.pyplot as plt
 from cryomethods import Plugin
 import pyworkflow.utils.properties as pwprop
 from pyworkflow.gui.widgets import Button, HotButton
-import pyworkflow.em as em
-import pyworkflow.gui as gui
-import pyworkflow.em.viewers.showj as showj
-from pyworkflow.em.viewers.plotter import EmPlotter
 import pyworkflow.protocol.params as params
 from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_ML_landscape import ProtLandscapePCA
-from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
-from convert import loadMrc, saveMrc
-import sqlite3
-from pyworkflow.em import SetOfClasses3D
 from glob import glob
-from os import path
-
-
-
 
 RUN_LAST = 0
 RUN_SELECTION = 1
@@ -198,9 +196,9 @@ class VolumeSelectorViewer(ProtocolViewer):
                     f.write("open %s\n" % localVol)
             f.write('tile\n')
             f.close()
-            view = em.ChimeraView(cmdFile)
+            view = ChimeraView(cmdFile)
         else:
-            view = em.ChimeraClientView(volumes[0])
+            view = ChimeraClientView(volumes[0])
 
         return [view]
 
@@ -236,7 +234,7 @@ class VolumeSelectorViewer(ProtocolViewer):
 
 
     def createView(self, filename, viewParams={}):
-        return em.viewers.ObjectView(self._project, self.protocol.strId(),
+        return viewers.ObjectView(self._project, self.protocol.strId(),
                              filename, viewParams=viewParams)
 
     def _getRange(self, var, label):
@@ -499,7 +497,7 @@ class PcaLandscapeViewer(ProtocolViewer):
                       default=MDS,
                       label='Non-linear Manifold embedding',
                       help='select')
-        group.addParam('interpolateType', em.EnumParam,
+        group.addParam('interpolateType', params.EnumParam,
                        choices=['linear', 'cubic'],
                        default=0,
                        label="Interpolation Type")
@@ -528,9 +526,6 @@ class PcaLandscapeViewer(ProtocolViewer):
         group.addParam('reconstructVol', params.LabelParam,
                        label="reconstruct map with selected PC value ")
 
-
-
-
     def _getVisualizeDict(self):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
                          'dimensionality': self._viewHeatMap,
@@ -540,7 +535,6 @@ class PcaLandscapeViewer(ProtocolViewer):
                          }
 
         return visualizeDict
-
 
     def _showErrors(self, param=None):
         views = []
@@ -605,7 +599,6 @@ class PcaLandscapeViewer(ProtocolViewer):
             coords = man.fit_transform(matProj[:, 0:nPCA])
         return coords
 
-
     def _viewHeatMap(self, paramName=None):
         fn = self.protocol._getExtraPath("all_good_particles.npy")
         weight = np.load(fn)
@@ -631,7 +624,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         znew = f(a2, b2)
         # ---------------------------finding maxima on 2d map-------------------
         minima = znew.max()
-        print (minima, "minimaaa")
+        print(minima, "minimaaa")
         tempValue = -(25)
         fac= np.true_divide(znew, minima)
         boltzFac = tempValue * fac
@@ -689,7 +682,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         f = open(self._getCoordMapFiles(), 'w')
         for x, y in izip (xData, yData):
-            print >> f, x, y
+            print(x, y, end="", file=f)
         f.close()
 
     def _loadPcaCoordinates(self):
