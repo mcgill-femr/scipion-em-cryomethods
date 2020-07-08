@@ -515,6 +515,7 @@ class ProtAutoBase(ProtocolBase):
             except:
                 return None
 
+        newMapId = "00.000"
         for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
             clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
             rMap = callback(iters, rLev, clsPart)
@@ -528,13 +529,25 @@ class ProtAutoBase(ProtocolBase):
                         break
 
             if self.stopDict[mapId]:
+                if mapId != newMapId:
+                    if newMapId != '00.000':
+                        print(mdClass)
+                        mdClass.write(classMd)
+                    classMd = self._getFileName('mdataForClass', id=mapId)
+                    mdClass = self._getMetadata(classMd)
+                    newMapId = mapId
+
                 classId = self._clsIdDict[mapId]
                 row.setValue(md.RLN_PARTICLE_CLASS, classId)
+                row.addToMd(mdClass)
                 row.addToMd(finalMd)
             else:
                 classId = int(mapId.split('.')[1])
                 row.setValue(md.RLN_PARTICLE_CLASS, classId)
                 row.addToMd(outMd)
+        if self.stopDict[mapId]:
+            if mdClass.size() != 0:
+                mdClass.write(classMd)
 
         if finalMd.size() != 0:
             finalMd.write(finalData)

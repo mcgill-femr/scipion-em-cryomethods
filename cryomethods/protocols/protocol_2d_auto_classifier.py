@@ -76,6 +76,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
             'finalData': self._getExtraPath('final_data.star'),
             'finalAvgMap': self._getExtraPath('map_average.mrc'),
             'optimiser': self.rLevIter + 'optimiser.star',
+            'mdataForClass': self._getExtraPath('final_data_class_%(id)s.star'),
         }
         for key in self.FILE_KEYS:
             myDict[key] = self.rLevIter + '%s.star' % key
