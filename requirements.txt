@@ -1,7 +1,7 @@
 torch
 mrc
 scipy
-lapack
+#lapack
 matplotlib
 cython
 scikit-learn

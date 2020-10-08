@@ -35,6 +35,7 @@ from os.path import join, exists
 from collections import OrderedDict
 
 from pwem.emlib.image import ImageHandler
+import pwem.emlib.metadata as metData
 from pyworkflow.object import ObjectWrap
 
 try:
@@ -49,19 +50,18 @@ from pwem.objects import *
 import pwem.emlib.metadata as md
 from pwem.emlib.lib import *
 from pwem import Domain
+import xmippLib
 
 try:
     XmippMdRow = Domain.importFromPlugin('xmipp3.base', 'XmippMdRow',
                                          doRaise=True)
     getLabelPythonType = Domain.importFromPlugin('xmipp3.base',
                                                'getLabelPythonType')
-    RowMetaData = Domain.importFromPlugin('xmipp3.base', 'RowMetaData')
-    iterMdRows = Domain.importFromPlugin('xmipp3.utils', 'iterMdRows')
 
 except Exception as ex:
     print("Xmipp3 must be installed. Please, go to Plugin Manager and "
           "installed it!!!", ex)
-    
+
 if not getattr(xmippLib, "GHOST_ACTIVATED", False):
     """ Some of MDL may not exist when Ghost is activated
     """
@@ -1433,7 +1433,7 @@ def createClassesFromImages2(inputImages, inputMd,
         classFnTemplate: the template to get the classes averages filenames
         iter: the iteration number, just used in Class template
     """
-    mdIter = iterMdRows(inputMd)
+    mdIter = metData.iterRows(inputMd)
     clsDict = {}  # Dictionary to store the (classId, classSet) pairs
     clsSet = ClassType(filename=classesFn)
     clsSet.setImages(inputImages)

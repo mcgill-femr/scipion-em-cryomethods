@@ -1,13 +1,13 @@
-Metadata-Version: 1.1
+Metadata-Version: 1.2
 Name: scipion-em-cryomethods
-Version: 1.0.0
+Version: 3.0.0
 Summary: Plugin to use Cryomethods program within the Scipion framework
 Home-page: https://github.com/mcgill-femr/scipion-em-cryomethods
 Author: Josue Gomez Blanco & Javier Vargas Balbuena
 Author-email: josue.gomez-blanco@mcgill.ca
 License: UNKNOWN
-Project-URL: Source, https://github.com/mcgill-femr/scipion-em-cryomethods/
 Project-URL: Bug Reports, https://github.com/mcgill-femr/scipion-em-cryomethods/issues/
+Project-URL: Source, https://github.com/mcgill-femr/scipion-em-cryomethods/
 Description: # Cryomethods plugin
         
         This plugin allows to use Cryomethods program within the Scipion framework.

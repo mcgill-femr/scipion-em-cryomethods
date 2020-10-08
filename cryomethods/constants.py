@@ -53,6 +53,7 @@ CHIMERADATAVIEW = 0
 
 # Relion Supported versions:
 V3_0 = '3.0'
+V3_1 = '3.1'
 
 # Packages constants
 RELION_CRYOMETHODS_HOME = 'RELION_CRYOMETHODS_HOME'

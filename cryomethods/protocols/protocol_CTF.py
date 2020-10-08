@@ -1,15 +1,8 @@
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
-import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
-from pyworkflow.object import Float
+import pyworkflow.protocol.params as params
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.convert import (loadMrc, saveMrc)
 
 from .protocol_base import ProtocolBase
 
