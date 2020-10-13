@@ -31,7 +31,7 @@ from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, ChimeraClientView, showj
 from pyworkflow import gui
 
-from .convert import loadMrc, saveMrc
+from cryomethods.convert.convert import loadMrc, saveMrc
 
 try:
     from itertools import izip

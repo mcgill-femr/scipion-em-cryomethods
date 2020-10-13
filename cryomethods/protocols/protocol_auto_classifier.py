@@ -39,9 +39,9 @@ from pyworkflow.object import Float, String
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.convert.convert import (writeSetOfParticles, rowToAlignment,
+                                         relionToLocation, loadMrc, saveMrc,
+                                         alignVolumes, applyTransforms)
 
 from .protocol_base import ProtocolBase
 

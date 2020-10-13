@@ -174,6 +174,15 @@ class Plugin(pwem.Plugin):
         return [V3_0, V3_1]
 
     @classmethod
+    def IS_RELION_30(cls):
+        return cls.getActiveVersion().startswith('3.0')
+
+    @classmethod
+    def IS_RELION_31(cls):
+        # avoid using this, IS_GT30 is preferred
+        return cls.getActiveVersion().startswith('3.1')
+
+    @classmethod
     def getSupportedVersions(cls):
         """ Return the list of supported binary versions. """
         return ['0.1']

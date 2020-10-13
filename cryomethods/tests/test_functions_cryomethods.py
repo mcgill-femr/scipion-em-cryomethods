@@ -24,7 +24,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import sys
 from glob import glob
 from os.path import basename
 try:
@@ -38,7 +37,7 @@ from pyworkflow.tests import *
 import pwem.emlib.metadata as md
 from cryomethods import Plugin
 from cryomethods.protocols import Prot3DAutoClassifier
-from cryomethods.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
+from cryomethods.convert.convert import loadMrc, alignVolumes, saveMrc, applyTransforms
 from cryomethods.functions import correctAnisotropy
 
 
@@ -175,7 +174,6 @@ class TestAlignVolumes(TestBase):
         #     plt.show()
 
     def testHandlingMd(self):
-        from collections import defaultdict
         starFn = '/home/josuegbl/raw_final_data.star'
         fn = '/home/josuegbl/random_data.star'
         # labels = np.array([0, 0, 0, 0, 0, 0, 0, 1, 0])

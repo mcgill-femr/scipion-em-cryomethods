@@ -2,7 +2,7 @@
 import pyworkflow.protocol.params as params
 
 from cryomethods import Plugin
-from cryomethods.convert import (loadMrc, saveMrc)
+from cryomethods.functions import NumpyImgHandler
 
 from .protocol_base import ProtocolBase
 
@@ -245,7 +245,7 @@ def predict(model, device, data_loader, trainset):
             # Move tensors to the configured device
             filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
             image = data['image']
-            saveMrc(np.float32(image.numpy()), filename)
+            NumpyImgHandler.saveMrc(np.float32(image.numpy()), filename)
             image = image.to(device)
             # Forward pass
             output = model(image)
@@ -364,7 +364,7 @@ class LoaderPredict(Dataset):
         return {'image': img, 'name': img_path}
 
     def open_image(self, filename):
-        img = loadMrc(filename)
+        img = NumpyImgHandler.loadMrc(filename)
         # _min = img.min()
         # _max = img.max()
         # img = (img - _min) / (_max - _min)
@@ -402,7 +402,7 @@ class LoaderTrain(Dataset):
         return {'image': img, 'target': target, 'name': img_path}
 
     def open_image(self, filename):
-        img = loadMrc(filename)
+        img = NumpyImgHandler.loadMrc(filename)
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)

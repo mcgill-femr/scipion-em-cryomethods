@@ -25,7 +25,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import re
 from glob import glob
 
 from pwem.emlib.image import ImageHandler
@@ -37,7 +36,7 @@ from pwem.protocols import EMProtocol, PointerParam
 import pwem.emlib.metadata as md
 
 from cryomethods.constants import MASK_FILL_ZERO
-from cryomethods.convert import convertMask, splitInCTFGroups
+from cryomethods.convert import convertMask
 
 
 class ProtocolMapCorrector(EMProtocol):

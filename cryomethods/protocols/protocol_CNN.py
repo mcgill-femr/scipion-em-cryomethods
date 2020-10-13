@@ -1,14 +1,9 @@
-import pwem.emlib.metadata as md
-import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from pyworkflow.object import Float
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler
 
 from .protocol_base import ProtocolBase
 
@@ -401,7 +396,7 @@ class LoaderPredict(Dataset):
     def __getitem__(self, item):
         data = self._data[item]
         img_path = data['file']
-        img = loadMrc(img_path)
+        img = NumpyImgHandler.loadMrc(img_path)
         img = normalize(img)
         img = np.resize(img, self._size)
         img = torch.from_numpy(img)
@@ -442,7 +437,7 @@ class LoaderTrain(Dataset):
         data = self._data[item]
         img_path = data['file']
         label = data['label']
-        img = loadMrc(img_path)
+        img = NumpyImgHandler.loadMrc(img_path)
         img = normalize(img)
         img = np.resize(img, self._size)
         img = torch.from_numpy(img)

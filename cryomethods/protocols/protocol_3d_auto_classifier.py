@@ -24,7 +24,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import os
 import numpy as np
 
 import pwem.emlib.metadata as md

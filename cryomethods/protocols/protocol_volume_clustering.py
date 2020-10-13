@@ -44,8 +44,7 @@ from pwem.protocols import EMProtocol
 from cryomethods import Plugin
 from cryomethods.constants import METHOD
 
-from cryomethods.convert import (loadMrc, saveMrc, alignVolumes,
-                                 applyTransforms)
+from cryomethods.functions import NumpyImgHandler
 
 
 class ProtVolClustering(EMProtocol):
@@ -186,7 +185,7 @@ class ProtVolClustering(EMProtocol):
         print("Dtype: ", dType)
         if dType == 'float64':
             dType = 'float32'
-        saveMrc(npAvgVol.astype(dType), avgVol)
+        NumpyImgHandler.saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _doAvgMapsMask(self, listVol):
         for vol in listVol:
@@ -216,7 +215,7 @@ class ProtVolClustering(EMProtocol):
         return npAvgVol, dType
 
     def _getVolNp(self, vol):
-        volNp = loadMrc(vol, False)
+        volNp = NumpyImgHandler.loadMrc(vol, False)
         std = 2.5 * volNp.std()
         npMask = 1 * (volNp >= std)
         mapNp = volNp * npMask
@@ -227,22 +226,22 @@ class ProtVolClustering(EMProtocol):
         Plugin.setEnviron()
         listVol = self._getPathMaps('volume_????_filtered.mrc')
         avgVol = self._getAvgMapFn()
-        npAvgVol = loadMrc(avgVol, writable=False)
+        npAvgVol = NumpyImgHandler.loadMrc(avgVol, writable=False)
         dType = npAvgVol.dtype
 
         for vol in listVol:
             npVolAlign = self._getVolNp(vol)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
-            axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
-            axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
+            axis, shifts, angles, score = NumpyImgHandler.alignVolumes(npVolAlign, npAvgVol)
+            axisf, shiftsf, anglesf, scoref = NumpyImgHandler.alignVolumes(npVolFlipAlign,
                                                            npAvgVol)
             if scoref > score:
-                npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
+                npVol = NumpyImgHandler.applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
-                npVol = applyTransforms(npVolAlign, shifts, angles, axis)
+                npVol = NumpyImgHandler.applyTransforms(npVolAlign, shifts, angles, axis)
 
-            saveMrc(npVol.astype(dType), vol)
+            NumpyImgHandler.saveMrc(npVol.astype(dType), vol)
 
     def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []

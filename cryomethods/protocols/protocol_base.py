@@ -39,7 +39,7 @@ from pyworkflow.utils.path import replaceBaseExt, replaceExt
 
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
-import cryomethods.convert as conv
+import cryomethods.convert.convert as conv
 
 
 class ProtocolBase(EMProtocol):

@@ -44,12 +44,13 @@ import pwem.emlib.metadata as md
 from pwem.emlib.lib import *
 from pwem.objects import Volume
 
-from cryomethods.convert import loadMrc, saveMrc
+from cryomethods.functions import NumpyImgHandler
+
 from cryomethods import Plugin
 from cryomethods.protocols import ProtDirectionalPruning
 from pyworkflow.utils.path import cleanPath,makePath,cleanPattern
-from cryomethods.convert import writeSetOfParticles,splitInCTFGroups
-import cryomethods.convertXmp as convXmp
+from cryomethods.convert import writeSetOfParticles
+import cryomethods.convert.convertXmp as convXmp
 
 
 
@@ -679,26 +680,26 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         # ""AVERAGE VOLUME GENERATION""#
         avgVol = self._getPath('map_average.mrc')
         for vol in listVol:
-            npVol = loadMrc(vol, writable=False)
+            npVol = NumpyImgHandler.loadMrc(vol, writable=False)
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
             npAvgVol += npVol
         npAvgVol = int(npAvgVol / len(listVol))
-        saveMrc(npAvgVol.astype(dType), avgVol)
+        NumpyImgHandler.saveMrc(npAvgVol.astype(dType), avgVol)
 
         ##""PCA ESTIMATION- generates covariance matrix""##
-        npVol = loadMrc(listVol[0], False)
+        npVol = NumpyImgHandler.loadMrc(listVol[0], False)
         dim = npVol.shape[0]
         lenght = dim ** 3
         covMatrix = []
         for vol1 in listVol:
-            npVol1 = loadMrc(vol1, False)
+            npVol1 = NumpyImgHandler.loadMrc(vol1, False)
             restNpVol1 = npVol1 - npAvgVol
             listRestNpVol1 = restNpVol1.reshape(lenght)
             row = []
             for vol2 in listVol:
-                npVol2 = loadMrc(vol2, writable=False)
+                npVol2 = NumpyImgHandler.loadMrc(vol2, writable=False)
                 restNpVol2  = npVol2 - npAvgVol
                 listRestNpVol2 = restNpVol2.reshape(lenght)
                 coef = np.cov(listRestNpVol1,listRestNpVol2)[0][1]
@@ -729,11 +730,11 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         for eigenRow in vhDel.T:
             volBase = np.zeros((dim, dim, dim))
             for (volFn, eigenCoef) in izip(listVol, eigenRow):
-                npVol = loadMrc(volFn, False)
+                npVol = NumpyImgHandler.loadMrc(volFn, False)
                 restNpVol = npVol - npAvgVol
                 volBase += eigenCoef * restNpVol
             nameVol = 'volume_base_%02d.mrc' % (counter)
-            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
+            NumpyImgHandler.saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
             counter += 1
 
         # Generates the matrix projection
@@ -741,12 +742,12 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         baseMrc = self._getExtraPath("volume_base_??.mrc")
         baseMrcFile = sorted(glob(baseMrc))
         for vol in listVol:
-            npVol = loadMrc(vol, False)
+            npVol = NumpyImgHandler.loadMrc(vol, False)
             restNpVol = npVol - npAvgVol
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseFn in baseMrcFile:
-                npBase = loadMrc(baseFn, writable=False)
+                npBase = NumpyImgHandler.loadMrc(baseFn, writable=False)
                 npBaseRow = npBase.reshape(lenght)
                 npBaseCol = npBaseRow.transpose()
                 projCoef = np.dot(volRow, npBaseCol)
@@ -775,11 +776,11 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         for projRow in cc:
             vol = np.zeros((dim, dim, dim))
             for baseVol, proj in izip(baseMrcFile, projRow):
-                volNpo = loadMrc(baseVol, False)
+                volNpo = NumpyImgHandler.loadMrc(baseVol, False)
                 vol += volNpo * proj
             finalVol = vol + npAvgVol
             nameVol = 'volume_reconstructed_%03d.mrc' % (orignCount)
-            saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
+            NumpyImgHandler.saveMrc(finalVol.astype(dType), self._getExtraPath('recons_vols', nameVol))
             orignCount += 1
             ####for output step####
             fnRecon = join(fnVolume + '/' + nameVol)
@@ -922,13 +923,6 @@ class ProtClass3DRansac(ProtDirectionalPruning):
         if ctf is not None and ctf.getPhaseShift():
             partRow.setValue(md.RLN_CTF_PHASESHIFT, ctf.getPhaseShift())
 
-    def _splitInCTFGroups(self, fnRelion):
-        """ Add a new column in the image star to separate the particles
-        into ctf groups """
-
-        splitInCTFGroups(fnRelion,
-                         self.defocusRange.get(),
-                         self.numParticles.get())
 
     def _callBack(self, newItem, row):
         if row.getValue(MDL_ENABLED) == -1:
@@ -945,7 +939,7 @@ class ProtClass3DRansac(ProtDirectionalPruning):
     def _mrcToNp(self, volList):
         listNpVol = []
         for vol in volList:
-            volNp = loadMrc(vol, False)
+            volNp = NumpyImgHandler.loadMrc(vol, False)
             dim = volNp.shape[0]
             lenght = dim**3
             volList = volNp.reshape(lenght)

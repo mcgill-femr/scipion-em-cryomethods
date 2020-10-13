@@ -155,9 +155,15 @@ class ProtInitialVolumeSelector(ProtocolBase):
             minSize = min(subsetSize, imgSet.getSize())
             if subsetSize > 0 and subset.getSize() == minSize:
                 break
-        writeSetOfParticles(subset, imgStar, self._getExtraPath(),
+
+        writeSetOfParticles(imgSet, imgStar,
+                            outputDir=self._getExtraPath(),
                             alignType=ALIGN_NONE,
-                            postprocessImageRow=self._postprocessParticleRow)
+                            postprocessImageRow='')
+
+        #writeSetOfParticles(subset, imgStar, self._getExtraPath(),
+        #                    alignType=ALIGN_NONE,
+        #                    postprocessImageRow=self._postprocessParticleRow)
         if self.doCtfManualGroups:
             self._splitInCTFGroups(imgStar)
 

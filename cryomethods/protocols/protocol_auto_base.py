@@ -39,8 +39,8 @@ import pyworkflow.protocol.constants as cons
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
-from cryomethods.convert import (rowToAlignment, relionToLocation, loadMrc,
-                                 saveMrc, alignVolumes, applyTransforms)
+from cryomethods.convert import relionToLocation
+from ..convert.convert_deprecated import rowToAlignment
 from cryomethods.functions import NumpyImgHandler, MlMethods
 from .protocol_base import ProtocolBase
 
@@ -559,7 +559,7 @@ class ProtAutoBase(ProtocolBase):
         npIh.saveMrc(npAvgVol, avgVol)
 
     def _getVolNp(self, vol):
-        mapNp = loadMrc(vol, False)
+        mapNp = NumpyImgHandler.loadMrc(vol, False)
         std = 2 * mapNp.std()
         npMask = 1 * (mapNp >= std)
         mapNp = mapNp * npMask
@@ -587,22 +587,22 @@ class ProtAutoBase(ProtocolBase):
         Plugin.setEnviron()
         listVol = self._getPathMaps()
         avgVol = self._getFileName('avgMap', lev=self._level)
-        npAvgVol = loadMrc(avgVol, writable=False)
+        npAvgVol = NumpyImgHandler.loadMrc(avgVol, writable=False)
         dType = npAvgVol.dtype
 
         for vol in listVol:
-            npVolAlign = loadMrc(vol, False)
+            npVolAlign = NumpyImgHandler.loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
-            axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
-            axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
+            axis, shifts, angles, score = NumpyImgHandler.alignVolumes(npVolAlign, npAvgVol)
+            axisf, shiftsf, anglesf, scoref = NumpyImgHandler.alignVolumes(npVolFlipAlign,
                                                            npAvgVol)
             if scoref > score:
-                npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
+                npVol = NumpyImgHandler.applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
-                npVol = applyTransforms(npVolAlign, shifts, angles, axis)
+                npVol = NumpyImgHandler.applyTransforms(npVolAlign, shifts, angles, axis)
 
-            saveMrc(npVol.astype(dType), vol)
+            NumpyImgHandler.saveMrc(npVol.astype(dType), vol)
 
     def _mrcToNp(self, volList, avgVol=None):
         """ Implemented in subclasses. """
@@ -613,7 +613,7 @@ class ProtAutoBase(ProtocolBase):
         ml = MlMethods()
         listVol = self._getFinalMaps()
 
-        volNp = loadMrc(listVol[0], False)
+        volNp = NumpyImgHandler.loadMrc(listVol[0], False)
         dim = volNp.shape[0]
         dType = volNp.dtype
 
@@ -622,7 +622,7 @@ class ProtAutoBase(ProtocolBase):
         for i, volNewBaseList in enumerate(newBaseAxis):
             volBase = volNewBaseList.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (i+1)
-            saveMrc(volBase.astype(dType),
+            NumpyImgHandler.saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
         return matProj
 

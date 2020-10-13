@@ -23,8 +23,7 @@
 # *  All comments concerning this program package may be sent to the
 # *  e-mail address 'jmdelarosa@cnb.csic.es'
 # *
-# **************************************************************************
-import glob
+# **************************************************************************f
 from os.path import join, exists
 import math
 import numpy as np
@@ -37,12 +36,10 @@ from pwem.emlib.image import ImageHandler
 from pwem.objects import SetOfParticles, ALIGN_PROJ
 from pwem.protocols import ProtAnalysis3D, ALIGN_NONE
 
-import cryomethods.convertXmp as convXmp
+import cryomethods.convert.convertXmp as convXmp
 import cryomethods.constants as cmcons
-from cryomethods.convert import writeSetOfParticles, splitInCTFGroups
+from cryomethods.convert import writeSetOfParticles
 #
-
-import pyworkflow.object as pwobj
 
 class ProtDirectionalPruning(ProtAnalysis3D):
     """    

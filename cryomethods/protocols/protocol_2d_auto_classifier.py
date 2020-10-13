@@ -24,13 +24,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import os
-import re
-import copy
-import random
-import numpy as np
-from glob import glob
-from collections import Counter
 
 import pwem as em
 import pwem.emlib.metadata as md
@@ -39,8 +32,9 @@ from pyworkflow.object import Float, String
 from pyworkflow.utils import makePath
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 loadMrc)
+from cryomethods.convert import writeSetOfParticles
+from ..convert.convert_deprecated import rowToAlignment
+from ..functions import NumpyImgHandler
 
 from .protocol_auto_base import ProtAutoBase
 
@@ -114,10 +108,10 @@ class Prot2DAutoClassifier(ProtAutoBase):
 
             hasAlign = alignType != em.ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr(
-                'fillRandomSubset')
+            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
 
-            writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+            writeSetOfParticles(imgSet, imgStar,
+                                outputDir=self._getExtraPath(),
                                 alignType=alignType,
                                 postprocessImageRow=self._postprocessParticleRow,
                                 fillRandomSubset=fillRandomSubset)
@@ -197,7 +191,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
     def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []
         for vol in volList:
-            volNp = loadMrc(vol, False)
+            volNp = NumpyImgHandler.loadMrc(vol, False)
             dim = volNp.shape[1]
             lenght = dim**2
             volList = volNp.reshape(lenght)
