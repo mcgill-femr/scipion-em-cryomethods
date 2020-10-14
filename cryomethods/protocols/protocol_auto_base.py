@@ -508,7 +508,7 @@ class ProtAutoBase(ProtocolBase):
         finalMd = self._getMetadata(finalData)
         imgStar = self._getFileName('data', iter=iters,
                                     lev=self._level, rLev=rLev)
-        mdData = md.MetaData(imgStar)
+        mdData = md.MetaData("particles@"+imgStar)
 
         def _getMapId(rMap):
             try:

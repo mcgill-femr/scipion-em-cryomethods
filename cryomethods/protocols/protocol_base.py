@@ -1096,14 +1096,12 @@ class ProtocolBase(EMProtocol):
 
     def _postprocessParticleRow(self, part, partRow):
         if part.hasAttribute('_rlnGroupName'):
-            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
-                             '%s' % part.getAttributeValue('_rlnGroupName'))
+            partRow['rlnGroupName'] = part.getAttributeValue('_rlnGroupName')
         else:
-            partRow.setValue(md.RLN_MLMODEL_GROUP_NAME,
-                             '%s' % part.getMicId())
+            partRow['rlnGroupName'] = '%s' % part.getMicId()
         ctf = part.getCTF()
         if ctf is not None and ctf.getPhaseShift():
-            partRow.setValue(md.RLN_CTF_PHASESHIFT, ctf.getPhaseShift())
+            partRow['rlnCtfPhaseShift'] = ctf.getPhaseShift()
 
     def _getResetDeps(self):
         """Should be overwritten in subclasses"""

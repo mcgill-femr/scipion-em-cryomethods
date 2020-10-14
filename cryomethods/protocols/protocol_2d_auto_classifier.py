@@ -109,7 +109,6 @@ class Prot2DAutoClassifier(ProtAutoBase):
             hasAlign = alignType != em.ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
             fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
-
             writeSetOfParticles(imgSet, imgStar,
                                 outputDir=self._getExtraPath(),
                                 alignType=alignType,
