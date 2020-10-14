@@ -26,25 +26,37 @@
 # **************************************************************************
 
 import os
+from itertools import izip
 from os.path import exists
 import numpy as np
-# from matplotlib import pyplot
 import Tkinter as tk
+from shutil import copyfile
+
 from sklearn import manifold
 import scipy as sc
+import matplotlib.pyplot as plt
 
+from cryomethods import Plugin
+import pyworkflow.utils.properties as pwprop
 from pyworkflow.gui.widgets import Button, HotButton
 import pyworkflow.em as em
 import pyworkflow.gui as gui
 import pyworkflow.em.viewers.showj as showj
-import pyworkflow.em.metadata as md
 from pyworkflow.em.viewers.plotter import EmPlotter
 import pyworkflow.protocol.params as params
 from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
-from .protocols.protocol_control_pca import ProtLandscapePCA
-from .convert import relionToLocation
+from .protocols.protocol_ML_landscape import ProtLandscapePCA
+from .protocols.protocol_NMA_landscape import ProtLandscapeNMA
+from convert import loadMrc, saveMrc
+import sqlite3
+from pyworkflow.em import SetOfClasses3D
+from glob import glob
+from os import path
+
+
+
 
 RUN_LAST = 0
 RUN_SELECTION = 1
@@ -54,19 +66,31 @@ VOLUME_CHIMERA = 1
 
 CHIMERADATAVIEW = 0
 
+PCA_COUNT = 1
+PCA_THRESHOLD = 0
+MDS = 0
+LLEMBEDDING = 1
+Isomap = 2
+TSNE = 3
+LINEAR = 0
+CUBIC = 1
 
-class CryoMPlotter(EmPlotter):
+
+FREQ_LABEL = 'frequency (1/A)'
+
+
+class CryoMethodsPlotter(EmPlotter):
     """ Class to create several plots with Xmipp utilities"""
     def __init__(self, x=1, y=1, mainTitle="", **kwargs):
         EmPlotter.__init__(self, x, y, mainTitle, **kwargs)
 
-    def plotHeatMap(self, img, xGrid, yGrid, weigths=None, cmap='hot'):
+    def plotHeatMap(self, img, xGrid, yGrid, boltzLaw, cmap='hot'):
         """ plot metadata columns mdLabelX and mdLabelY
             if nbins is in args then and histogram over y data is made
         """
-        img.contour(xGrid, yGrid, weigths.T, 10, linewidths=1.5, colors='k')
-        img.contourf(xGrid, yGrid, weigths.T, 20, cmap=cmap,
-                     vmax=(weigths).max(), vmin=0)
+        img.contour(xGrid, yGrid, boltzLaw.T, 10, linewidths=1.5, colors='k')
+        img.contourf(xGrid, yGrid, boltzLaw.T, 20, cmap=cmap,
+                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
         return img
 
 
@@ -268,20 +292,195 @@ class VolumeSelectorViewer(ProtocolViewer):
     def _getModelStar(self, prefix, it):
         return self.protocol._getFileName(prefix + 'model', iter=it)
 
+#  --------------------------NMA_Landscape VIEWER-------------------------------
 
-#     --------------------------PCA VIEWER----------------------------
+# class NmaLandscapeViewer(ProtocolViewer):
+#     _label = 'viewer resolution3D'
+#     _targets = [ProtLandscapeNMA]
+#     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
+#
+#     def _defineParams(self, form):
+#         form.addSection(label='Results')
+#         form.addParam('plotAutovalues', params.LabelParam,
+#                       label="Display cumulative sum of eigenvalues")
+#
+#         group = form.addGroup('Landscape')
+#         group.addParam('heatMap', params.EnumParam,
+#                       choices=['MDS', 'LocallyLinearEmbedding',
+#                                'Isomap', 'TSNE'],
+#                       default=MDS,
+#                       label='Non-linear Manifold embedding',
+#                       help='select')
+#         group.addParam('interpolateType', em.EnumParam,
+#                        choices=['linear', 'cubic'],
+#                        default=0,
+#                        label="Interpolation Type")
+#         group.addParam('binSize', params.IntParam, default=6,
+#                        label="select bin size")
+#         group.addParam('neighbourCount', params.IntParam, default=3,
+#                        label="Select neighbour points",
+#                        condition="heatMap==1 or heatMap==2")
+#         group.addParam('pcaCount', params.IntParam, default=10,
+#                        label="Select number of principal components")
+#         group.addParam('points', params.IntParam, default=5,
+#                        label="Select number of volumes you want to show")
+#         group.addParam('plot', params.EnumParam,
+#                        choices=['2D', '3D'],
+#                        default=0,
+#                        label='view 2D or 3D free-energy landscape.')
+#         group.addParam('dimensionality', params.LabelParam,
+#                        label='View trajectory in 2D free-energy landscape')
+#         group.addParam('scatterPlot', params.LabelParam,
+#                        label='scatter plot of 2d free-energy landscape')
+#
+#
+#
+#
+#     def _getVisualizeDict(self):
+#         visualizeDict = {'plotAutovalues': self._plotAutovalues,
+#                          # 'dimensionality': self._viewHeatMap,
+#                          'plot': self._viewPlot,
+#                          # 'scatterPlot': self._scatterPlot
+#                          }
+#         return visualizeDict
+#
+#     def _showErrors(self, param=None):
+#         views = []
+#         self.errorList(self._errors, views)
+#         return views
+#
+#     def _viewAll(self, *args):
+#         pass
+#
+#     # ==========================================================================
+#     # Show sum of eigenvalues
+#     # ==========================================================================
+#     def _plotAutovalues(self, paramName=None):
+#         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
+#         autoVal = np.load(fn)
+#         vals = (np.cumsum(autoVal))
+#         plt.plot(vals)
+#         plt.show()
+#
+#     def _viewPlot(self, paramName=None):
+#         if self.plot.get() == 0:
+#             self._view2DPlot()
+#         else:
+#             self._view3DHeatMap()
+#
+#     def _view2DPlot(self):
+#         fn= self.protocol._getExtraPath("particles.npy")
+#         weight = np.load(fn)
+#         print (weight, "weight")
+#         nBins = self.binSize.get()
+#         coords = self._genralplot()
+#         xedges, yedges, counts=self._getEdges(coords, nBins, weight)
+#
+#         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+#         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+#
+#         a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+#         b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+#         H2 = counts.reshape(counts.size)
+#         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+#         if self.interpolateType == LINEAR:
+#             intType = 'linear'
+#         else:
+#             intType = 'cubic'
+#         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+#                                     bounds_error='True')
+#         znew = f(a2, b2)
+#         print (znew, "znew")
+#         # ---------------------------finding maxima on 2d map-------------------
+#         minima = znew.max()
+#         print (minima, "minimaaa")
+#         tempValue= -25
+#         fac= np.true_divide(znew, minima)
+#         boltzFac = tempValue * fac
+#         boltzParts = self.protocol._getExtraPath('boltzFac')
+#         np.save(boltzParts, boltzFac)
+#         boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
+#
+#         # ---------------------------------------------------------------
+#
+#         plt.figure()
+#         plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+#         plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+#                           vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+#         # ----------showing x,y,z under cursor---------------------------
+#         Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+#         def fmt(x, y):
+#             # get closest point with known data
+#             dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+#             idx = np.argmin(dist)
+#             z = Zflat[idx]
+#             return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+#         # -------------------------------------------------------------------
+#
+#         plt.gca().format_coord = fmt
+#         plt.colorbar()
+#         savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+#         plt.savefig(savePlot)
+#         # draw colorbar
+#         plt.show()
+#
+#     def _genralplot(self, paramName=None):
+#         nPCA = self.pcaCount.get()
+#         matProj = self._loadPcaCoordinates()
+#         if self.heatMap.get() == MDS:
+#             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#
+#         elif self.heatMap.get() == LLEMBEDDING:
+#             n_neighbors = self.neighbourCount.get()
+#             man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#
+#         elif self.heatMap.get() == Isomap:
+#             n_neighbors = self.neighbourCount.get()
+#             iso = manifold.Isomap(n_neighbors, n_components=2)
+#             coords = iso.fit_transform(matProj[:, 0:nPCA])
+#
+#         else:
+#             man = manifold.TSNE(n_components=2, random_state=0)
+#             coords = man.fit_transform(matProj[:, 0:nPCA])
+#         return coords
+#
+#
+#
+#     def _loadPcaCoordinates(self):
+#         """ Check if the PCA data is generated and if so,
+#         read the data.
+#         *args and **kwargs will be passed to self._createPlot function.
+#         """
+#         fn = self.protocol._getExtraPath('Coordinates', 'matProj_splic.npy')
+#         matProjData = np.load(fn)
+#         return matProjData
+#
+#     def _getEdges(self, crds, nBins, weight):
+#         counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
+#                                                 weights=weight,
+#                                                 bins=nBins)
+#         shapeCounts = counts.shape[0] + 2
+#         countsExtended = np.zeros((shapeCounts, shapeCounts))
+#         countsExtended[1:-1, 1:-1] = counts
+#
+#         def extendEdges(edges, shapeCounts):
+#             xedges = 0.5 * edges[:-1] + 0.5 * edges[1:]
+#             stepx = edges[1] - edges[0]
+#             xedgesExtended = np.zeros(shapeCounts)
+#             xedgesExtended[1:-1] = xedges
+#             xedgesExtended[0] = xedges[0] - stepx
+#             xedgesExtended[-1] = xedges[-1] + stepx
+#             return xedgesExtended
+#
+#         xedgesExtended = extendEdges(xedges, shapeCounts)
+#         yedgesExtended = extendEdges(yedges, shapeCounts)
+#
+#         return xedgesExtended, yedgesExtended, countsExtended
 
-PCA_COUNT = 1
-PCA_THRESHOLD = 0
-MDS = 0
-LLEMBEDDING = 1
-Isomap = 2
-TSNE = 3
-LINEAR = 0
-CUBIC = 1
 
-
-FREQ_LABEL = 'frequency (1/A)'
+#  --------------------------ML_Landscape VIEWER--------------------------------
 
 class PcaLandscapeViewer(ProtocolViewer):
     _label = 'viewer resolution3D'
@@ -309,22 +508,43 @@ class PcaLandscapeViewer(ProtocolViewer):
         group.addParam('neighbourCount', params.IntParam, default=3,
                        label="Select neighbour points",
                        condition="heatMap==1 or heatMap==2")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
-        group.addParam('dimensionality', params.EnumParam,
+
+        group.addParam('points', params.IntParam, default=5,
+                       label="Select number of volumes you want to show")
+        group.addParam('plot', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
-                       label='Select 2D or 3D to see the heat map.')
+                       label='view 2D or 3D free-energy landscape.')
+        group.addParam('dimensionality', params.LabelParam,
+                       label='View trajectory in 2D free-energy landscape')
+        group.addParam('scatterPlot', params.LabelParam,
+                       label='scatter plot of 2d free-energy landscape')
+
+        group = form.addGroup('Guess PC value')
+        group.addParam('volNumb', params.IntParam, default=1,
+                       label="Select the volume to reconstruct")
+        group.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of principal components")
+        group.addParam('reconstructVol', params.LabelParam,
+                       label="reconstruct map with selected PC value ")
+
+
 
 
     def _getVisualizeDict(self):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
-                         'dimensionality': self._viewHeatMap
+                         'dimensionality': self._viewHeatMap,
+                         'plot': self._viewPlot,
+                         'scatterPlot': self._scatterPlot
+                         # 'reconstructVol': self._pcaReconstruction
                          }
+
         return visualizeDict
+
 
     def _showErrors(self, param=None):
         views = []
+        self._errors = []
         self.errorList(self._errors, views)
         return views
 
@@ -337,41 +557,62 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _plotAutovalues(self, paramName=None):
         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
         autoVal = np.load(fn)
+        vals = (np.cumsum(autoVal))
+        plt.plot(vals)
+        plt.show()
 
-        pyplot.plot(np.cumsum(autoVal))
-        pyplot.xlabel('number of components')
-        pyplot.ylabel('cumulative explained variance')
-        pyplot.show()
 
-    def _viewHeatMap(self,paramName=None):
-        if self.dimensionality.get() == 0:
-            self._view2DHeatMap()
+
+    def _getParticles(self):
+        pass
+        # weightPath= self.addWeights.get()
+        # with open(weightPath) as f:
+        #     lines = f.readlines()
+        # parts= np.loadtxt(lines, delimiter=', ', unpack=True)
+
+    # particleArray = self.protocol._getExtraPath('Particle_Weights')
+    # partWeights = np.save(particleArray, parts)
+    # return partWeights
+
+
+
+    def _viewPlot(self, paramName=None):
+        if self.plot.get() == 0:
+            self._view2DPlot()
         else:
             self._view3DHeatMap()
 
-    def _view2DHeatMap(self):
-        nPCA = self.pcaCount.get()
-        nBins = self.binSize.get()
 
+    def _genralplot(self,paramName=None):
+        nPCA = self.pcaCount.get()
+        matProj = self._loadPcaCoordinates()
         if self.heatMap.get() == MDS:
             man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
-            coords = man.fit_transform(self._loadPcaCoordinates())
+            coords = man.fit_transform(matProj[:, 0:nPCA])
 
         elif self.heatMap.get() == LLEMBEDDING:
             n_neighbors = self.neighbourCount.get()
             man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
-            coords = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = man.fit_transform(matProj[:, 0:nPCA])
 
         elif self.heatMap.get() == Isomap:
             n_neighbors = self.neighbourCount.get()
             iso = manifold.Isomap(n_neighbors, n_components=2)
-            coords = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = iso.fit_transform(matProj[:, 0:nPCA])
 
         else:
             man = manifold.TSNE(n_components=2, random_state=0)
-            coords = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
+            coords = man.fit_transform(matProj[:, 0:nPCA])
+        return coords
 
-        xedges, yedges, counts = self._getEdges(coords, nBins)
+
+    def _viewHeatMap(self, paramName=None):
+        fn = self.protocol._getExtraPath("all_good_particles.npy")
+        weight = np.load(fn)
+        nPCA = self.pcaCount.get()
+        nBins = self.binSize.get()
+        coords= self._genralplot()
+        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
 
         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
@@ -388,21 +629,68 @@ class PcaLandscapeViewer(ProtocolViewer):
         f = sc.interpolate.interp2d(a, b, H2, kind=intType,
                                     bounds_error='True')
         znew = f(a2, b2)
+        # ---------------------------finding maxima on 2d map-------------------
+        minima = znew.max()
+        print (minima, "minimaaa")
+        tempValue = -(25)
+        fac= np.true_divide(znew, minima)
+        boltzFac = tempValue * fac
+        boltzParts = self.protocol._getExtraPath('boltzFac')
+        np.save(boltzParts, boltzFac)
+        boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
+
+        # ---------------------------------------------------------------
 
         win = self.tkWindow(HeatMapWindow,
                             title='Heat Map',
+                            coords=coords,
                             callback=self._getMaps
                             )
-        plotter = self._createPlot("Heat Map", "", "", grid_x, grid_y,
-                                   znew, figure=win.figure)
-        self.path = PointPath(plotter.getLastSubPlot(), self._loadData(),
-                              callback=self._adjustPoints,
-                              tolerance=0.1)
+        plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
+                                   boltzLaw, figure=win.figure)
+        self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
+        win.show()
 
-        return [win]
+    def _getMaps(self, coords):
+        Plugin.setEnviron()
+        coordMaps = self._getCoordMapFiles()
+        f = open(coordMaps)
+        for i, l in enumerate(f):
+            fn = self.protocol._getPath("volume_%02d.mrc" %i)
+            weigths = []
+            for coord in coords:
+                value = map(float, l.split())
+                weigths.append(self._getDistanceWeigth(value, coord))
 
-    def _getMaps(self):
-        pass
+            inputMaps = self.protocol._getMrcVolumes()
+            for j, (v, w) in enumerate(izip(inputMaps, weigths)):
+
+                npVol = loadMrc(v, False)
+                if j == 0:
+                    dType = npVol.dtype
+                    newMap = np.zeros(npVol.shape)
+                newMap += (w*npVol/sum(weigths))
+            saveMrc(newMap.astype(dType), fn)
+
+        f.close()
+        # volSet = self.protocol._createSetOfVolumes()
+        # volSet.setSamplingRate(pixelSize)
+        # newVol = vol.clone()
+        # newVol.setObjId(None)
+        # newVol.setLocation(volOut)
+        # volSet.append(newVol)
+        # volSet.write()
+        #
+        # self.objectView(volSet).show()
+
+    def _getPoints(self, data):
+        xData = data.getXData()
+        yData = data.getYData()
+
+        f = open(self._getCoordMapFiles(), 'w')
+        for x, y in izip (xData, yData):
+            print >> f, x, y
+        f.close()
 
     def _loadPcaCoordinates(self):
         """ Check if the PCA data is generated and if so,
@@ -416,13 +704,18 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _loadPcaWeights(self):
         pass
 
+    def _loadData(self):
+        data = PathData(dim=2)
+        return data
+
     def _loadPcaEigenValue(self):
         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
         eignValData = np.load(fn)
         return eignValData
 
-    def _getEdges(self, crds, nBins):
+    def _getEdges(self, crds, nBins, weight):
         counts, xedges, yedges = np.histogram2d(crds[:, 0], crds[:, 1],
+                                                weights=weight,
                                                 bins=nBins)
         shapeCounts = counts.shape[0] + 2
         countsExtended = np.zeros((shapeCounts, shapeCounts))
@@ -442,225 +735,218 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         return xedgesExtended, yedgesExtended, countsExtended
 
-    def _createPlot(self, title, xTitle, yTitle, x, y, weights, figure=None):
-        xplotter = CryoMPlotter(figure=figure)
+    def _createPlot(self, title, xTitle, yTitle, x, y, boltzLaw, figure=None):
+        xplotter = CryoMethodsPlotter(figure=figure)
         xplotter.plot_title_fontsize = 11
         img = xplotter.createSubPlot(title, xTitle, yTitle, 1, 1)
-        xplotter.plotHeatMap(img, x,y,weights)
+        xplotter.plotHeatMap(img, x, y, boltzLaw)
         return xplotter
 
-    # def _get3DPlt(self, paramName=None):
-    #     if self.threeDMap.get == MDS:
-    #         nPCA = self.pcaCount.get()
-    #         nBins = self.binSize.get()
-    #         man = manifold.MDS(max_iter=100, n_init=1, random_state=0)
-    #         mds = man.fit_transform(self._loadPcaCoordinates())
-    #         counts, xedges, yedges = np.histogram2d(mds[:, 0], mds[:, 1],
-    #                                                 weights=self._loadPcaParticles(),
-    #                                                 bins=nBins)
-    #         countsExtended = np.zeros(
-    #             (counts.shape[0] + 2, counts.shape[0] + 2))
-    #         countsExtended[1:-1, 1:-1] = counts
-    #
-    #         xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
-    #         yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
-    #
-    #         stepx = xedges[1] - xedges[0]
-    #         stepy = yedges[1] - yedges[0]
-    #
-    #         xedgesExtended = np.zeros(counts.shape[0] + 2)
-    #         yedgesExtended = np.zeros(counts.shape[0] + 2)
-    #
-    #         xedgesExtended[1:-1] = xedges
-    #         xedgesExtended[0] = xedges[0] - stepx
-    #         xedgesExtended[-1] = xedges[-1] + stepx
-    #
-    #         yedgesExtended[1:-1] = yedges
-    #         yedgesExtended[0] = yedges[0] - stepy
-    #         yedgesExtended[-1] = yedges[-1] + stepy
-    #         a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
-    #
-    #         a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                          num=100)
-    #         b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                          num=100)
-    #         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-    #         H2 = countsExtended.reshape(countsExtended.size)
-    #         f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
-    #                                  bounds_error='True')
-    #         znew = f(a2, b2)
-    #
-    #         fig = plt.figure()
-    #         ax = fig.gca(projection='3d')
-    #         ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
-    #                         cmap='viridis', edgecolor='none')
-    #         plt.show()
-    #
-    #     elif self.threeDMap.get == LocallyLinearEmbedding:
-    #         nPCA = self.pcaCount.get()
-    #         nBins = self.binSize.get()
-    #         n_neighbors = self.neighbourCount.get()  # self.protocol._inputVolLen()
-    #         methods = ['standard', 'ltsa', 'hessian', 'modified']
-    #         man = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2)
-    #
-    #         lle = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
-    #         counts, xedges, yedges = np.histogram2d(lle[:, 0], lle[:, 1],
-    #                                                 weights=self._loadPcaParticles(),
-    #                                                 bins=nBins)
-    #         countsExtended = np.zeros(
-    #             (counts.shape[0] + 2, counts.shape[0] + 2))
-    #         countsExtended[1:-1, 1:-1] = counts
-    #
-    #         xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
-    #         yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
-    #
-    #         stepx = xedges[1] - xedges[0]
-    #         stepy = yedges[1] - yedges[0]
-    #
-    #         xedgesExtended = np.zeros(counts.shape[0] + 2)
-    #         yedgesExtended = np.zeros(counts.shape[0] + 2)
-    #
-    #         xedgesExtended[1:-1] = xedges
-    #         xedgesExtended[0] = xedges[0] - stepx
-    #         xedgesExtended[-1] = xedges[-1] + stepx
-    #
-    #         yedgesExtended[1:-1] = yedges
-    #         yedgesExtended[0] = yedges[0] - stepy
-    #         yedgesExtended[-1] = yedges[-1] + stepy
-    #
-    #         a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
-    #
-    #         a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                          num=100)
-    #         b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                          num=100)
-    #         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-    #         H2 = countsExtended.reshape(countsExtended.size)
-    #         f = interpolate.interp2d(a, b, H2, kind=self._interpolateType()
-    #                                  , bounds_error='True')
-    #         znew = f(a2, b2)
-    #
-    #         fig = plt.figure()
-    #         ax = fig.gca(projection='3d')
-    #         ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
-    #                         cmap='viridis', edgecolor='none')
-    #         plt.show()
-    #
-    #     elif self.threeDMap.get == Isomap:
-    #         nPCA = self.pcaCount.get()
-    #         nBins = self.binSize.get()
-    #         n_neighbors = self.neighbourCount.get()
-    #         iso = manifold.Isomap(n_neighbors, n_components=2)
-    #
-    #         isomap = iso.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
-    #
-    #         counts, xedges, yedges = np.histogram2d(isomap[:, 0], isomap[:, 1],
-    #                                                 weights=self._loadPcaParticles(),
-    #                                                 bins=nBins)
-    #         countsExtended = np.zeros(
-    #             (counts.shape[0] + 2, counts.shape[0] + 2))
-    #         countsExtended[1:-1, 1:-1] = counts
-    #
-    #         xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
-    #         yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
-    #
-    #         stepx = xedges[1] - xedges[0]
-    #         stepy = yedges[1] - yedges[0]
-    #
-    #         xedgesExtended = np.zeros(counts.shape[0] + 2)
-    #         yedgesExtended = np.zeros(counts.shape[0] + 2)
-    #
-    #         xedgesExtended[1:-1] = xedges
-    #         xedgesExtended[0] = xedges[0] - stepx
-    #         xedgesExtended[-1] = xedges[-1] + stepx
-    #
-    #         yedgesExtended[1:-1] = yedges
-    #         yedgesExtended[0] = yedges[0] - stepy
-    #         yedgesExtended[-1] = yedges[-1] + stepy
-    #
-    #         a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
-    #
-    #         a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                          num=100)
-    #         b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                          num=100)
-    #         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-    #         H2 = countsExtended.reshape(countsExtended.size)
-    #         f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
-    #                                  bounds_error='True')
-    #         znew = f(a2, b2)
-    #
-    #         fig = plt.figure()
-    #         ax = fig.gca(projection='3d')
-    #         ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
-    #                         cmap='viridis', edgecolor='none')
-    #         plt.show()
-    #
-    #     else:
-    #         nPCA = self.pcaCount.get()
-    #         nBins = self.binSize.get()
-    #         man = manifold.TSNE(n_components=2, random_state=0)
-    #         tsne = man.fit_transform(self._loadPcaCoordinates()[:, 0:nPCA])
-    #
-    #         counts, xedges, yedges = np.histogram2d(tsne[:, 0], tsne[:, 1],
-    #                                                 weights=self._loadPcaParticles(),
-    #                                                 bins=nBins)
-    #
-    #         countsExtended = np.zeros(
-    #             (counts.shape[0] + 2, counts.shape[0] + 2))
-    #         countsExtended[1:-1, 1:-1] = counts
-    #
-    #         xedges = 0.5 * xedges[:-1] + 0.5 * xedges[1:]
-    #         yedges = 0.5 * yedges[:-1] + 0.5 * yedges[1:]
-    #
-    #         stepx = xedges[1] - xedges[0]
-    #         stepy = yedges[1] - yedges[0]
-    #
-    #         xedgesExtended = np.zeros(counts.shape[0] + 2)
-    #         yedgesExtended = np.zeros(counts.shape[0] + 2)
-    #
-    #         xedgesExtended[1:-1] = xedges
-    #         xedgesExtended[0] = xedges[0] - stepx
-    #         xedgesExtended[-1] = xedges[-1] + stepx
-    #
-    #         yedgesExtended[1:-1] = yedges
-    #         yedgesExtended[0] = yedges[0] - stepy
-    #         yedgesExtended[-1] = yedges[-1] + stepy
-    #
-    #         a = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         b = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                         num=countsExtended.shape[0])
-    #         x, y = np.meshgrid(a, b, sparse=False, indexing='ij')
-    #
-    #         a2 = np.linspace(xedgesExtended.min(), xedgesExtended.max(),
-    #                          num=100)
-    #         b2 = np.linspace(yedgesExtended.min(), yedgesExtended.max(),
-    #                          num=100)
-    #         grid_x, grid_y = np.meshgrid(a2, b2, sparse=False,
-    #                                      indexing='ij')
-    #         H2 = countsExtended.reshape(countsExtended.size)
-    #         f = interpolate.interp2d(a, b, H2, kind=self._interpolateType(),
-    #                                  bounds_error='True')
-    #         znew = f(a2, b2)
-    #
-    #         fig = plt.figure()
-    #         ax = fig.gca(projection='3d')
-    #         ax.plot_surface(grid_x, grid_y, znew, rstride=1, cstride=1,
-    #                         cmap='viridis', edgecolor='none')
-    #         plt.show()
+    def _view2DPlot(self):
+        fn= self.protocol._getExtraPath("all_good_particles.npy")
+        weight = np.load(fn)
+        print (weight, "weight")
+        nBins = self.binSize.get()
+        coords = self._genralplot()
+        xedges, yedges, counts=self._getEdges(coords, nBins, weight)
+
+        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+
+        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+        H2 = counts.reshape(counts.size)
+        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+        if self.interpolateType == LINEAR:
+            intType = 'linear'
+        else:
+            intType = 'cubic'
+        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+                                    bounds_error='True')
+        znew = f(a2, b2)
+        print (znew, "znew")
+        # ---------------------------finding maxima on 2d map-------------------
+        minima = znew.max()
+        print (minima, "minimaaa")
+        tempValue= -25
+        fac= np.true_divide(znew, minima)
+        boltzFac = tempValue * fac
+        boltzParts = self.protocol._getExtraPath('boltzFac')
+        np.save(boltzParts, boltzFac)
+        boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
+
+        # ---------------------------------------------------------------
+
+        plt.figure()
+        plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+        plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+        # ----------showing x,y,z under cursor---------------------------
+        Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+
+        def fmt(x, y):
+            # get closest point with known data
+            dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+            idx = np.argmin(dist)
+            z = Zflat[idx]
+            return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+        # -------------------------------------------------------------------
+
+        plt.gca().format_coord = fmt
+        plt.colorbar()
+        savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+        plt.savefig(savePlot)
+        # draw colorbar
+        plt.show()
+
+    def _scatterPlot(self, paramName=None):
+        fn = self.protocol._getExtraPath("particles.npy")
+        weight = np.load(fn)
+        print (weight, "weight")
+        matProj = self._loadPcaCoordinates()
+        area = (50 * np.ones(117))  # 0 to 15 point radii
+        colors = weight
+        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=colors, alpha=0.5)
+        plt.colorbar()
+        plt.show()
+
+
+    def _getCoordMapFiles(self):
+        return self.protocol._getExtraPath('new_map_coordinates.txt')
+
+    def __getCoordMapFiles(self):
+        return self.protocol._getExtraPath('all_map_coordinates.txt')
+
+    def _getDistanceWeigth(self, p1, p2):
+        d = -1*((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
+        w = np.exp(d)
+        return w
+
+    def _view3DHeatMap(self):
+        fn= self.protocol._getExtraPath("particles.npy")
+        weight = np.load(fn)
+        nBins = self.binSize.get()
+        coords = self._genralplot()
+        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
+
+        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
+        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
+
+        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
+        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
+        H2 = counts.reshape(counts.size)
+        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
+        if self.interpolateType == LINEAR:
+            intType = 'linear'
+        else:
+            intType = 'cubic'
+        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
+                                    bounds_error='True')
+        znew = f(a2, b2)
+        # ---------------------------finding maxima on 2d map-------------------
+        minima = znew.max()
+        print (minima, "minimaaa")
+        tempValue = -25
+        fac = np.true_divide(znew, minima)
+        boltzFac = tempValue * fac
+        boltzParts = self.protocol._getExtraPath('boltzFac')
+        np.save(boltzParts, boltzFac)
+        boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
+
+        # ---------------------------------------------------------------
+
+        fig= plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.plot_surface(grid_x, grid_y, boltzLaw, rstride=1, cstride=1,
+                        cmap='viridis', edgecolor='none')
+        # draw colorbar
+        plt.show()
+    # --------------decide pca count to reconstruct vols-----------------
+    def _pcaReconstruction(self, paramName=None):
+        Plugin.setEnviron()
+        if not os.path.exists(self.protocol._getExtraPath('Select_PC')):
+            os.mkdir(self.protocol._getExtraPath('Select_PC'))
+        nPCA = self.pcaCount.get()
+        print (nPCA)
+        avgVol = self.protocol._getPath('extramap_average.mrc')
+        npAvgVol = loadMrc(avgVol, False)
+        print ("average map is here")
+        dType = npAvgVol.dtype
+        fnIn = self.protocol._getMrcVolumes()
+        volNum = self.volNumb.get()
+        initVolNum = volNum - 1
+        iniVolNp = loadMrc(fnIn[0], False)
+
+        dim = iniVolNp.shape[0]
+        print (len(iniVolNp), "iniVolNp")
+        lenght = dim ** 3
+        reshapeVol = iniVolNp.reshape(lenght)
+        subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
+        # -------------------------covariance matrix----------------------
+        cov_matrix= np.load(
+            self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
+        print (len(cov_matrix), "cov_matrix")
+        u, s, vh = np.linalg.svd(cov_matrix)
+        sCut = int(self.pcaCount.get())
+        print (sCut, "scut")
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        # --------------------obatining base-----------------------------
+        for eignRow in vhDel.T:
+            base = np.zeros(lenght)
+            # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
+            volSelect= fnIn[initVolNum:volNum]
+            print(volSelect, "volSelect")
+            for (vol, eigenCoef) in izip(volSelect,eignRow):
+                volInp = loadMrc(vol, False)
+                volInpR = volInp.reshape(lenght)
+                volSubs = volInpR - npAvgVol.reshape(lenght)
+                base += volSubs * eigenCoef
+                volBase = base.reshape((dim, dim, dim))
+                # break
+            break
+        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving map %s-----------------' % nameVol)
+        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+        #
+        # # ----------------matproj-----------------------------------------
+        matProj = []
+        baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
+        baseMrcFile = sorted(glob(baseMrc))
+        volSelect = fnIn[initVolNum:volNum]
+        for vol in volSelect:
+            volNp = loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseVol in baseMrcFile:
+                npVol = loadMrc(baseVol, writable=False)
+                baseVol_row = npVol.reshape(lenght)
+                baseVol_col = baseVol_row.transpose()
+                projCoef = np.dot(volRow, baseVol_col)
+                rowCoef.append(projCoef)
+        matProj.append(rowCoef)
+        print (matProj, "matProj")
+        print ("length of bese file", len(baseMrcFile))
+        #
+        # # obtaining volumes from coordinates-----------------------------------
+        for projRow in matProj:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in zip(baseMrcFile, projRow):
+                volNpo = loadMrc(baseVol, False)
+                vol += volNpo * proj
+            finalVol = vol + npAvgVol
+            nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+            print('-------------saving reconstruct_vols %s-----------------' % nameRes)
+            saveMrc(finalVol.astype(dType),
+                        self.protocol._getExtraPath('Select_PC', nameRes))
+        finalVol= fnIn[volNum]
+
+        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        dst = self.protocol._getExtraPath('Select_PC', orgVol)
+        # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
+        copyfile(finalVol, dst)
+
+
 
 
 class PointPath():
@@ -669,45 +955,28 @@ class PointPath():
         It also allow to modify the point positions on the path.
         """
 
-        def __init__(self, ax, pathData, callback=None, tolerance=3,
-                     maxPoints=2):
+        def __init__(self, ax, callback=None):
             self.ax = ax
             self.callback = callback
-
             self.dragIndex = None
-            self.tolerance = tolerance
-            self.maxPoints = maxPoints
 
             self.cidpress = ax.figure.canvas.mpl_connect('button_press_event',
                                                          self.onClick)
             self.cidrelease = ax.figure.canvas.mpl_connect(
-                'button_release_event', self.onRelease)
-            self.cidmotion = ax.figure.canvas.mpl_connect('motion_notify_event',
-                                                          self.onMotion)
+                              'button_release_event', self.onRelease)
 
-            self.pathData = pathData
-
-            if pathData.getSize() == maxPoints:  # this means there is a path
-                self.setState(STATE_ADJUST_POINTS)
-                self.plotPath()
-            else:
-                self.setState(STATE_DRAW_POINTS)
-                self.path_line = None
-                self.path_points = None
+            self.pathData = PathData(dim=2)
+            self.setState(0)
+            self.path_line = None
+            self.path_points = None
 
         def setState(self, state, notify=False):
             self.drawing = state
 
-            if state == STATE_DRAW_POINTS:
-                self.ax.set_title('Click to add two points.')
-            elif state == STATE_ADJUST_POINTS:
-                self.ax.set_title(
-                    'Drag points to adjust line, current Bfactor = %0.3f' % self.pathData.bfactor)
+            if state == 0:
+                self.ax.set_title('Click to add points.')
             else:
                 raise Exception("Invalid PointPath state: %d" % state)
-
-            if notify and self.callback:
-                self.callback(self.pathData)
 
         def onClick(self, event):
             if event.inaxes != self.ax:
@@ -716,7 +985,7 @@ class PointPath():
             ex = event.xdata
             ey = event.ydata
 
-            if self.drawing == STATE_DRAW_POINTS:
+            if self.drawing == 0:
                 point = self.pathData.createEmptyPoint()
                 point.setX(ex)
                 point.setY(ey)
@@ -729,19 +998,10 @@ class PointPath():
                     self.path_line.set_data(xs, ys)
                     self.path_points.set_data(xs, ys)
 
-                if self.pathData.getSize() == self.maxPoints:
-                    self.setState(STATE_ADJUST_POINTS)
-
                 self.ax.figure.canvas.draw()
 
-            elif self.drawing == STATE_ADJUST_POINTS:  # Points moving state
-                self.dragIndex = None
-                for i, point in enumerate(self.pathData):
-                    x = point.getX()
-                    y = point.getY()
-                    if sqrt((ex - x) ** 2 + (ey - y) ** 2) < self.tolerance:
-                        self.dragIndex = i
-                        break
+            if self.callback:
+                self.callback(self.pathData)
 
         def getXYData(self):
             xs = self.pathData.getXData()
@@ -752,7 +1012,7 @@ class PointPath():
             xs, ys = self.getXYData()
             self.path_line, = self.ax.plot(xs, ys, alpha=0.75, color='blue')
             self.path_points, = self.ax.plot(xs, ys, 'o',
-                                             color='red')  # 5 points tolerance, mark line points
+                                             color='red')
 
         def onMotion(self, event):
             if self.dragIndex is None or self.drawing < 2:
@@ -766,8 +1026,6 @@ class PointPath():
 
         def onRelease(self, event):
             self.dragIndex = None
-            if self.drawing == STATE_ADJUST_POINTS:
-                self.setState(STATE_ADJUST_POINTS, notify=True)
             self.update()
 
         def update(self):
@@ -787,8 +1045,7 @@ class HeatMapWindow(gui.Window):
     def __init__(self, **kwargs):
         gui.Window.__init__(self, **kwargs)
 
-        self.dim = kwargs.get('dim')
-        self.data = kwargs.get('data')
+        self.coords = kwargs.get('coords')
         self.callback = kwargs.get('callback', None)
         self.plotter = None
 
@@ -803,22 +1060,22 @@ class HeatMapWindow(gui.Window):
 
     def _createFigureBox(self, content):
         from pyworkflow.gui.matplotlib_image import FigureFrame
-        figFrame = FigureFrame(content, figsize=(6, 6))
+        figFrame = FigureFrame(content, figsize=(13, 13))
         figFrame.grid(row=0, column=0, padx=5, columnspan=2)
         self.figure = figFrame.figure
 
-        applyBtn = HotButton(content, text='Apply B-factor',
-                             command=self._onApplyBfactorClick)
+        applyBtn = HotButton(content, text='Obtain Maps',
+                             command=self._onMapEstimationClick)
         applyBtn.grid(row=1, column=0, sticky='ne', padx=5, pady=5)
 
-        closeBtn = Button(content, text='Close', imagePath=Icon.ACTION_CLOSE,
+        closeBtn = Button(content, text='Close',
+                          imagePath=pwprop.Icon.ACTION_CLOSE,
                           command=self.close)
         closeBtn.grid(row=1, column=1, sticky='ne', padx=5, pady=5)
 
-    def _onApplyBfactorClick(self, e=None):
-        # self._runBeforePreWhitening(self.prot)
-        dialog.FlashMessage(self.root, "Applying B-factor...",
-                            func=self.callback)
+    def _onMapEstimationClick(self, e=None):
+        gui.dialog.FlashMessage(self.root, "Calculating maps...",
+                            func=self.callback(self.coords))
 
     def _onClosing(self):
         if self.plotter:
@@ -826,30 +1083,141 @@ class HeatMapWindow(gui.Window):
         gui.Window._onClosing(self)
 
 
+class Point():
+    """ Return x, y 2d coordinates and some other properties
+    such as weight and state.
+    """
+    # Selection states
+    DISCARDED = -1
+    NORMAL = 0
+    SELECTED = 1
+
+    def __init__(self, pointId, data, weight, state=0):
+        self._id = pointId
+        self._data = data
+        self._weight = weight
+        self._state = state
+        self._container = None
+
+    def getId(self):
+        return self._id
+
+    def getX(self):
+        return self._data[self._container.XIND]
+
+    def setX(self, value):
+        self._data[self._container.XIND] = value
+
+    def getY(self):
+        return self._data[self._container.YIND]
+
+    def setY(self, value):
+        self._data[self._container.YIND] = value
+
+    def getZ(self):
+        return self._data[self._container.ZIND]
+
+    def setZ(self, value):
+        self._data[self._container.ZIND] = value
+
+    def getWeight(self):
+        return self._weight
+
+    def getState(self):
+        return self._state
+
+    def setState(self, newState):
+        self._state = newState
+
+    def eval(self, expression):
+        localDict = {}
+        for i, x in enumerate(self._data):
+            localDict['x%d' % (i + 1)] = x
+        return eval(expression, {"__builtins__": None}, localDict)
+
+    def setSelected(self):
+        self.setState(Point.SELECTED)
+
+    def isSelected(self):
+        return self.getState() == Point.SELECTED
+
+    def setDiscarded(self):
+        self.setState(Point.DISCARDED)
+
+    def isDiscarded(self):
+        return self.getState() == Point.DISCARDED
+
+    def getData(self):
+        return self._data
 
 
+class Data():
+    """ Store data points. """
+
+    def __init__(self, **kwargs):
+        # Indexes of data
+        self._dim = kwargs.get('dim')  # The points dimensions
+        self.clear()
+
+    def addPoint(self, point, position=None):
+        point._container = self
+        if position is None:
+            self._points.append(point)
+        else:
+            self._points.insert(position, point)
+
+    def getPoint(self, index):
+        return self._points[index]
+
+    def __iter__(self):
+        for point in self._points:
+            if not point.isDiscarded():
+                yield point
+
+    def iterAll(self):
+        """ Iterate over all points, including the discarded ones."""
+        return iter(self._points)
+
+    def getXData(self):
+        return [p.getX() for p in self]
+
+    def getYData(self):
+        return [p.getY() for p in self]
+
+    def getZData(self):
+        return [p.getZ() for p in self]
+
+    def getWeights(self):
+        return [p.getWeight() for p in self]
+
+    def getSize(self):
+        return len(self._points)
+
+    def getSelectedSize(self):
+        return len([p for p in self if p.isSelected()])
+
+    def getDiscardedSize(self):
+        return len([p for p in self.iterAll() if p.isDiscarded()])
+
+    def clear(self):
+        self.XIND = 0
+        self.YIND = 1
+        self.ZIND = 2
+        self._points = []
 
 
+class PathData(Data):
+    """ Just contains two list of x and y coordinates. """
 
+    def __init__(self, **kwargs):
+        Data.__init__(self, **kwargs)
 
+    def createEmptyPoint(self):
+        data = [0.] * self._dim  # create 0, 0...0 point
+        point = Point(0, data, 0)
+        point._container = self
 
+        return point
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def removeLastPoint(self):
+        del self._points[-1]

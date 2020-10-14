@@ -27,9 +27,6 @@
 # **************************************************************************
 
 import math
-import itertools
-
-
 import xmippLib
 import random
 from pyworkflow.em.metadata import getSize
@@ -67,7 +64,7 @@ from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
 import pyworkflow.em.metadata as md
 from cryomethods.convert import writeSetOfParticles
 from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
+                                 relionToLocation,
                                  alignVolumes, applyTransforms)
 from numpy.core import transpose
 from matplotlib import pyplot as plt
@@ -76,6 +73,7 @@ from matplotlib import *
 import traceback
 from matplotlib.colors import LogNorm
 from scipy.interpolate import griddata
+from cryomethods.convert import (loadMrc, saveMrc)
 
 
 
@@ -92,6 +90,9 @@ IMPORT_FROM_FILES = 2
 VOL_ZERO = 0
 VOL_ONE = 1
 VOL_TWO = 2
+PCA_THRESHOLD= 0
+PCA_THRESHOLD = 0
+PCA_COUNT=1
 
 
 
@@ -161,8 +162,11 @@ class ProtLandscapeNMA(em.EMProtocol):
     #--------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form, expertLev=em.LEVEL_ADVANCED, cond='True'):
         form.addSection(label='Input')
-        form.addParam('inputVolume', PointerParam, label="Input Volume",
-                      important=True, pointerClass='Volume')
+        form.addParam('inputVolumes', params.PointerParam,
+                      pointerClass='SetOfVolumes',
+                      important=True,
+                      label='Input volumes',
+                      help='Initial reference 3D maps')
 
         form.addParam('inputParticles', params.PointerParam,
                       pointerClass='SetOfParticles',
@@ -210,7 +214,7 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         #----------------------------------NMA------------------------------
         form.addSection(label='Normal Mode Analysis')
-        form.addParam('numberOfModes', IntParam, default=90,
+        form.addParam('numberOfModes', IntParam, default=10,
                       label='Number of modes',
                       help='The maximum number of modes allowed by the method for \n'
                            'atomic normal mode analysis is 6 times the number of  \n'
@@ -230,7 +234,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       label="Cut-off distance (A)",
                       condition='cutoffMode==%d' % NMA_CUTOFF_ABS,
                       help='Atoms or pseudoatoms beyond this distance will not interact.')
-        form.addParam('rcPercentage', FloatParam, default=99,
+        form.addParam('rcPercentage', FloatParam, default=95,
                       label="Cut-off percentage",
                       condition='cutoffMode==%d' % NMA_CUTOFF_REL,
                       help='The interaction cutoff distance is calculated as the distance\n'
@@ -268,6 +272,10 @@ class ProtLandscapeNMA(em.EMProtocol):
         form.addSection(label='Animation')
         form.addParam('amplitude', FloatParam, default=70,
                       label="Amplitude")
+        # form.addParam('displayVol', params.LabelParam,
+        #                label='Display volume with',
+        #                help='*slices*: display volumes as 2D slices along z '
+        #                     'axis.')
         form.addParam('nframes', IntParam, default=3,
                       expertLevel=LEVEL_ADVANCED,
                       label='Number of frames')
@@ -318,6 +326,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                       expertLevel=const.LEVEL_ADVANCED,
                       label="Center PDB",
                       help='Center PDB with the center of mass')
+
         #------------------------------volume attractor-----------------
 
         self._defineConstants()
@@ -538,6 +547,24 @@ class ProtLandscapeNMA(em.EMProtocol):
                       help='If defocus group is smaller than this value, '
                            'it will be expanded until number of particles '
                            'per defocus group is reached')
+        # ---------------------pca------------------------------------------
+        form.addSection(label='Machine leaning components')
+        form.addParam('thresholdMode', params.EnumParam,
+                       choices=['thr', 'pcaCount'],
+                       default=PCA_THRESHOLD,
+                       label='Cut-off mode',
+                       help='Threshold value will allow you to select the\n'
+                            'principle components above this value.\n'
+                            'sCut will allow you to select number of\n'
+                            'principle components you want to select.')
+        form.addParam('thr', params.FloatParam, default=0.95,
+                       important=True,
+                       condition='thresholdMode==%d' % PCA_THRESHOLD,
+                       label='THreshold percentage')
+        form.addParam('pcaCount', params.FloatParam, default=2,
+                       label="count of PCA",
+                       condition='thresholdMode==%d' % PCA_COUNT,
+                       help='Number of PCA you want to select.')
 
         form.addSection(label='Optimisation')
 
@@ -772,6 +799,11 @@ class ProtLandscapeNMA(em.EMProtocol):
 
         form.addParallelSection(threads=1, mpi=4)
 
+    # def _getVisualizeDict(self):
+    #     visualizeDict = {'displayVol': self._showVolumes
+    #                      }
+    #     return visualizeDict
+
     def _defineConstants(self):
         self.IS_3D = not self.IS_2D
 
@@ -798,180 +830,256 @@ class ProtLandscapeNMA(em.EMProtocol):
 
 
     #--------------------------- STEP functions --------------------------------
-    def convertVolumeStep(self):
-        inputVol = self.inputVolume.get()
-        print (inputVol, "inputVol")
-        fnMask = None
-        fnIn = getImageLocation(inputVol)
+    def _getMrcVolumes(self):
+        return sorted(glob(self._getExtraPath('*.mrc')))
 
-
-
-
-
+    def _insertMaskStep(self, fnIn, prefix=''):
+        """ Check the mask selected and insert the necessary steps.
+        Return the mask filename if needed.
+        """
+        fnMask = ''
         if self.maskMode == NMA_MASK_THRE:
-            fnMask = self._getExtraPath('mask.vol')
+            self.maskThreshold.get()
+            fnMask = self._getExtraPath('mask%s.vol' % prefix)
             maskParams = '-i %s -o %s --select below %f --substitute binarize' \
                          % (fnIn, fnMask, self.maskThreshold.get())
+            print (maskParams, "maskParams")
             self.runJob('xmipp_transform_threshold', maskParams,
                         numberOfMpi=1, numberOfThreads=1)
         elif self.maskMode == NMA_MASK_FILE:
             fnMask = getImageLocation(self.volumeMask.get())
 
-        print ("fnmask1")
+        print (fnMask,"fnMask")
+        return fnMask
+
+    def convertToPseudoAtomsStep(self, fnIn, fnMask, sampling, prefix=''):
         pseudoatoms = 'pseudoatoms'
         outputFn = self._getPath(pseudoatoms)
         print (outputFn, "outputFn")
-        sampling = inputVol.getSamplingRate()
+        sampling = fnIn.getSamplingRate()
         sigma = sampling * self.pseudoAtomRadius.get()
         targetErr = self.pseudoAtomTarget.get()
         nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
-        params = "-i %(fnIn)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+        params = "-i %(vols)s -o %(outputFn)s --sigma %(sigma)f --thr " \
                  "%(nthreads)d "
         params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
                   "-v 2 --intensityColumn Bfactor"
-
+        #
         print ("fnmask1")
 
         if fnMask:
             params += " --mask binary_file %(fnMask)s"
         self.runJob("xmipp_volume_to_pseudoatoms", params % locals(),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         for suffix in ["_approximation.vol", "_distance.hist"]:
             moveFile(self._getPath(pseudoatoms + suffix),
                      self._getExtraPath(pseudoatoms + suffix))
+
         self.runJob("xmipp_image_convert",
                     "-i %s_approximation.vol -o %s_approximation.mrc -t vol"
                     % (self._getExtraPath(pseudoatoms),
                        self._getExtraPath(pseudoatoms)),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         self.runJob("xmipp_image_header",
                     "-i %s_approximation.mrc --sampling_rate %f" %
                     (self._getExtraPath(pseudoatoms), sampling),
-                        numberOfMpi=1, numberOfThreads=1)
+                    numberOfMpi=1, numberOfThreads=1)
         cleanPattern(self._getPath(pseudoatoms + '_*'))
 
 
+    def convertVolumeStep(self):
+        Plugin.setEnviron()
+        inputVols = self.inputVolumes.get()
+        ih = em.ImageHandler()
+        for i, vol in enumerate(inputVols):
+            num = vol.getObjId()
+            newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
+            ih.convert(vol, newFn)
+
+        # ----get multiple vols--------
+        fnIn= self._getMrcVolumes()
+        counter= 0
+        for vols in fnIn:
+            print (vols, 'fnIn')
+            fnMask= self._insertMaskStep(vols)
+            pseudoatoms = 'pseudoatoms%02d'% (counter)
+            outputFn = self._getPath(pseudoatoms)
+            print (outputFn, "outputFn")
+            sampling = inputVols.getSamplingRate()
+            sigma = sampling * self.pseudoAtomRadius.get()
+            targetErr = self.pseudoAtomTarget.get()
+            nthreads = self.numberOfThreads.get() * self.numberOfMpi.get()
+            params = "-i %(vols)s -o %(outputFn)s --sigma %(sigma)f --thr " \
+                     "%(nthreads)d "
+            params += "--targetError %(targetErr)f --sampling_rate %(sampling)f " \
+                      "-v 2 --intensityColumn Bfactor"
+            #
+            print ("fnmask1")
+
+            if fnMask:
+                params += " --mask binary_file %(fnMask)s"
+            self.runJob("xmipp_volume_to_pseudoatoms", params % locals(),
+                        numberOfMpi=1, numberOfThreads=1)
+            for suffix in ["_approximation.vol", "_distance.hist"]:
+                moveFile(self._getPath(pseudoatoms + suffix),
+                         self._getExtraPath(pseudoatoms + suffix))
+
+            self.runJob("xmipp_image_convert",
+                        "-i %s_approximation.vol -o %s_approximation.mrc -t vol"
+                        % (self._getExtraPath(pseudoatoms),
+                           self._getExtraPath(pseudoatoms)),
+                        numberOfMpi=1, numberOfThreads=1)
+            self.runJob("xmipp_image_header",
+                        "-i %s_approximation.mrc --sampling_rate %f" %
+                        (self._getExtraPath(pseudoatoms), sampling),
+                        numberOfMpi=1, numberOfThreads=1)
+            cleanPattern(self._getPath(pseudoatoms + '_*'))
+            print (fnMask)
+            counter+=1
+
+    # ---------------------view perturbed vol----------------------------------
+    # def _showVolumes(self, paramName=None):
+    #     view = []
+    #     pseudoFn = 'pseudoatoms.pdb'
+    #     self.runJob("nma_animate_pseudoatoms.py %d"
+    #                 "animated_mode %d %d %f" % \
+    #                 (pseudoFn, self.amplitude.get(),
+    #                  self.downsample.get(),
+    #                  self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
+    #                 numberOfMpi=1, numberOfThreads=1)
+    #     return view
 
     def computeNMAStep(self):
         # Link the input
-        pseudoFn = 'pseudoatoms.pdb'
-        distanceFn = 'atoms_distance.hist'
-        inputFn = self._getPath(pseudoFn)
-        localFn = self._getPath(replaceBaseExt(basename(inputFn), 'pdb'))
-        """ Copy the input pdb file and also create a link 'atoms.pdb'
-         """
-        cifToPdb(inputFn, localFn)
+        pdbFns = self._getPath("*.pdb")
+        # print(pdbFns, type(pdbFns), self._currentDir)
+        fnListl = sorted(glob(pdbFns))
+        counter = 0
+        for pdbL in fnListl:
+            # pseudoFn = 'pseudoatoms.pdb'
+            distanceFn = 'atoms_distance.hist'
+            inputFn = os.path.basename(pdbL)
+            print (inputFn, "inputFn")
+            print (pdbL, "pdbL")
 
-        if not os.path.exists(inputFn):
-            createLink(localFn, inputFn)
+            localFn = self._getPath(replaceBaseExt(basename(pdbL), 'pdb'))
+            print(localFn, "localFn")
+            """ Copy the input pdb file and also create a link 'atoms.pdb'
+             """
+            cifToPdb(inputFn, localFn)
 
-
-        # Construct string for relative-absolute cutoff
-        # This is used to detect when to reexecute a step or not
-        cutoffStr = ''
-
-        if self.cutoffMode == NMA_CUTOFF_REL:
-            cutoffStr = 'Relative %f' % self.rcPercentage.get()
-        else:
-            cutoffStr = 'Absolute %f' % self.rc.get()
-
-        print("cutoffStr", cutoffStr)
-        # Compute modes
-        if self.cutoffMode == NMA_CUTOFF_REL:
-            print ("NMA_CUTOFF_REL", NMA_CUTOFF_REL)
-            params = '-i %s --operation distance_histogram %s' \
-                     % (localFn, self._getExtraPath(distanceFn))
-            self.runJob("xmipp_pdb_analysis", params,
-                        numberOfMpi=1, numberOfThreads=1)
-            print "i ran xmipp pdb analysis"
-
-        # fnBase = localFn.replace(".pdb", "")
-        fnDistanceHist = self._getExtraPath(distanceFn)
-        (baseDir, fnBase) = os.path.split(fnDistanceHist)
-        rc = self._getRc(fnDistanceHist)
-        self._enterWorkingDir()
-        self.runJob('nma_record_info.py',
-                    "%d %s %d" % (self.numberOfModes.get(), pseudoFn, rc),
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-
-        self.runJob("nma_pdbmat.pl", "pdbmat.dat", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_diag_arpack", "", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        if not exists("fort.11"):
-            self._printWarnings(redStr(
-                'Modes cannot be computed. Check the number of '
-                'modes you asked to compute and/or consider increasing '
-                'cut-off distance. The maximum number of modes allowed by '
-                'the method for pseudoatomic normal mode analysis is 3 times '
-                'the number of pseudoatoms but the protocol allows only up to '
-                '200 modes as 20-100 modes are usually enough.  '
-                'If the number of modes is below the minimum between 200 and 3 '
-                'times the number of pseudoatoms, consider increasing cut-off distance.'))
-        cleanPath("diag_arpack.in", "pdbmat.dat")
-
-        # self._leaveWorkingDir()
-        n = self._countAtoms(pseudoFn)
-        self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("cat", "vec.1* > vec_ani.txt",
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("rm", "-f vec.1*",
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_reformat_vector.pl", "%d fort.11" % n,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        fnModesDir = "modes"
-        makePath(fnModesDir)
-        self.runJob("mv", "-f vec.* %s" % fnModesDir,
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("nma_prepare_for_animate.py", "", env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        self.runJob("rm", "-f vec_ani.txt fort.11 matrice.sdijf",
-                        numberOfMpi=1, numberOfThreads=1)
-        moveFile('vec_ani.pkl', 'extra/vec_ani.pkl')
+            if not os.path.exists(inputFn):
+                createLink(localFn, inputFn)
 
 
+            # Construct string for relative-absolute cutoff
+            # This is used to detect when to reexecute a step or not
+            cutoffStr = ''
 
-        #self.PseudoAtomThreshold = 0.0
+            if self.cutoffMode == NMA_CUTOFF_REL:
+                cutoffStr = 'Relative %f' % self.rcPercentage.get()
+            else:
+                cutoffStr = 'Absolute %f' % self.rc.get()
 
-        fnVec = glob("modes/vec.*")
+            print("cutoffStr", cutoffStr)
+            # Compute modes
+            if self.cutoffMode == NMA_CUTOFF_REL:
+                print ("NMA_CUTOFF_REL", NMA_CUTOFF_REL)
+                params = '-i %s --operation distance_histogram %s' \
+                         % (localFn, self._getExtraPath(distanceFn))
+                self.runJob("xmipp_pdb_analysis", params,
+                            numberOfMpi=1, numberOfThreads=1)
+                print ("i ran xmipp pdb analysis")
 
-        if len(fnVec) < self.numberOfModes.get():
-            msg = "There are only %d modes instead of %d. "
-            msg += "Check the number of modes you asked to compute and/or consider increasing cut-off distance."
-            msg += "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times"
-            msg += "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms. "
-            msg += "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of"
-            msg += "modes is below the minimum between these two numbers, consider increasing cut-off distance."
-            self._printWarnings(redStr(msg % (len(fnVec), self.numberOfModes.get())))
-            print redStr('Warning: There are only %d modes instead of %d.' % (
-            len(fnVec), self.numberOfModes.get()))
-            print redStr(
-                "Check the number of modes you asked to compute and/or consider increasing cut-off distance.")
-            print redStr(
-                "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times")
-            print redStr(
-                "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms.")
-            print redStr(
-                "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of")
-            print redStr(
-                "modes is below the minimum between these two numbers, consider increasing cut-off distance.")
+            # fnBase = localFn.replace(".pdb", "")
+            fnDistanceHist = self._getExtraPath(distanceFn)
+            (baseDir, fnBase) = os.path.split(fnDistanceHist)
+            rc = self._getRc(fnDistanceHist)
+            self._enterWorkingDir()
+            self.runJob('nma_record_info.py',
+                        "%d %s %d" % (self.numberOfModes.get(), inputFn, rc),
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
 
-        fnDiag = "diagrtb.eigenfacs"
+            self.runJob("nma_pdbmat.pl", "pdbmat.dat", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_diag_arpack", "", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            if not exists("fort.11"):
+                self._printWarnings(redStr(
+                    'Modes cannot be computed. Check the number of '
+                    'modes you asked to compute and/or consider increasing '
+                    'cut-off distance. The maximum number of modes allowed by '
+                    'the method for pseudoatomic normal mode analysis is 3 times '
+                    'the number of pseudoatoms but the protocol allows only up to '
+                    '200 modes as 20-100 modes are usually enough.  '
+                    'If the number of modes is below the minimum between 200 and 3 '
+                    'times the number of pseudoatoms, consider increasing cut-off distance.'))
+            cleanPath("diag_arpack.in", "pdbmat.dat")
+
+            # self._leaveWorkingDir()
+            n = self._countAtoms(inputFn)
+            print (n, "n")
+            self.runJob("nma_reformat_vector_foranimate.pl", "%d fort.11" % n,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("cat", "vec.1* > vec_ani.txt",
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("rm", "-f vec.1*",
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_reformat_vector.pl", "%d fort.11" % n,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            fnModesDir = "modes"
+            makePath(fnModesDir)
+            self.runJob("mv", "-f vec.* %s" % fnModesDir,
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("nma_prepare_for_animate.py", "", env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            self.runJob("rm", "-f vec_ani.txt fort.11 matrice.sdijf",
+                            numberOfMpi=1, numberOfThreads=1)
+            moveFile('vec_ani.pkl', 'extra/vec_ani.pkl')
 
 
-        self.runJob("nma_reformatForElNemo.sh", "%d" % len(fnVec),
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        fnDiag = "diag_arpack.eigenfacs"
 
-        self.runJob("echo", "%s | nma_check_modes" % fnDiag,
-                    env=getNMAEnviron(),
-                        numberOfMpi=1, numberOfThreads=1)
-        cleanPath(fnDiag)
+            #self.PseudoAtomThreshold = 0.0
+
+            fnVec = glob("modes/vec.*")
+
+            if len(fnVec) < self.numberOfModes.get():
+                msg = "There are only %d modes instead of %d. "
+                msg += "Check the number of modes you asked to compute and/or consider increasing cut-off distance."
+                msg += "The maximum number of modes allowed by the method for atomic normal mode analysis is 6 times"
+                msg += "the number of RTB blocks and for pseudoatomic normal mode analysis 3 times the number of pseudoatoms. "
+                msg += "However, the protocol allows only up to 200 modes as 20-100 modes are usually enough. If the number of"
+                msg += "modes is below the minimum between these two numbers, consider increasing cut-off distance."
+                self._printWarnings(redStr(msg % (len(fnVec), self.numberOfModes.get())))
+                print (redStr('Warning: There are only %d modes instead of %d.' %
+                             (len(fnVec), self.numberOfModes.get())))
+                print (redStr(
+                    "Check the number of modes you asked to compute and/or consider"
+                    " increasing cut-off distance."))
+                print (redStr("The maximum number of modes allowed by the method"
+                              " for atomic normal mode analysis is 6 times"))
+                print (redStr("the number of RTB blocks and for pseudoatomic normal"
+                              " mode analysis 3 times the number of pseudoatoms."))
+                print (redStr("However, the protocol allows only up to 200 modes as"
+                              " 20-100 modes are usually enough. If the number of"))
+                print (redStr("modes is below the minimum between these two numbers,"
+                              " consider increasing cut-off distance."))
+
+            fnDiag = "diagrtb.eigenfacs"
+
+
+            self.runJob("nma_reformatForElNemo.sh", "%d" % len(fnVec),
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            fnDiag = "diag_arpack.eigenfacs"
+
+            self.runJob("echo", "%s | nma_check_modes" % fnDiag,
+                        env=getNMAEnviron(),
+                            numberOfMpi=1, numberOfThreads=1)
+            cleanPath(fnDiag)
 
 
         fh = open("Chkmod.res")
@@ -1054,7 +1162,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         # sys.exit()
 #
 
-        makePath('extra/animations')
+        makePath('extra/animations %02d' % counter)
 
         fn = "pseudoatoms.pdb"
         print ("animation step eneter")
@@ -1066,7 +1174,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                      self.nframes.get(), self.downsample.get(),
                      self.pseudoAtomThreshold.get()), env=getNMAEnviron(),
                         numberOfMpi=1, numberOfThreads=1)
-        print "madre mia animaaaaaaaaaaaa"
+        print ("madre mia animaaaaaaaaaaaa")
 
         for mode in range(7, self.numberOfModes.get() + 1):
             fnAnimation = join("extra", "animations", "animated_mode_%03d"
@@ -1117,10 +1225,7 @@ class ProtLandscapeNMA(em.EMProtocol):
                 md.setValue(xmippLib.MDL_NMA_ATOMSHIFT, maxShift[i], objId)
                 md.setValue(xmippLib.MDL_NMA_MODEFILE, fnVec, objId)
         md.write(self._getExtraPath('maxAtomShifts.xmd'))
-
-
-
-
+        counter +=1
 
         self._leaveWorkingDir()
 
@@ -1136,7 +1241,8 @@ class ProtLandscapeNMA(em.EMProtocol):
         for prog in nma_programs:
             if not exists(join(nmaBin, prog)):
                 errors.append("Some NMA programs are missing in the NMA folder.")
-                errors.append("Check that Scipion was installed with NMA: 'scipion install nma'")
+                errors.append("Check that Scipion was installed with NMA: "
+                              "'scipion install nma'")
                 break
         from pyworkflow.utils.which import which
         if which("csh") == "":
@@ -1183,7 +1289,7 @@ class ProtLandscapeNMA(em.EMProtocol):
         self._leaveWorkingDir()
         return rc
 
-    # --------------------------------convert pdb------------------------------
+    # --------------------------------convert pdb to vols---------------------
     def convertPdbStep(self):
         try:
             pdbFns = self._getExtraPath("animations", "*.pdb")
@@ -1244,9 +1350,6 @@ class ProtLandscapeNMA(em.EMProtocol):
         except Exception:
             print(traceback.format_exc())
 
-
-
-
     #--------------------------paticle attractor step-----------------------
     def particleAttrStep(self):
         totalVolumes = self._getExtraPath("*.vol")
@@ -1264,9 +1367,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                 break
 
         selectedVols = self.numOfVols.get()
-
-
-
         print (selectedVols, "selectedVols")
 
         b = np.log((1 - (float(selectedVols) / float(sizeList))))
@@ -1290,8 +1390,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                 subsetSize = self.subsetSize.get() * self.numOfVols.get()
                 # print (subsetSize, "subsetSizeeeee")
                 minSize = min(subsetSize, imgSet.getSize())
-                # print (imgSet.getSize(), "imgSet.getSize()")
-                # print (minSize, "minSizeeeeeeeeeee")
                 if subsetSize > 0 and subset.getSize() == minSize:
                     break
             writeSetOfParticles(subset, imgStar, self._getExtraPath(),
@@ -1305,21 +1403,6 @@ class ProtLandscapeNMA(em.EMProtocol):
             params = self._getParams(args)
             params += ' --j %d' % self.numberOfThreads.get()
             self.runJob(self._getProgram(), params)
-
-
-
-
-
-    # def createOutputStep(self):
-    #     # create a SetOfVolumes and define its relations
-    #     volumes = self._createSetOfVolumes()
-    #     self._fillVolSetFromIter(volumes, self._lastIter())
-    #     self._defineOutputs(outputVolumes=volumes)
-    #     totalVolumes = self._getExtraPath("*.vol")
-    #     fnList = glob(totalVolumes)
-    #     sizeList = len(fnList)
-    #     self._defineSourceRelation(fnList, volumes)
-    #     print (volumes, "volumes")
 
 
     #
@@ -1356,9 +1439,6 @@ class ProtLandscapeNMA(em.EMProtocol):
             print (vol, "vol")
 
             npVol = loadMrc(vol,  writable=False)
-            #saveMrc(vol,self._getExtraPath('kk.mrc'))
-            #sys.exit()
-
             print (npVol, "npVol")
             if vol == listVol[0]:
                 dType = npVol.dtype
@@ -1374,26 +1454,6 @@ class ProtLandscapeNMA(em.EMProtocol):
         print('saving average volume')
 
         saveMrc(npAvgVol.astype(dType), avgVol)
-        # preCorr = []
-        # print ("PART2")
-        # for vol in listVol:
-        #     npVol = loadMrc(vol, writable=False)
-        #     print (npVol, "npVol2")
-        #
-        #     subst = npVol - npAvgVol
-        #     print (npAvgVol, "npAvgVol")
-        #     print (subst, "subst")
-        #     preCorr.append(subst)
-        #
-        # for i in preCorr:
-        #     x = i-1
-        #     y = i+1
-        #     # X = np.stack((x, y), axis=0)
-        #     print(np.cov(x, y))
-        #
-        #     # covMatrix = np.cov(preCorr)
-        #
-        #     # npAvgVol += npVol
 
 
     def estimatePCAStep(self):
@@ -1438,9 +1498,6 @@ class ProtLandscapeNMA(em.EMProtocol):
             # Now, not using diff volume to estimate PCA
             # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
-            # listNpVol.append(volList)
-            # volList = volList - npAvgVol
-
             print (npAvgVol, "npAvgVol")
 
             row = []
@@ -1454,39 +1511,26 @@ class ProtLandscapeNMA(em.EMProtocol):
                 temp_a= np.corrcoef(volList_two, b).item(1)
                 print (temp_a, "temp_a")
                 row.append(temp_a)
-                # b= volList_two
-                # print (corr, "corr")
             cov_matrix.append(row)
 
-
-        print (cov_matrix, "cov_matrix");
-            #preCorr.append(sub)
-
         u, s, vh = np.linalg.svd(cov_matrix)
-        cuttOffMatrix = sum(s) * 0.95
-        sCut = 0
+        vhDel = self._getvhDel(vh, s)
+        # -------------NEWBASE_AXIS-------------------------------------------
+        counter = 0
 
-        print('cuttOffMatrix: ', cuttOffMatrix)
-        print (s, "s")
-        for i in s:
-            print('cuttOffMatrix: ', cuttOffMatrix)
-            if (cuttOffMatrix > 0).any():
-                print("Pass, i = %s " % i)
-                cuttOffMatrix = cuttOffMatrix - i
-                sCut += 1
-            else:
-                break
-        print('sCut: ', sCut)
+        for i in vhDel.T:
+            base = np.zeros(lenght)
+            for (a, b) in izip(listVol, i):
+                volInp = loadMrc(a, False)
+                volInpR = volInp.reshape(lenght)
+                base += volInpR * b
+                volBase = base.reshape((dim, dim, dim))
+            nameVol = 'volume_base_%02d.mrc' % (counter)
+            print('-------------saving map %s-----------------' % nameVol)
+            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
+            counter += 1
 
-        eigValsFile = 'eigenvalues.txt'
-        self._createMFile(s, eigValsFile)
-
-        eigVecsFile = 'eigenvectors.txt'
-        self._createMFile(vh, eigVecsFile)
-
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        self._createMFile(vhDel, 'matrix_vhDel.txt')
-
+        # ---------------------------------get_coordinates----------------------
         print(' this is the matrix "vhDel": ', vhDel)
         mat_one= []
         for vol in listVol:
@@ -1503,188 +1547,29 @@ class ProtLandscapeNMA(em.EMProtocol):
             mat_one.append(row_one)
 
         matProj = np.dot(mat_one, vhDel)
-        # print (newBaseAxis, "newbase")
-        # matProj = np.transpose(np.dot(newBaseAxis, mat_one))
-        print (matProj, "matProj")
-#----------------------
+        #----------------------get_Particles---------------------------------
         mdIn = []
         mdClass = md.MetaData()
         for run in range(numOfRuns):
             mf = (self._getExtraPath('run_%02d' % run,
                                      'relion_it%03d_' % iter +
                                      'model.star'))
-            print (mf, "mf")
-            # mdClass.read(mf)
-            ab= md.MetaData('model_classes@' + mf)
-
-
-
-            print (ab, "mdClass")
-
+            modelClass= md.MetaData('model_classes@' + mf)
         clsDist= []
-        # fracPar= 0
-        for row in md.iterRows(ab):
-            # cd = mdClass.getValue(xmippLib.RLN_MLMODEL_PDF_CLASS, objid)
+        for row in md.iterRows(modelClass):
             classDistrib = row.getValue('rlnClassDistribution')
-            # fracPar= classDistrib + fracPar
             clsDist.append(classDistrib)
-
         print (clsDist, "clsDist")
+        particleWt = self._getExtraPath('Particle_Weights')
+        np.save(particleWt, clsDist)
 
-        imgSet = self.inputParticles.get()
-        totalPart= imgSet.getSize()
-        print (totalPart, "totalPar")
-        K = self.numOfVols.get()
-        colors = cm.rainbow(np.linspace(0, 1, totalPart))
-        colorList = []
-        for i in clsDist:
-            index = int(len(colors) * i)
-            colorList.append(colors[index])
+    # -----------------------save PCA_Files-----------------------------------
+        os.makedirs(self._getExtraPath('Coordinates'))
+        coorPath = self._getExtraPath('Coordinates')
 
-        x_proj = [item[0] for item in matProj]
-        print (x_proj, "x_proj")
+        mat_file = os.path.join(coorPath, 'matProj_splic')
+        np.save(mat_file, matProj)
 
-        xmin= min(x_proj)
-        y_proj = [item[1] for item in matProj]
-        print (y_proj, "y_proj")
-        ymin= min(y_proj)
-        xmax= max(x_proj)
-        ymax= max(y_proj)
-        resolution = 250
-        mat_file = 'matProj_1_nma.txt'
-        self._createMFile(matProj, mat_file)
-        x_file = 'x_proj_1_nma.txt'
-        self._createMFile(x_proj, x_file)
-        y_file = 'y_proj_1_nma.txt'
-        self._createMFile(y_proj, y_file)
-
-        print (len(x_proj), "xlength")
-        print (len(y_proj), "ylength")
-        print (len(clsDist), "Clength")
-        w = []
-        for i in clsDist:
-            a = i * 100
-            w.append(a)
-        w = [int(i) for i in w]
-        xi = np.arange(xmin, xmax, 0.01)
-        yi = np.arange(ymin, ymax, 0.01)
-        xi, yi = np.meshgrid(xi, yi)
-
-        # xnew = []
-        # ynew = []
-        # for x in x_proj:
-        #     a = x - xmin
-        #     xnew.append(a)
-        # for y in y_proj:
-        #     z = y - ymin
-        #     ynew.append(z)
-        # set mask
-        mask = (xi > 0.5) & (xi < 0.6) & (yi > 0.5) & (yi < 0.6)
-
-        # interpolate
-        zi = griddata((x_proj, y_proj), clsDist, (xi, yi), method='linear')
-        # mask out the field
-        zi[mask] = np.nan
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.contourf(xi, yi, zi)
-        plt.plot(x_proj, y_proj)
-        plt.xlabel('x_pca', fontsize=16)
-        plt.ylabel('y_pca', fontsize=16)
-        plt.colorbar()
-        plt.savefig('interpolated_nma_3.png', dpi=100)
-        plt.close(fig)
-
-        # plt.figure(figsize=(12, 4))
-        # plt.subplot(133)
-        # plt.hexbin(xnew, ynew, C=clsDist, reduce_C_function=np.sum)
-        # plt.colorbar()
-        # plt.tight_layout()
-
-        # -----------------------plot success-----------------------
-        # plt.hexbin(x_proj, y_proj, C=clsDist, gridsize=60, bins='log', cmap='inferno')
-        # plt.colorbar()
-        # plt.show()
-    #     --------------------------------------------------------------
-    # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-        # ax.set_title("With a log color scale")
-        # cb = fig.colorbar(hb, ax=ax)
-        # cb.set_label('log10(N)')
-
-
-
-        # -----------------1st--------------------------
-        # fig, axs = plt.subplots(ncols=2, sharey=True, figsize=(7, 4))
-        # fig.subplots_adjust(hspace=0.5, left=0.07, right=0.93)
-        # ax = axs[1]
-        # hb = ax.hexbin(x_proj, y_proj, gridsize=50, bins='log', cmap='inferno')
-        # ax.set(xlim=(xmin, xmax), ylim=(ymin, ymax))
-        # ax.set_title("With a log color scale")
-        # cb = fig.colorbar(hb, ax=ax)
-        # cb.set_label('log10(N)')
-        # --------------------------------------------------------------
-        # heatmap, xedges, yedges = np.histogram2d(x_proj, y_proj, bins=50)
-        # extent = [xedges[0], xedges[-1], yedges[2], yedges[3]]
-        #
-        # plt.clf()
-        # plt.imshow(heatmap.T, extent=extent, origin='lower')
-        # -----------------------------------------------
-
-        # print (x_proj, "x_proj")
-        # print (y_proj, "y_proj")
-        # plt.figure(figsize=(12, 4))
-        # plt.subplot(131)
-        # plt.hexbin(x_proj, y_proj, gridsize=50,
-        #            color=colorList, bins='log')
-
-
-        # plt.scatter(x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
-        # plot3d((x_proj, y_proj, s = 100, c=colorList, alpha= 0.5)
-        # plt.figure(figsize=(12, 4))
-        # plt.subplot(133)
-        # # plt.hexbin(x, y, gridsize=30, cmap='Blues')
-        #
-        # plt.hexbin(x_proj, y_proj, C=colorList, cmap=cm.jet, gridsize=30, bins=50)
-        # plt.axis([x_proj.min(), x_proj.max(), y_proj.min(), y_proj.max()])
-        # plt.colorbar()
-        # plt.tight_layout()
-
-
-
-    #mdClass=xmippLib.metadata()
-    #clsDist=[]
-    #for objid in mdIn:
-      #cd=mdIn.getValue(xmippLib.RLN_MLMODEL_PDF_CLASS,ObId)
-      #clsDist.append(cd)
-
-
-        # print (newBaseAxis, "newBaseAxis")
-        # print (matProj, "matProj")
-        #
-        # projFile = 'projection_matrix.txt'
-        # self._createMFile(matProj, projFile)
-        # return matProj
-
-
-
-        # checkList_one= []
-        # for vol in listVol:
-        #     volNp = loadMrc(vol, False)
-        #     volList = volNp.reshape(lenght)
-        #     # newBaseAxis = []
-        #     b = volList - npAvgVol.reshape(lenght)
-        #     print (b, 'b')
-        #     # vhDel = vhDel.reshape(lenght)
-        #     for j in listVol:
-        #         if not j in checkList_one:
-        #             npVol = loadMrc(j, writable=False)
-        #             volList = npVol.reshape(lenght)
-        #             volList_two = volList - npAvgVol.reshape(lenght)
-        #             print (volList_two, "volList_two")
-            #         print (newBaseAxis, "newBaseAxis")
-            #         b = volList_two
-            # checkList_one.append(vol)
-        # print (newBaseAxis, "newBaseAxis")
 
     def _getLevelPath(self, run):
         return self._getExtraPath('run_%02d' % self._rLev)
@@ -1697,54 +1582,78 @@ class ProtLandscapeNMA(em.EMProtocol):
             f.write(s)
         f.close()
 
-        # m = np.asarray(j)
-        # fweights = np.asarray(np.arange(m) * 2, dtype=float)
-        # print (fweights, "m")
-        # print (i, 'I')
-        # print ("all clear")
-        # p= m.astype(int)
-        # f = np.arange(m) * 2
-        # p = np.vectorize(np.int(f))
-        # print (p, "f")
+    def _getvhDel(self, vh, s):
 
-        # a = np.arange(p) ** 2
-        # print (f, "f")
-        # print (a, "a")
+        if self.thresholdMode == PCA_THRESHOLD:
+            thr = self.thr.get()
+            if thr < 1:
+                cuttOffMatrix = sum(s) * thr
+                sCut = 0
 
-        #         bias = False
-        #         ddof = None
-        #         fweights = None
-        #         f = fweights
-        #         aweights = None
-        #         a = aweights
-        #         w = f * a
-        #         v1 = np.sum(w)
-        #         v2 = np.sum(w * a)
-        #         cov_mat = np.dot(i, j.T) *v1 / (v1 ** 2 - ddof * v2)
+                for i in s:
+                    if cuttOffMatrix > 0:
+                        cuttOffMatrix = cuttOffMatrix - i
+                        sCut += 1
+                    else:
+                        break
 
-        # ddof=0
-        # f= cov_mat.shape[1] - ddof
-        # a= f - ddof
-        # w = f * a
-        # v1 = np.sum(w)
-        # v2 = np.sum(w * a)
-        # # w_sum = np.average(cov_mat, axis=1, weights=None, returned=True)
-        # print(v1, "f")
-        # print (v2, "a")
-        # cov = cov_mat * v1 / (v1**2 - ddof * v2)
+                vhDel = self._geteigen(vh, sCut, s)
+                return vhDel
+            else:
+                os.makedirs(self._getExtraPath('EigenFile'))
+                eigPath = self._getExtraPath('EigenFile')
+                eigValsFile = os.path.join(eigPath, 'eigenvalues')
+                np.save(eigValsFile, s)
+                eignValData = np.load(
+                    self._getExtraPath('EigenFile', 'eigenvalues.npy'))
 
-        # covMatrix = np.cov(preCorr)
+                eigVecsFile = os.path.join(eigPath, 'eigenvectors')
+                np.save(eigVecsFile, vh)
+                eignVecData = np.load(
+                    self._getExtraPath('EigenFile', 'eigenvectors.npy'))
+                vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
+                np.save(vhdelPath, vh.T)
+                vhDelData = np.load(
+                    self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
+                return vh.T
+        else:
 
-        # npAvgVol += npVol
+            sCut = int(self.pcaCount.get())
+            vhDel = self._geteigen(vh, sCut, s)
+            return vhDel
 
-        # covMatrix = np.cov(listNpVol)
-        # u, s, vh = np.linalg.svd(covMatrix)
-        # cuttOffMatrix = sum(s) * 0.95
-        # sCut = 0
-        #
-        # print('cuttOffMatrix & s: ', cuttOffMatrix, s)
+    def _geteigen(self, vh, sCut, s):
+        os.makedirs(self._getExtraPath('EigenFile'))
+        eigPath = self._getExtraPath('EigenFile')
+        eigValsFile = os.path.join(eigPath, 'eigenvalues')
+        np.save(eigValsFile, s)
+        eignValData = np.load(
+            self._getExtraPath('EigenFile', 'eigenvalues.npy'))
 
+        eigVecsFile = os.path.join(eigPath, 'eigenvectors')
+        np.save(eigVecsFile, vh)
+        eignVecData = np.load(
+            self._getExtraPath('EigenFile', 'eigenvectors.npy'))
 
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        vhdelPath = os.path.join(eigPath, 'matrix_vhDel')
+        np.save(vhdelPath, vhDel)
+        vhDelData = np.load(
+            self._getExtraPath('EigenFile', 'matrix_vhDel.npy'))
+
+        return vhDel
+
+    def _getPcaCount(self, s):
+        cuttOffMatrix = sum(s) * 0.95
+        sCut = 0
+
+        for i in s:
+            if cuttOffMatrix > 0:
+                cuttOffMatrix = cuttOffMatrix - i
+                sCut += 1
+            else:
+                break
+        return sCut
 
     #--------------------------- INFO functions ---------------------------
     def _methods(self):
@@ -1894,94 +1803,6 @@ class ProtLandscapeNMA(em.EMProtocol):
                 break
 
         refMd.write(self._getRefStar())
-
-        # if self.finalVols == VOL_ONE:
-        #     totalVolumes = self._getExtraPath("*.vol")
-        #     fnList = glob(totalVolumes)
-        #     fnListl = sorted(fnList)
-        #     sizeList = len(fnList)
-        #     tempList = []
-        #     print (range(5, sizeList-1, 6), 'range.1')
-        #     for i in range(5, sizeList-1, 6):
-        #         tempList.append(fnListl[i])
-        #     fnList = tempList
-        #     sizelist_a= len(fnList)
-        #
-        #     print (tempList, 'tempList.1')
-        #     print (fnList, 'fnListttttttt1.1')
-        #     refMd = md.MetaData()
-        #     pseudoFn = 'pseudoatoms.vol'
-        #     inputFn = self._getExtraPath(pseudoFn)
-        #     counter = 0
-        #     print (fnList, "fnlistttt")
-        #     print (sizelist_a, "sizelistttt")
-        #     for vol in random.sample(fnList, sizelist_a):
-        #         # print (vol, "vol")
-        #         subsetSize = self.numOfVols.get()
-        #         minSize = min(subsetSize, sizeList)
-        #         # print (minSize, "minSize")
-        #
-        #         row = md.Row()
-        #         # print (row, "row")
-        #         row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
-        #         row.addToMd(refMd)
-        #         row.setValue(md.RLN_MLMODEL_REF_IMAGE, inputFn)
-        #         # row.addToMd(refMd)
-        #         counter += 1
-        #         print(counter, "counterrrr")
-        #         if counter == minSize:
-        #             # print (minSize, "minSize")
-        #             break
-        #
-        #     refMd.write(self._getRefStar())
-
-        # # new_list = [fnList[1], fnList[3], fnList[5]]
-        # if self.maskMode == NMA_MASK_THRE:
-        #     fnMask = self._getExtraPath('mask.vol')
-        #     maskParams = '-i %s -o %s --select below %f --substitute binarize' \
-        #                  % (fnIn, fnMask, self.maskThreshold.get())
-        #     self.runJob('xmipp_transform_threshold', maskParams,
-        #                 numberOfMpi=1, numberOfThreads=1)
-        # elif self.maskMode == NMA_MASK_FILE:
-        #     fnMask = getImageLocation(self.volumeMask.get())
-        #
-        # if self.finalVols == VOL_ONE:
-        #     fnList = glob(totalVolumes)
-        #     sizeList = len(fnList)
-        #     counter = 0
-        #     for vol in random.sample(fnList, sizeList):
-        #         print (vol, "vol")
-        #         subsetSize = self.numOfVols.get()
-        #         minSize = min(subsetSize, sizeList)
-        #         print (minSize, "minSize")
-        #
-        #         row = md.Row()
-        #         print (row, "row")
-        #         row.setValue(md.RLN_MLMODEL_REF_IMAGE, vol)
-        #         row.addToMd(refMd)
-        #         row.setValue(md.RLN_MLMODEL_REF_IMAGE, inputFn)
-        #         # row.addToMd(refMd)
-        #         counter += 1
-        #         print(counter, "counterrrr")
-        #         if counter == minSize:
-        #             print (minSize, "minSize")
-        #             break
-        #
-        #     refMd.write(self._getRefStar())
-
-            # print (fnList, 'fnListtttttttttt1')
-        # el
-        #     print (fnList, 'fnListtttttttttt2')
-        # else:
-        #     tempList = []
-        #     for i in [1, 3, 5]:
-        #         tempList.append(fnList[i])
-        #     fnList = tempList
-        #     print (fnList, 'fnListtttttttttt3')
-
-
-
-        print (inputFn, "inputFnnnnnnnnnnnnnnnnn")
 
 
     def _postprocessParticleRow(self, part, partRow):

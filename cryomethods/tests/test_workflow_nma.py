@@ -28,7 +28,7 @@ from pyworkflow.tests.em.workflows.test_workflow import TestWorkflow
 
 
 
-from cryomethods.protocols.protocol_merge_nma import ProtLandscapeNMA
+from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
 
 from xmipp3.protocols.pdb.protocol_pseudoatoms_base import NMA_MASK_THRE
 from pyworkflow.tests import *
@@ -69,7 +69,7 @@ class TestBase(BaseTest):
         return protImport
 
     @classmethod
-    def runImportSingleVolume(cls, pattern, samplingRate):
+    def runImportVolumes(cls, pattern, samplingRate):
         """ Run an Import particles protocol. """
         protImport = cls.newProtocol(ProtImportVolumes,
                                      filesPath=pattern,
@@ -101,7 +101,7 @@ class CryoMetTestNMA(TestBase):
         protConvertVol = self.newProtocol(ProtLandscapeNMA)
         protConvertVol.inputParticles.set(self.protImport.outputParticles)
         protConvertVol.subsetSize.set(100)
-        protConvertVol.inputVolume.set(self.protImportVol.outputVolume)
+        protConvertVol.inputVolume.set(self.protImportVol.outputVolumes)
         protConvertVol.maskMode.set(NMA_MASK_THRE)
         protConvertVol.maskThreshold.set(0.2)
         protConvertVol.pseudoAtomRadius.set(2.5)

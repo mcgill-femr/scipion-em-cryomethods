@@ -31,8 +31,8 @@ import os, sys
 import pyworkflow.em
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0,\
-                       NMA_HOME, XMIPP_HOME
+from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0, \
+    XMIPP_CRYOMETHODS_HOME, NMA_HOME
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
@@ -41,15 +41,16 @@ _references = []
 
 class Plugin(pyworkflow.em.Plugin):
     _homeVar = CRYOMETHODS_HOME
-    _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME]
+    _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME,
+                 XMIPP_CRYOMETHODS_HOME]
     _supportedVersions = []
 
     @classmethod
     def _defineVariables(cls):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
         cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
+        cls._defineEmVar(XMIPP_CRYOMETHODS_HOME, 'xmipp')
         cls._defineEmVar(NMA_HOME, 'nma')
-        cls._defineEmVar(XMIPP_HOME, 'xmipp')
 
 
     @classmethod
@@ -57,6 +58,7 @@ class Plugin(pyworkflow.em.Plugin):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = cls.getRelionEnviron()
+        env = cls.getXmippEnviron(environ)
         pythonPath = [cls.getHome('imageLib'),
                       cls.getHome('alignLib'),
                       cls.getHome('alignLib/frm/swig'),
@@ -72,13 +74,11 @@ class Plugin(pyworkflow.em.Plugin):
 
         for pPath in pythonPath:
             if not pPath in os.environ['PYTHONPATH']:
-                environ.update({'PYTHONPATH': pPath},
+                env.update({'PYTHONPATH': pPath},
                                position=pwutils.Environ.BEGIN)
-        environ.update({'PATH': Plugin.getVar(NMA_HOME)},
-                       position=pwutils.Environ.BEGIN)
-        environ.update({'PATH':  os.path.join(os.environ[XMIPP_HOME], ('bin')),
-                        'LD_LIBRARY_PATH':  os.path.join(os.environ[XMIPP_HOME], ('lib'))
-                        }, position=pwutils.Environ.BEGIN)
+        env.update({'PATH': Plugin.getVar(NMA_HOME)},
+                    position=pwutils.Environ.BEGIN)
+        return env
 
         return environ
 
@@ -88,6 +88,14 @@ class Plugin(pyworkflow.em.Plugin):
         """ Return a path from the "home" of the package
          if the _homeVar is defined in the plugin. """
         home = cls.getVar(RELION_CRYOMETHODS_HOME)
+        return os.path.join(home, *paths) if home else ''
+
+
+    @classmethod
+    def __getXmippHome(cls, *paths):
+        """ Return a path from the "home" of the package
+         if the _homeVar is defined in the plugin. """
+        home = cls.getVar(XMIPP_CRYOMETHODS_HOME)
         return os.path.join(home, *paths) if home else ''
 
 
@@ -122,6 +130,20 @@ class Plugin(pyworkflow.em.Plugin):
         # Take Scipion CUDA library path
         cudaLib = environ.getFirst(('RELION_CUDA_LIB', 'CUDA_LIB'))
         environ.addLibrary(cudaLib)
+
+        return environ
+
+    @classmethod
+    def getXmippEnviron(cls, environ):
+        """ Setup the environment variables needed to launch Relion. """
+
+        binPath = cls.__getXmippHome('bin')
+        libPath = cls.__getXmippHome('lib')
+
+        if not binPath in environ['PATH']:
+            environ.update({'PATH': binPath,
+                            'LD_LIBRARY_PATH': libPath,
+                            }, position=pwutils.Environ.BEGIN)
 
         return environ
 
@@ -167,8 +189,7 @@ class Plugin(pyworkflow.em.Plugin):
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
                        url=url,
-                       commands=[(commands, target)],
-                       deps=['fftw3', 'fftw3f'])
+                       commands=[(commands, target)])
         ## PIP PACKAGES ##
         def addPipModule(moduleName, *args, **kwargs):
             """ To try to add certain pipModule.

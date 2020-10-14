@@ -58,7 +58,7 @@ class ControlTestPCA(TestBase):
 
     def testControlPCA(self):
         def _runAutoClassifier(doGpu=False, label=''):
-            print label
+            print (label)
             autoClassifierProt = self.newProtocol(ProtLandscapePCA,
                                                   numberOfIterations=10,
                                                   resolToStop=27.0,
