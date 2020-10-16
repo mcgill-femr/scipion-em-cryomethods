@@ -39,9 +39,9 @@ from pyworkflow.object import Float, String
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
-from cryomethods.convert.convert import (writeSetOfParticles, rowToAlignment,
-                                         relionToLocation, loadMrc, saveMrc,
-                                         alignVolumes, applyTransforms)
+from cryomethods.convert import (writeSetOfParticles, relionToLocation)
+from ..convert.convert_deprecated import rowToAlignment
+from cryomethods.functions import NumpyImgHandler
 
 from .protocol_base import ProtocolBase
 
@@ -237,10 +237,10 @@ class Prot3DAutoClassifier(ProtocolBase):
 
             hasAlign = alignType != ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr(
-                'fillRandomSubset')
+            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
 
-            writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+            writeSetOfParticles(imgSet, imgStar,
+                                outputDir=self._getExtraPath(),
                                 alignType=alignType,
                                 postprocessImageRow=self._postprocessParticleRow,
                                 fillRandomSubset=fillRandomSubset)
@@ -696,6 +696,7 @@ class Prot3DAutoClassifier(ProtocolBase):
         return md.MetaData(file) if os.path.exists(file) else md.MetaData()
 
     def _getAverageVol(self, listVol=None):
+        npIh = NumpyImgHandler()
         listVol = self._getPathMaps() if not bool(listVol) else listVol
 
         print('creating average map: ', listVol)
@@ -703,7 +704,7 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         print('alignining each volume vs. reference')
         for vol in listVol:
-            npVol = loadMrc(vol, False)
+            npVol = npIh.loadMrc(vol, False)
             if vol == listVol[0]:
                 dType = npVol.dtype
                 npAvgVol = np.zeros(npVol.shape)
@@ -711,38 +712,42 @@ class Prot3DAutoClassifier(ProtocolBase):
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
         print('saving average volume')
-        saveMrc(npAvgVol.astype(dType), avgVol)
+        npIh.saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _getPathMaps(self, filename="*.mrc"):
         filesPath = self._getLevelPath(self._level, filename)
         return sorted(glob(filesPath))
 
     def _alignVolumes(self):
+        npIh = NumpyImgHandler()
         # Align all volumes inside a level
         Plugin.setEnviron()
         listVol = self._getPathMaps()
         print('reading volumes as numpy arrays')
         avgVol = self._getFileName('avgMap', lev=self._level)
-        npAvgVol = loadMrc(avgVol, writable=False)
+        npAvgVol = npIh.loadMrc(avgVol, writable=False)
         dType = npAvgVol.dtype
 
         print('alignining each volume vs. reference')
         for vol in listVol:
-            npVolAlign = loadMrc(vol, False)
+            npVolAlign = npIh.loadMrc(vol, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
-            axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
-            axisf, shiftsf, anglesf, scoref = alignVolumes(npVolFlipAlign,
+            axis, shifts, angles, score = npIh.alignVolumes(npVolAlign,
+                                                            npAvgVol)
+            axisf, shiftsf, anglesf, scoref = npIh.alignVolumes(npVolFlipAlign,
                                                            npAvgVol)
             if scoref > score:
-                npVol = applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
+                npVol = npIh.applyTransforms(npVolFlipAlign, shiftsf, anglesf,
+                                         axisf)
             else:
-                npVol = applyTransforms(npVolAlign, shifts, angles, axis)
+                npVol = npIh.applyTransforms(npVolAlign, shifts, angles, axis)
 
             print('saving rot volume %s' % vol)
-            saveMrc(npVol.astype(dType), vol)
+            npIh.saveMrc(npVol.astype(dType), vol)
 
     def _estimatePCA(self):
+        npIh = NumpyImgHandler()
         listNpVol = []
         m = []
 
@@ -750,12 +755,12 @@ class Prot3DAutoClassifier(ProtocolBase):
         self._getAverageVol(listVol)
 
         avgVol = self._getFileName('avgMap', lev=self._level)
-        npAvgVol = loadMrc(avgVol, False)
+        npAvgVol = npIh.loadMrc(avgVol, False)
         dType = npAvgVol.dtype
 
 
         for vol in listVol:
-            volNp = loadMrc(vol, False)
+            volNp = npIh.loadMrc(vol, False)
             dim = volNp.shape[0]
             lenght = dim**3
             # Now, not using diff volume to estimate PCA
@@ -798,7 +803,7 @@ class Prot3DAutoClassifier(ProtocolBase):
             nameVol = 'volume_base_%02d.mrc' % (i+1)
             print('-------------saving map %s-----------------' % nameVol)
             print('Dimensions are: ', volBase.shape)
-            saveMrc(volBase.astype(dType),
+            npIh.saveMrc(volBase.astype(dType),
                     self._getLevelPath(self._level, nameVol))
             print('------------map %s stored------------------' % nameVol)
         matProj = np.transpose(np.dot(newBaseAxis, np.transpose(listNpVol)))
