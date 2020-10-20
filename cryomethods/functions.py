@@ -24,11 +24,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-try:
-    from itertools import izip
-except ImportError:
-    izip = zip
-
 import numpy as np
 
 
@@ -239,7 +234,7 @@ class MlMethods(object):
         dim = npAvgVol.shape[0]
         for eigenRow in eigVecMat:
             volBase = np.zeros((dim, dim, dim))
-            for (volFn, eigenCoef) in izip(listVol, eigenRow):
+            for (volFn, eigenCoef) in zip(listVol, eigenRow):
                 npVol = npIh.loadMrc(volFn, False)
                 restNpVol = npVol - npAvgVol
                 volBase += eigenCoef * restNpVol
