@@ -27,11 +27,6 @@
 # **************************************************************************
 from os.path import exists, basename
 import random
-try:
-    from itertools import izip
-except ImportError:
-    izip = zip
-
 from pwem.convert import cifToPdb
 from pwem.emlib.image import ImageHandler
 from pyworkflow.protocol.params import (PointerParam, EnumParam, IntParam,
@@ -47,27 +42,26 @@ from pwem.emlib.lib import *
 from pwem import Domain, ALIGN_NONE
 import pwem.emlib.metadata as md
 
-try:
-    getNMAEnviron = Domain.importFromPlugin('xmipp3.protocols.nma.convert',
-                                            'getNMAEnviron',
-                                            doRaise=True)
-    getImageLocation = Domain.importFromPlugin('xmipp3.convert',
-                                               'getImageLocation')
-    NMA_CUTOFF_REL = Domain.importFromPlugin('xmipp3.protocols.nma.protocol_nma_base',
-                                             'NMA_CUTOFF_REL')
-    NMA_HOME = Domain.importFromPlugin('xmipp3.constants', 'NMA_HOME')
-    Plugin = Domain.importFromPlugin('xmipp3', 'Plugin')
-
-except Exception as ex:
-    print("Xmipp3 must be installed. Please, go to Plugin Manager and "
-          "installed it!!!", ex)
+# try:
+#     getNMAEnviron = Domain.importFromPlugin('xmipp3.protocols.nma.convert',
+#                                             'getNMAEnviron',
+#                                             doRaise=True)
+#     getImageLocation = Domain.importFromPlugin('xmipp3.convert',
+#                                                'getImageLocation')
+#     NMA_CUTOFF_REL = Domain.importFromPlugin('xmipp3.protocols.nma.protocol_nma_base',
+#                                              'NMA_CUTOFF_REL')
+#     NMA_HOME = Domain.importFromPlugin('xmipp3.constants', 'NMA_HOME')
+#     Plugin = Domain.importFromPlugin('xmipp3', 'Plugin')
+#
+# except Exception as ex:
+#     print("Xmipp3 must be installed. Please, go to Plugin Manager and "
+#           "installed it!!!", ex)
 
 from cryomethods import Plugin
 from cryomethods.constants import (ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
-from cryomethods.convert import (writeSetOfParticles)
-
-from cryomethods.convert import (loadMrc, saveMrc)
+from cryomethods.convert import writeSetOfParticles
+from cryomethods.functions import NumpyImgHandler
 
 
 NMA_MASK_NONE = 0
@@ -1418,10 +1412,11 @@ class ProtLandscapeNMA(EMProtocol):
         print (avgVol, "avgVolll")
         #
         # print('alignining each volume vs. reference')
+        npIh = NumpyImgHandler()
         for vol in listVol:
             print (vol, "vol")
 
-            npVol = loadMrc(vol,  writable=False)
+            npVol = npIh.loadMrc(vol,  writable=False)
             print (npVol, "npVol")
             if vol == listVol[0]:
                 dType = npVol.dtype
@@ -1436,10 +1431,11 @@ class ProtLandscapeNMA(EMProtocol):
         #print (npAvgVol, "npAvgVol2")
         print('saving average volume')
 
-        saveMrc(npAvgVol.astype(dType), avgVol)
+        npIh.saveMrc(npAvgVol.astype(dType), avgVol)
 
     def estimatePCAStep(self):
         Plugin.setEnviron()
+        npIh = NumpyImgHandler()
         totalVolumes = self._getExtraPath("*.vol")
         fnList = glob(totalVolumes)
         sizeList = len(fnList)
@@ -1465,17 +1461,17 @@ class ProtLandscapeNMA(EMProtocol):
         print (listVol, "listvol")
         self._getAverageVol(listVol)
         avgVol = self._getFileName('avgMap', run= run)
-        npAvgVol = loadMrc(avgVol, False)
+        npAvgVol = npIh.loadMrc(avgVol, False)
         dType = npAvgVol.dtype
 
-        volNp = loadMrc(listVol.__getitem__(0), False)
+        volNp = npIh.loadMrc(listVol.__getitem__(0), False)
         dim = volNp.shape[0]
         lenght = dim ** 3
         listNpVol = []
         cov_matrix= []
         checkList = []
         for vol in listVol:
-            volNp = loadMrc(vol, False)
+            volNp = npIh.loadMrc(vol, False)
             # Now, not using diff volume to estimate PCA
             # diffVol = volNp - npAvgVol
             volList = volNp.reshape(lenght)
@@ -1485,7 +1481,7 @@ class ProtLandscapeNMA(EMProtocol):
             b = volList - npAvgVol.reshape(lenght)
             print (b, 'b')
             for j in listVol:
-                npVol = loadMrc(j, writable=False)
+                npVol = npIh.loadMrc(j, writable=False)
                 volList = npVol.reshape(lenght)
                 volList_two = volList - npAvgVol.reshape(lenght)
                 print (volList, "vollist")
@@ -1501,26 +1497,26 @@ class ProtLandscapeNMA(EMProtocol):
 
         for i in vhDel.T:
             base = np.zeros(lenght)
-            for (a, b) in izip(listVol, i):
-                volInp = loadMrc(a, False)
+            for (a, b) in zip(listVol, i):
+                volInp = npIh.loadMrc(a, False)
                 volInpR = volInp.reshape(lenght)
                 base += volInpR * b
                 volBase = base.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (counter)
             print('-------------saving map %s-----------------' % nameVol)
-            saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
+            npIh.saveMrc(volBase.astype(dType), self._getExtraPath(nameVol))
             counter += 1
 
         # ---------------------------------get_coordinates----------------------
         print(' this is the matrix "vhDel": ', vhDel)
         mat_one= []
         for vol in listVol:
-            volNp = loadMrc(vol, False)
+            volNp = npIh.loadMrc(vol, False)
             volList = volNp.reshape(lenght)
             print (volList, "volList")
             row_one= []
             for j in listVol:
-                npVol = loadMrc(j, writable=False)
+                npVol = npIh.loadMrc(j, writable=False)
                 volList_three = npVol.reshape(lenght)
                 j_trans = volList_three.transpose()
                 matrix_two= np.dot(volList, j_trans)
