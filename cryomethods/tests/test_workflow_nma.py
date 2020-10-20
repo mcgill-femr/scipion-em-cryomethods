@@ -25,21 +25,8 @@
 # **************************************************************************
 
 from pyworkflow.tests import *
-
 from pwem.protocols import ProtImportParticles, ProtImportVolumes
-from pwem import Domain
-
-
 from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
-
-try:
-    NMA_MASK_THRE = Domain.importFromPlugin('xmipp3.protocols.pdb.protocol_pseudoatoms_base',
-                                            'NMA_MASK_THRE',
-                                            doRaise=True)
-except Exception as ex:
-    print("Xmipp3 must be installed. Please, go to Plugin Manager and "
-          "installed it!!!", ex)
-
 
 class TestBase(BaseTest):
     @classmethod
@@ -106,7 +93,7 @@ class CryoMetTestNMA(TestBase):
         protConvertVol.inputParticles.set(self.protImport.outputParticles)
         protConvertVol.subsetSize.set(100)
         protConvertVol.inputVolume.set(self.protImportVol.outputVolumes)
-        protConvertVol.maskMode.set(NMA_MASK_THRE)
+        protConvertVol.maskMode.set(0)
         protConvertVol.maskThreshold.set(0.2)
         protConvertVol.pseudoAtomRadius.set(2.5)
         self.launchProtocol(protConvertVol)
