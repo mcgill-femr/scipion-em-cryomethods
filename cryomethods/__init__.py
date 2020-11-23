@@ -31,7 +31,7 @@ import os, sys
 import pwem
 import pyworkflow.utils as pwutils
 
-from .constants import (RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0, V3_1,
+from .constants import (RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_1,
                         XMIPP_CRYOMETHODS_HOME, NMA_HOME)
 
 # from bibtex import _bibtex # Load bibtex dict with references
@@ -171,7 +171,7 @@ class Plugin(pwem.Plugin):
     @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V3_0, V3_1]
+        return [V3_1]
 
     @classmethod
     def IS_RELION_30(cls):
@@ -181,6 +181,10 @@ class Plugin(pwem.Plugin):
     def IS_RELION_31(cls):
         # avoid using this, IS_GT30 is preferred
         return cls.getActiveVersion().startswith('3.1')
+
+    @classmethod
+    def IS_RELION_GT30(cls):
+        return not cls.getActiveVersion().startswith('3.0')
 
     @classmethod
     def getSupportedVersions(cls):

@@ -40,6 +40,7 @@ from pyworkflow.utils.path import replaceBaseExt, replaceExt
 from cryomethods.constants import (METHOD, ANGULAR_SAMPLING_LIST,
                                    MASK_FILL_ZERO)
 import cryomethods.convert.convert as conv
+from cryomethods import Plugin
 
 
 class ProtocolBase(EMProtocol):
@@ -775,9 +776,11 @@ class ProtocolBase(EMProtocol):
             maskDiameter = pixelSize * self._getNewDim()
 
         self._defineInput(args)
-        args.update({'--particle_diameter': maskDiameter,
-                     '--angpix': pixelSize,
-                     })
+        args['--particle_diameter'] = maskDiameter
+        # Since Relion 3.1 --angpix is no longer a valid argument
+        if Plugin.IS_RELION_30():
+            args['--angpix'] = pixelSize
+
         self._setCTFArgs(args)
 
         if self.maskZero == MASK_FILL_ZERO:
@@ -795,6 +798,10 @@ class ProtocolBase(EMProtocol):
             args['--ini_high'] = self.initialLowPassFilterA.get()
             args['--sym'] = self.symmetryGroup.get()
             args['--pad'] = 1 if self.skipPadding else 2
+            if Plugin.IS_RELION_GT30():
+                # We use the same pixel size as input particles, since
+                # we convert anyway the input volume to match same size
+                args['--ref_angpix'] = pixelSize
 
         refArg = self._getRefArg()
         if refArg:

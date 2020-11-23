@@ -109,8 +109,8 @@ class ProtInitialVolumeSelector(ProtocolBase):
         totalVolumes = self.inputVolumes.get().getSize()
         selectedVols = self.numOfVols.get()
 
-        b = np.log((1 - (float(selectedVols) / float(totalVolumes))))
-        numOfRuns = 1 if selectedVols >= totalVolumes else int(-3 / b)
+        b = np.log(1 - (selectedVols / totalVolumes))
+        numOfRuns = int(1 if selectedVols >= totalVolumes else round(-3 / b))
 
         for run in range(1, numOfRuns+1):
             self._createFilenameTemplates()
@@ -145,25 +145,24 @@ class ProtInitialVolumeSelector(ProtocolBase):
         imgStar = self._getFileName('input_star', run=run)
         os.makedirs(self._getExtraPath('run_%02d' % run))
         subset = SetOfParticles(filename=":memory:")
+        subset.copyInfo(imgSet)
+        subset.setSamplingRate(self._getPixeSize())
 
+        subsetSize = self.subsetSize.get() * self.numOfVols.get()
+        minSize = min(subsetSize, imgSet.getSize())
+        print("Values MinParticles: ", minSize, subsetSize)
         newIndex = 1
         for img in imgSet.iterItems(orderBy='RANDOM()', direction='ASC'):
             self._scaleImages(newIndex, img)
             newIndex += 1
             subset.append(img)
-            subsetSize = self.subsetSize.get() * self.numOfVols.get()
-            minSize = min(subsetSize, imgSet.getSize())
             if subsetSize > 0 and subset.getSize() == minSize:
                 break
 
-        writeSetOfParticles(imgSet, imgStar,
+        writeSetOfParticles(subset, imgStar,
                             outputDir=self._getExtraPath(),
                             alignType=ALIGN_NONE,
-                            postprocessImageRow='')
-
-        #writeSetOfParticles(subset, imgStar, self._getExtraPath(),
-        #                    alignType=ALIGN_NONE,
-        #                    postprocessImageRow=self._postprocessParticleRow)
+                            postprocessImageRow='') # self._postprocessParticleRow)
         if self.doCtfManualGroups:
             self._splitInCTFGroups(imgStar)
 
