@@ -162,7 +162,7 @@ class ProtInitialVolumeSelector(ProtocolBase):
         writeSetOfParticles(subset, imgStar,
                             outputDir=self._getExtraPath(),
                             alignType=ALIGN_NONE,
-                            postprocessImageRow='') # self._postprocessParticleRow)
+                            postprocessImageRow=self._postprocessParticleRow)
         if self.doCtfManualGroups:
             self._splitInCTFGroups(imgStar)
 
