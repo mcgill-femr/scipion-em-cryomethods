@@ -150,7 +150,7 @@ class ProtLandscapePCA(em.EMProtocol):
         dType = npAvgVol.dtype
         fnIn = self._getMrcVolumes()
         for vols in fnIn:
-            npVolAlign = f(vols)
+            npVolAlign = f(vols, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
             axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
