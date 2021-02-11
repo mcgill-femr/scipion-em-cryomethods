@@ -2,10 +2,13 @@ import matplotlib
 
 
 from glob import glob
-
+import os
 import numpy as np
 from itertools import *
+
 from matplotlib import *
+
+import pyworkflow as pw
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
@@ -147,7 +150,7 @@ class ProtLandscapePCA(em.EMProtocol):
         dType = npAvgVol.dtype
         fnIn = self._getMrcVolumes()
         for vols in fnIn:
-            npVolAlign = f(vols, False)
+            npVolAlign = f(vols)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
             axis, shifts, angles, score = alignVolumes(npVolAlign, npAvgVol)
