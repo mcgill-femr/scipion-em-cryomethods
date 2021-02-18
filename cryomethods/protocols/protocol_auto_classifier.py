@@ -300,8 +300,7 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def evaluationStep(self):
         Plugin.setEnviron()
-        print('Starting evaluation step')
-        print('which level: ', self._level)
+        print('Starting evaluation step at level: ', self._level)
         self._copyLevelMaps()
         self._evalStop()
         self._mergeMetaDatas()
@@ -564,8 +563,6 @@ class Prot3DAutoClassifier(ProtocolBase):
 
     def _evalStop(self):
         noOfLevRuns = self._getLevRuns(self._level)
-
-
         print("dataModel's loop to evaluate stop condition")
         for rLev in noOfLevRuns:
             iters = self._lastIter(rLev)
