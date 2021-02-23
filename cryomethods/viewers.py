@@ -607,7 +607,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
 
     def _viewHeatMap(self, paramName=None):
-        fn = self.protocol._getExtraPath("all_good_particles.npy")
+        fn = self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
@@ -743,7 +743,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        fn= self.protocol._getExtraPath("all_good_particles.npy")
+        fn= self.protocol._getExtraPath("particles.npy")
         weight = np.load(fn)
         print (weight, "weight")
         nBins = self.binSize.get()
