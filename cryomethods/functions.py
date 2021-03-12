@@ -31,11 +31,6 @@ class NumpyImgHandler(object):
     """ Class to provide several Numpy arrays manipulation utilities. """
 
     def __init__(self):
-        # Now it will use Xmipp image library
-        # to read and write most of formats, in the future
-        # if we want to be independent of Xmipp, we should have
-        # our own image library
-
         pass
 
     @classmethod

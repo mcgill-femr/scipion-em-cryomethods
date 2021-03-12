@@ -291,60 +291,9 @@ class Writer(WriterBase):
         row['rlnOriginXAngst'], row['rlnOriginYAngst'], row['rlnOriginZAngst'] = shifts
         row['rlnAngleRot'], row['rlnAngleTilt'], row['rlnAnglePsi'] = angles
 
-    def _partToRow(self, part, row):
-        row['rlnImageId'] = part.getObjId()
-
-        # Add coordinate information
-        coord = part.getCoordinate()
-        if coord is not None:
-            x, y = coord.getPosition()
-            row['rlnCoordinateX'] = x
-            row['rlnCoordinateY'] = y
-            # Add some specify coordinate attributes
-            self._setAttributes(coord, row, ['rlnClassNumber',
-                                             'rlnAutopickFigureOfMerit',
-                                             'rlnAnglePsi'])
-            micName = coord.getMicName()
-            if micName:
-                row['rlnMicrographName'] = str(micName.replace(" ", ""))
-            else:
-                if coord.getMicId():
-                    row['rlnMicrographName'] = str(coord.getMicId())
-
-        index, fn = part.getLocation()
-        if self.outputStack:
-            row['rlnOriginalParticleName'] = locationToRelion(index, fn)
-            index, fn = self._counter, self._relOutputStack
-            if self._counter > 0:
-                self._ih.convert(part, (index, self.outputStack))
-        else:
-            if self.outputDir is not None:
-                fn = self._filesDict.get(fn, fn)
-
-        row['rlnImageName'] = locationToRelion(index, fn)
-
-        if self._setRandomSubset:
-            row['rlnRandomSubset'] = part._rlnRandomSubset.get()
-
-        # Set CTF values
-        if self._setCtf:
-            self._ctfToRow(part.getCTF(), row)
-
-        # Set alignment if necessary
-        if self._setAlign:
-            self._setAlign(part.getTransform(), row)
-
-        # Set additional labels if present
-        self._setAttributes(part, row, self._extraLabels)
-
-        # Add now the new Optics Group stuff
-        row['rlnOpticsGroup'] = part.getAttributeValue('_rlnOpticsGroup', 1)
-
-        self._counter += 1
-
     def writeSetOfParticles(self, partsSet, starFile, **kwargs):
         # Process the first item and create the table based
-        # on the generated columns
+        # on the generated columnsTable
         self._imgLabelPixelSize = 'rlnImagePixelSize'
         self.update(['rootDir', 'outputDir', 'outputStack'], **kwargs)
 
@@ -422,6 +371,57 @@ class Writer(WriterBase):
                     self._postprocessImageRow(part, partRow)
                 partsWriter.writeRowValues(partRow.values())
                 # partsTable.writeStarLine(f, partRow.values())
+
+    def _partToRow(self, part, row):
+        row['rlnImageId'] = part.getObjId()
+
+        # Add coordinate information
+        coord = part.getCoordinate()
+        if coord is not None:
+            x, y = coord.getPosition()
+            row['rlnCoordinateX'] = x
+            row['rlnCoordinateY'] = y
+            # Add some specify coordinate attributes
+            self._setAttributes(coord, row, ['rlnClassNumber',
+                                             'rlnAutopickFigureOfMerit',
+                                             'rlnAnglePsi'])
+            micName = coord.getMicName()
+            if micName:
+                row['rlnMicrographName'] = str(micName.replace(" ", ""))
+            else:
+                if coord.getMicId():
+                    row['rlnMicrographName'] = str(coord.getMicId())
+
+        index, fn = part.getLocation()
+        if self.outputStack:
+            row['rlnOriginalParticleName'] = locationToRelion(index, fn)
+            index, fn = self._counter, self._relOutputStack
+            if self._counter > 0:
+                self._ih.convert(part, (index, self.outputStack))
+        else:
+            if self.outputDir is not None:
+                fn = self._filesDict.get(fn, fn)
+
+        row['rlnImageName'] = locationToRelion(index, fn)
+
+        if self._setRandomSubset:
+            row['rlnRandomSubset'] = part._rlnRandomSubset.get()
+
+        # Set CTF values
+        if self._setCtf:
+            self._ctfToRow(part.getCTF(), row)
+
+        # Set alignment if necessary
+        if self._setAlign:
+            self._setAlign(part.getTransform(), row)
+
+        # Set additional labels if present
+        self._setAttributes(part, row, self._extraLabels)
+
+        # Add now the new Optics Group stuff
+        row['rlnOpticsGroup'] = part.getAttributeValue('_rlnOpticsGroup', 1)
+
+        self._counter += 1
 
 
 class Reader(ReaderBase):

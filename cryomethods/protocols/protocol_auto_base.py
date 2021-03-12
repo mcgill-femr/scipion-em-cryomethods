@@ -26,6 +26,7 @@
 # **************************************************************************
 import os
 import re
+from collections import OrderedDict
 import numpy as np
 from pwem import ALIGN_PROJ
 from pwem.emlib.image import ImageHandler
@@ -33,14 +34,16 @@ from pyworkflow.object import Float, String
 from scipy import stats, interpolate
 from glob import glob
 from collections import Counter
+from emtable import Table
 
 import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
 from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from cryomethods import Plugin
+from cryomethods.constants import *
 from cryomethods.convert import relionToLocation
-from ..convert.convert_deprecated import rowToAlignment
+from cryomethods.convert.convert_deprecated import rowToAlignment
 from cryomethods.functions import NumpyImgHandler, MlMethods
 from .protocol_base import ProtocolBase
 
@@ -188,23 +191,31 @@ class ProtAutoBase(ProtocolBase):
             matrix = npIh.getAllNpList(listVol, 2)
             labels = self._clusteringData(matrix)
 
-            prevStar = self._getFileName('rawFinalData')
-            mdData = md.MetaData(prevStar)
-
             clsChange = 0
-            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
-                newClass = labels[clsPart-1] + 1
-                row.setValue(md.RLN_PARTICLE_CLASS, newClass)
+            prevStar = self._getFileName('rawFinalData')
+            pTable = Table()
+            origStar = self._getFileName('input_star', lev=1, rLev=1)
+            opticsTable = Table(fileName=origStar, tableName='optics')
+            print("OPTABLE: ", origStar, opticsTable.size())
+            for row in pTable.iterRows(prevStar, key="rlnClassNumber",
+                                       tableName='particles'):
+                clsPart = row.rlnClassNumber
+                newClass = labels[clsPart - 1] + 1
+                newRow = row._replace(rlnClassNumber=newClass)
+
                 if not newClass == clsChange:
                     if not clsChange == 0:
-                        mdOutput.write(fn)
+                        self.writeStar(fn, ouTable, opticsTable)
                     clsChange = newClass
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=newClass)
-                    mdOutput = self._getMetadata(fn)
-                row.addToMd(mdOutput)
-            mdOutput.write(fn)
+                    tableIn = Table(fileName=prevStar, tableName='particles')
+                    cols = [str(c) for c in tableIn.getColumnNames()]
+                    ouTable = Table(columns=cols, tableName='particles')
+                ouTable.addRow(*newRow)
+            print("mergeClassesStep ouTable.size: ", ouTable.size())
+            self.writeStar(fn, ouTable, opticsTable)
+
         else:
             prevData = self._getFileName('rawFinalData')
             finalData = self._getFileName('finalData')
@@ -242,7 +253,12 @@ class ProtAutoBase(ProtocolBase):
 
         # -----metadata to save all final particles-----
         finalData = self._getFileName('finalData')
-        finalDataMd = self._getMetadata()
+
+        fn = self._getFileName('rawFinalData')
+        print("FN: ", fn)
+        tableIn = Table(fileName=fn, tableName='particles')
+        cols = [str(c) for c in tableIn.getColumnNames()]
+        ouTable = Table(columns=cols, tableName='particles')
 
         for rLev in self._getRLevList():
             it = self._lastIter(rLev)
@@ -264,12 +280,13 @@ class ProtAutoBase(ProtocolBase):
 
             dataFn = self._getFileName('data', iter=it,
                                        lev=self._level, rLev=rLev)
-            dataMd = self._getMetadata(dataFn)
-            for row in md.iterRows(dataMd):
-                row.setValue(md.RLN_PARTICLE_CLASS, rLev)
-                row.addToMd(finalDataMd)
 
-        finalDataMd.write(finalData)
+            pTable = Table()
+            for row in pTable.iterRows(dataFn, tableName='particles'):
+                newRow = row._replace(rlnClassNumber=rLev)
+                ouTable.addRow(*newRow)
+
+        self.writeStar(finalData, ouTable)
         finalModelMd.write('model_classes@' + finalModel)
 
     def createOutputStep(self):
@@ -395,18 +412,20 @@ class ProtAutoBase(ProtocolBase):
             modelFn = self._getFileName('model', iter=iters,
                                         lev=self._level, rLev=rLev)
             modelMd = md.MetaData('model_classes@' + modelFn)
-            partSize = md.getSize(self._getFileName('input_star',
-                                                    lev=self._level, rLev=rLev))
+            partMdFn = "particles@" + self._getFileName('input_star',
+                                                        lev=self._level,
+                                                        rLev=rLev)
+            partSize = md.getSize(partMdFn)
             clsId = 1
             for row in md.iterRows(modelMd):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 clasDist = row.getValue('rlnClassDistribution')
-                classSize = clasDist * partSize
+                classSize = int(clasDist * partSize)
 
                 if self._getClasDistCond(clasDist):
                     mapId = self._mapsDict[fn]
                     ptcStop = self.minPartsToStop.get()
-                    if classSize < 0.95*partSize:
+                    if classSize < int(0.95*partSize):
                         if self.IS_3D and self.useReslog:
                             suffixSsnr = 'model_class_%d@' % clsId
                             ssnrMd = md.MetaData(suffixSsnr + modelFn)
@@ -423,6 +442,11 @@ class ProtAutoBase(ProtocolBase):
                     else:
                         evalSlope = True
 
+                    print("Values to stop the classification: ")
+                    print("partSize: ", partSize)
+                    print("class size: ", classSize)
+                    print("min parts to stop: ", ptcStop)
+                    print("evalSlope: ", evalSlope)
                     if classSize < ptcStop or evalSlope:
                         self.stopDict[mapId] = True
                         if not bool(self._clsIdDict):
@@ -497,27 +521,42 @@ class ProtAutoBase(ProtocolBase):
             finalMd.write('model_classes@' + finalModel)
 
     def _mergeDataStar(self, rLev, callback):
-        iters = self._lastIter(rLev)
-
-        #metadata to save all particles that continues
-        outData = self._getFileName('outputData', lev=self._level)
-        outMd = self._getMetadata(outData)
-
-        #metadata to save all final particles
-        finalData = self._getFileName('rawFinalData')
-        finalMd = self._getMetadata(finalData)
-        imgStar = self._getFileName('data', iter=iters,
-                                    lev=self._level, rLev=rLev)
-        mdData = md.MetaData("particles@"+imgStar)
-
         def _getMapId(rMap):
             try:
                 return self._mapsDict[rMap]
             except:
                 return None
 
-        for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-            clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+        iters = self._lastIter(rLev)
+        #metadata to save all particles that continues
+        outData = self._getFileName('outputData', lev=self._level)
+        #metadata to save all final particles
+        finalData = self._getFileName('rawFinalData')
+        imgStar = self._getFileName('data', iter=iters,
+                                    lev=self._level, rLev=rLev)
+        print("IMGSTAR: ", imgStar)
+        opTable = Table(filename=imgStar, tableName='optics')
+        tableIn = Table(fileName=imgStar, tableName='particles')
+        cols = [str(c) for c in tableIn.getColumnNames()]
+        outTable = Table(columns=cols, tableName='particles')
+        finalTable = Table(columns=cols, tableName='particles')
+
+        if os.path.exists(outData):
+            print("Exists ", outData)
+            tmpTable = Table()
+            for row in tmpTable.iterRows(imgStar, tableName='particles'):
+                outTable.addRow(*row)
+
+        if os.path.exists(finalData):
+            print("Exists ", finalData)
+            tpTable = Table()
+            for row in tpTable.iterRows(imgStar, tableName='particles'):
+                finalTable.addRow(*row)
+
+        pTable = Table()
+        for row in pTable.iterRows(imgStar, key="rlnClassNumber",
+                                   tableName='particles'):
+            clsPart = row.rlnClassNumber
             rMap = callback(iters, rLev, clsPart)
             mapId = _getMapId(rMap)
 
@@ -530,18 +569,20 @@ class ProtAutoBase(ProtocolBase):
 
             if self.stopDict[mapId]:
                 classId = self._clsIdDict[mapId]
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(finalMd)
+                newRow = row._replace(rlnClassNumber=classId)
+                finalTable.addRow(*newRow)
             else:
                 classId = int(mapId.split('.')[1])
-                row.setValue(md.RLN_PARTICLE_CLASS, classId)
-                row.addToMd(outMd)
+                newRow = row._replace(rlnClassNumber=classId)
+                outTable.addRow(*newRow)
 
-        if finalMd.size() != 0:
-            finalMd.write(finalData)
+        if finalTable.size() != 0:
+            print("finalTable.size: ", finalTable.size())
+            self.writeStar(finalData, finalTable)
 
-        if outMd.size() != 0:
-            outMd.write(outData)
+        if outTable.size() != 0:
+            print("outTable.size: ", outTable.size())
+            self.writeStar(outData, outTable, opTable)
 
     def _getMetadata(self, file='filepath'):
         fList = file.split("@")
@@ -667,22 +708,27 @@ class ProtAutoBase(ProtocolBase):
             self._classesInfo[classNumber + 1] = (index, fn, row.clone())
 
     def _fillClassesFromIter(self, clsSet):
+        from ..convert import createReader
         """ Create the SetOfClasses3D from a given iteration. """
         self._loadClassesInfo()
         dataStar = self._getFileName('finalData')
+
+        pixelSize = self.inputParticles.get().getSamplingRate()
+        self._reader = createReader(alignType=ALIGN_PROJ,
+                                    pixelSize=pixelSize)
+
+        mdIter = Table.iterRows('particles@' + dataStar, key='rlnImageId')
         clsSet.classifyItems(updateItemCallback=self._updateParticle,
                              updateClassCallback=self._updateClass,
-                             itemDataIterator=md.iterRows(dataStar))
+                             itemDataIterator=mdIter)
 
     def _updateParticle(self, item, row):
-        item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
-        item.setTransform(rowToAlignment(row, ALIGN_PROJ))
+        item.setClassId(row.rlnClassNumber)
+        self._reader.setParticleTransform(item, row)
 
-        item._rlnLogLikeliContribution = Float(
-            row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = Float(
-            row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = String(row.getValue('rlnGroupName'))
+        item._rlnLogLikeliContribution = row.rlnLogLikeliContribution
+        item._rlnMaxValueProbDistribution = row.rlnMaxValueProbDistribution
+        item._rlnGroupName = row.rlnGroupName
 
     def _updateClass(self, item):
         classId = item.getObjId()
@@ -709,3 +755,12 @@ class ProtAutoBase(ProtocolBase):
                 if s:
                     result.append(int(s.group(1)))
         return result
+
+    def writeStar(self, starfile, pTable, opTable=None):
+        with open(starfile, 'w') as f:
+            f.write("# Star file generated with Scipion\n")
+            f.write("# version 30001\n")
+            if opTable is not None:
+                opTable.writeStar(f, tableName='optics')
+                f.write("# version 30001\n")
+            pTable.writeStar(f, tableName='particles')

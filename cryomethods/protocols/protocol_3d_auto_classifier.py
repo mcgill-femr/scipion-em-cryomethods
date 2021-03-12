@@ -27,7 +27,9 @@
 import numpy as np
 
 import pwem.emlib.metadata as md
+import pwem.emlib as emlib
 import pyworkflow.protocol.constants as cons
+from emtable import Table
 from pwem import ALIGN_NONE
 from pwem.emlib.image import ImageHandler
 from pyworkflow.utils import makePath
@@ -91,6 +93,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
+        import random
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
@@ -99,18 +102,19 @@ class Prot3DAutoClassifier(ProtAutoBase):
             imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
             self._convertStar(copyAlignment, imgStar)
             mdInput = self._getMetadata(imgStar)
+
             mdSize = mdInput.size()
             self._convertVol(ImageHandler(), self.inputVolumes.get())
 
-            for i in range(2, 10, 1):
+
+            for i in range(9, 1, -1):
                 makePath(self._getRunPath(self._level, i))
                 mStar = self._getFileName('input_star', lev=self._level, rLev=i)
-                size = 10000 * i if mdSize >= 100000 else mdSize * i / 10
-                mdAux1 = self._getMetadata()
-                mdAux2 = self._getMetadata()
-                mdAux1.randomize(mdInput)
-                mdAux2.selectPart(mdAux1, 1, size)
-                mdAux2.write(mStar)
+                size = 10000 * i if mdSize >= 100000 else int(mdSize * i / 10)
+                opticsTable = Table(fileName=imgStar, tableName='optics')
+                partsTable = Table(fileName=imgStar, tableName='particles')
+                partsTable._rows = random.sample(partsTable._rows, k=size)
+                self.writeStar(mStar, partsTable, opticsTable)
 
         elif self._level == 1:
             imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
@@ -119,31 +123,40 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
             # find a clever way to avoid volume conversion if its already done.
             self._convertVol(ImageHandler(), self.inputVolumes.get())
-
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
-            mdData = md.MetaData(prevStar)
+            firstStarFn = self._getFileName('input_star', lev=1, rLev=1)
+            # mdData = md.MetaData(prevStar)
+            opTable = Table(fileName=firstStarFn, tableName='optics')
 
-            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            tableIn = Table(fileName=prevStar, tableName='particles')
+            cols = [str(c) for c in tableIn.getColumnNames()]
+
+            pTable = Table()
+            for row in pTable.iterRows(prevStar, key="rlnClassNumber",
+                                       tableName='particles'):
+                clsPart = row.rlnClassNumber
                 if clsPart != lastCls:
                     makePath(self._getRunPath(self._level, clsPart))
 
                     if lastCls is not None:
                         print("writing %s" % fn)
-                        mdInput.write(fn)
+                        # mdInput.write(fn)
+                        self.writeStar(fn, newPTable, opTable)
                     paths = self._getRunPath(self._level, clsPart)
                     makePath(paths)
                     print ("Path: %s and newRlev: %d" % (paths, clsPart))
                     lastCls = clsPart
-                    mdInput = md.MetaData()
+                    newPTable = Table(columns=cols, tableName='particles')
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=clsPart)
-                objId = mdInput.addObject()
-                row.writeToMd(mdInput, objId)
+                # objId = mdInput.addObject()
+                newPTable.addRow(*row)
+                # row.writeToMd(mdInput, objId)
             print("writing %s and ending the loop" % fn)
-            mdInput.write(fn)
+            self.writeStar(fn, newPTable, opTable)
+            # mdInput.write(fn)
 
     def evaluationStep(self):
         Plugin.setEnviron()
@@ -228,7 +241,8 @@ class Prot3DAutoClassifier(ProtAutoBase):
         alignToPrior = hasAlign and self.alignmentAsPriors.get()
         fillRandomSubset = hasAlign and self.fillRandomSubset.get()
 
-        writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+        writeSetOfParticles(imgSet, imgStar,
+                            outputDir=self._getExtraPath(),
                             alignType=alignType,
                             postprocessImageRow=self._postprocessParticleRow,
                             fillRandomSubset=fillRandomSubset)
