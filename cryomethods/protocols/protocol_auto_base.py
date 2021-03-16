@@ -377,6 +377,7 @@ class ProtAutoBase(ProtocolBase):
         pass
 
     def _copyLevelMaps(self):
+        print("DEF: starting Copy Level Maps")
         noOfLevRuns = self._getLevRuns(self._level)
         claseId = 0
         for rLev in noOfLevRuns:
@@ -390,12 +391,14 @@ class ProtAutoBase(ProtocolBase):
                 fn = row.getValue(md.RLN_MLMODEL_REF_IMAGE)
                 clasDist = row.getValue('rlnClassDistribution')
                 if self._getClasDistCond(clasDist):
-                    print("Meth: _copyLevelMaps, clasDist: ", clasDist)
+                    print("Lev: ", self._level, "rLev: ", self._rLev)
+                    print("clasDist: ", clasDist)
                     mapId = self._getRunLevId(rLev=claseId)
                     newFn = self._getMapById(mapId)
                     ih = ImageHandler()
                     ih.convert(fn, newFn)
                     self._mapsDict[fn] = mapId
+        print("DEF: closing Copy Level Maps")
 
     def _condToStop(self):
         outModel = self._getFileName('outputModel', lev=self._level)
@@ -443,6 +446,7 @@ class ProtAutoBase(ProtocolBase):
                         evalSlope = True
 
                     print("Values to stop the classification: ")
+                    print("Lev: ", self._level, "rLev: ", rLev)
                     print("partSize: ", partSize)
                     print("class size: ", classSize)
                     print("min parts to stop: ", ptcStop)
@@ -534,9 +538,9 @@ class ProtAutoBase(ProtocolBase):
         finalData = self._getFileName('rawFinalData')
         imgStar = self._getFileName('data', iter=iters,
                                     lev=self._level, rLev=rLev)
-        print("IMGSTAR: ", imgStar)
         opTable = Table(filename=imgStar, tableName='optics')
         tableIn = Table(fileName=imgStar, tableName='particles')
+        print("IMGSTAR: ", imgStar, "PARTS: ", tableIn.size())
         cols = [str(c) for c in tableIn.getColumnNames()]
         outTable = Table(columns=cols, tableName='particles')
         finalTable = Table(columns=cols, tableName='particles')
@@ -544,13 +548,13 @@ class ProtAutoBase(ProtocolBase):
         if os.path.exists(outData):
             print("Exists ", outData)
             tmpTable = Table()
-            for row in tmpTable.iterRows(imgStar, tableName='particles'):
+            for row in tmpTable.iterRows(outData, tableName='particles'):
                 outTable.addRow(*row)
 
         if os.path.exists(finalData):
             print("Exists ", finalData)
             tpTable = Table()
-            for row in tpTable.iterRows(imgStar, tableName='particles'):
+            for row in tpTable.iterRows(finalData, tableName='particles'):
                 finalTable.addRow(*row)
 
         pTable = Table()

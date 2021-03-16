@@ -101,18 +101,16 @@ class Prot3DAutoClassifier(ProtAutoBase):
             makePath(self._getRunPath(self._level, 1))
             imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
             self._convertStar(copyAlignment, imgStar)
-            mdInput = self._getMetadata(imgStar)
-
-            mdSize = mdInput.size()
+            opticsTable = Table(fileName=imgStar, tableName='optics')
+            partsTable = Table(fileName=imgStar, tableName='particles')
             self._convertVol(ImageHandler(), self.inputVolumes.get())
-
+            mdSize = partsTable.size()
 
             for i in range(9, 1, -1):
                 makePath(self._getRunPath(self._level, i))
                 mStar = self._getFileName('input_star', lev=self._level, rLev=i)
-                size = 10000 * i if mdSize >= 100000 else int(mdSize * i / 10)
-                opticsTable = Table(fileName=imgStar, tableName='optics')
-                partsTable = Table(fileName=imgStar, tableName='particles')
+                size = 10000 * i if mdSize >= 100000 else int(mdSize * 0.1 * i)
+                print("partsTable: ", size, i, mdSize)
                 partsTable._rows = random.sample(partsTable._rows, k=size)
                 self.writeStar(mStar, partsTable, opticsTable)
 
