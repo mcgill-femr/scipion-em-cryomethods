@@ -1,3 +1,30 @@
+# **************************************************************************
+# *
+# * Authors:  Satinder Kaur (satinder.kaur@mail.mcgill.ca), May 2019
+# *
+# *
+# *
+# * Department of Anatomy and Cell Biology, McGill University, Montreal
+# *
+# * This program is free software; you can redistribute it and/or modify
+# * it under the terms of the GNU General Public License as published by
+# * the Free Software Foundation; either version 2 of the License, or
+# * (at your option) any later version.
+# *
+# * This program is distributed in the hope that it will be useful,
+# * but WITHOUT ANY WARRANTY; without even the implied warranty of
+# * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# * GNU General Public License for more details.
+# *
+# * You should have received a copy of the GNU General Public License
+# * along with this program; if not, write to the Free Software
+# * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+# * 02111-1307  USA
+# *
+# *  All comments concerning this program package may be sent to the
+# *  e-mail address 'satinder.kaur@mail.mcgill.ca'
+# *
+# **************************************************************************
 from glob import glob
 try:
     from itertools import izip
@@ -13,7 +40,7 @@ from pwem.emlib.image import ImageHandler
 from pwem.protocols import EMProtocol
 
 from cryomethods import Plugin
-from cryomethods.functions import NumpyImgHandler
+from cryomethods.functions import NumpyImgHandler as npih
 
 PCA_THRESHOLD = 0
 PCA_COUNT=1
@@ -140,23 +167,22 @@ class ProtLandscapePCA(EMProtocol):
     def alignVols(self):
         self._getAverageVol()
         avgVol= self._getFileName('avgMap')
-        npAvgVol = NumpyImgHandler.loadMrc(avgVol, False)
+        npAvgVol = npih.loadMrc(avgVol, False)
         dType = npAvgVol.dtype
         fnIn = self._getMrcVolumes()
         for vols in fnIn:
-            #FIXME Who is f
-            npVolAlign = f(vols, False)
+            npVolAlign = npih.loadMrc(vols, False)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
-            axis, shifts, angles, score = NumpyImgHandler.alignVolumes(npVolAlign, npAvgVol)
-            axisf, shiftsf, anglesf, scoref = NumpyImgHandler.alignVolumes(npVolFlipAlign,
+            axis, shifts, angles, score = npih.alignVolumes(npVolAlign, npAvgVol)
+            axisf, shiftsf, anglesf, scoref = npih.alignVolumes(npVolFlipAlign,
                                                            npAvgVol)
-            if scoref > score:
-                npVol = NumpyImgHandler.applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
+            if scoref > score: 
+                npVol = npih.applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
             else:
-                npVol = NumpyImgHandler.applyTransforms(npVolAlign, shifts, angles, axis)
+                npVol = npih.applyTransforms(npVolAlign, shifts, angles, axis)
 
-            NumpyImgHandler.saveMrc(npVol.astype(dType), vols)
+            npih.saveMrc(npVol.astype(dType), vols)
 
     def analyzePCAStep(self):
         self._createFilenameTemplates()
@@ -170,9 +196,9 @@ class ProtLandscapePCA(EMProtocol):
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
-        npAvgVol = NumpyImgHandler.loadMrc(avgVol, False)
+        npAvgVol = npih.loadMrc(avgVol, False)
         dType = npAvgVol.dtype
-        iniVolNp = NumpyImgHandler.loadMrc(fnIn[0], False)
+        iniVolNp = npih.loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
 
@@ -184,26 +210,26 @@ class ProtLandscapePCA(EMProtocol):
         for eignRow in vhDel.T:
             base = np.zeros(lenght)
             for (vol, eigenCoef) in izip(fnIn,eignRow):
-                volInp = NumpyImgHandler.loadMrc(vol, False)
+                volInp = npih.loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
                 volSubs= volInpR - npAvgVol.reshape(lenght)
                 base += volSubs*eigenCoef
                 volBase = base.reshape((dim, dim, dim))
             nameVol = 'volume_base_%02d.mrc' % (counter)
             print('-------------saving map %s-----------------' % nameVol)
-            NumpyImgHandler.saveMrc(volBase.astype(dType),self._getExtraPath(nameVol))
+            npih.saveMrc(volBase.astype(dType),self._getExtraPath(nameVol))
             counter += 1
 
         matProj = []
         baseMrc = self._getExtraPath("volume_base_??.mrc")
         baseMrcFile = sorted(glob(baseMrc))
         for vol in fnIn:
-            volNp = NumpyImgHandler.loadMrc(vol, False)
+            volNp = npih.loadMrc(vol, False)
             restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
-                npVol = NumpyImgHandler.loadMrc(baseVol, writable=False)
+                npVol = npih.loadMrc(baseVol, writable=False)
                 baseVol_row= npVol.reshape(lenght)
                 baseVol_col = baseVol_row.transpose()
                 projCoef = np.dot(volRow, baseVol_col)
@@ -216,12 +242,12 @@ class ProtLandscapePCA(EMProtocol):
         for projRow in matProj:
             vol = np.zeros((dim, dim,dim))
             for baseVol, proj in zip(baseMrcFile, projRow):
-                volNpo = NumpyImgHandler.loadMrc(baseVol, False)
+                volNpo = npih.loadMrc(baseVol, False)
                 vol += volNpo * proj
             finalVol= vol + npAvgVol
             nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
-            NumpyImgHandler.saveMrc(finalVol.astype(dType), self._getExtraPath('reconstructed_vols', nameVol))
+            npih.saveMrc(finalVol.astype(dType), self._getExtraPath('reconstructed_vols', nameVol))
             orignCount += 1
 
         # difference b/w input vol and original vol-----------------------------
@@ -230,12 +256,12 @@ class ProtLandscapePCA(EMProtocol):
         diffCount=0
         os.makedirs(self._getExtraPath('volDiff'))
         for a, b in zip(reconstMrcFile, fnIn):
-            volRec = NumpyImgHandler.loadMrc(a, False)
-            volInpThree = NumpyImgHandler.loadMrc(b, False)
+            volRec = npih.loadMrc(a, False)
+            volInpThree = npih.loadMrc(b, False)
             volDiff= volRec - volInpThree
             nameVol = 'volDiff_%02d.mrc' % (diffCount)
             print('-------------saving original_vols %s-----------------' % nameVol)
-            NumpyImgHandler.saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
+            npih.saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
             diffCount += 1
 
         #save coordinates:
@@ -255,16 +281,16 @@ class ProtLandscapePCA(EMProtocol):
 
         listVol = self._getMrcVolumes()
         avgVol = self._getFileName('avgMap')
-        npVol = NumpyImgHandler.loadMrc(listVol[0], writable=False)
+        npVol = npih.loadMrc(listVol[0], writable=False)
         dType = npVol.dtype
         npAvgVol = np.zeros(npVol.shape)
 
         for vol in listVol:
-            npVol = NumpyImgHandler.loadMrc(vol, writable=False)
+            npVol = npih.loadMrc(vol, writable=False)
             npAvgVol += npVol
 
         npAvgVol = np.divide(npAvgVol, len(listVol))
-        NumpyImgHandler.saveMrc(npAvgVol.astype(dType), avgVol)
+        npih.saveMrc(npAvgVol.astype(dType), avgVol)
 
     def _getCovMatrix(self):
         if self.alignment.get()==0:
@@ -276,21 +302,21 @@ class ProtLandscapePCA(EMProtocol):
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
-        npAvgVol = NumpyImgHandler.loadMrc(avgVol, False)
+        npAvgVol = npih.loadMrc(avgVol, False)
         dType = npAvgVol.dtype
-        iniVolNp = NumpyImgHandler.loadMrc(fnIn[0], False)
+        iniVolNp = npih.loadMrc(fnIn[0], False)
         dim = iniVolNp.shape[0]
         lenght = dim ** 3
         cov_matrix = []
         for vol in fnIn:
-            volNp = NumpyImgHandler.loadMrc(vol, False)
+            volNp = npih.loadMrc(vol, False)
             volList = volNp.reshape(lenght)
 
             row = []
             # Now, using diff volume to estimate PCA
             b = volList - npAvgVol.reshape(lenght)
             for j in fnIn:
-                npVol = NumpyImgHandler.loadMrc(j, writable=False)
+                npVol = npih.loadMrc(j, writable=False)
                 volList_a = npVol.reshape(lenght)
                 volList_two = volList_a - npAvgVol.reshape(lenght)
                 temp_a= np.corrcoef(volList_two, b).item(1)
@@ -312,7 +338,7 @@ class ProtLandscapePCA(EMProtocol):
         inputObj = self.inputVolumes.get()
         filesPath = []
         for i in inputObj:
-            a = NumpyImgHandler.getImageLocation(i)
+            a = npih.getImageLocation(i)
             filesPath.append(a)
 
         return sorted(glob(filesPath))
