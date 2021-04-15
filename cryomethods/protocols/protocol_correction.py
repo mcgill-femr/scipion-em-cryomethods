@@ -25,44 +25,46 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import re
 from glob import glob
-from os.path import exists
-import numpy as np
+
+from pwem.emlib.image import ImageHandler
+from pwem.objects import Volume, Float, SetOfVolumes, ALIGN_PROJ
+from pyworkflow.utils import replaceBaseExt, replaceExt
 from scipy import stats
+import numpy as np
+from pwem.protocols import EMProtocol, PointerParam
+import pwem.emlib.metadata as md
 
-import pyworkflow as pw
+from cryomethods.constants import MASK_FILL_ZERO
+from cryomethods.convert import convertMask
 
 
-class ProtocolMapCorrector(pw.em.EMProtocol):
+class ProtocolMapCorrector(EMProtocol):
     """ Descrption of the method
     """
 
     def __init__(self, **args):
-        pw.em.EMProtocol.__init__(self, **args)
+        EMProtocol.__init__(self, **args)
 
     # -------------------------- DEFINE param functions -----------------------
     def _defineInputParams(self, form):
-        form.addParam('inputVolume', pw.params.PointerParam,
+        form.addParam('inputVolume', PointerParam,
                       pointerClass='Volume',
                       important=True,
                       label='Input Volume',
                       help='Initial 3D map to correct')
 
-        form.addParam('output', pw.params.PointerParam,
+        form.addParam('output', PointerParam,
                       pointerClass='Volume',
                       important=True,
                       label='output',
                       help='Initial 3D map to correct')
-
-
 
     # -------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):
         self._insertFunctionStep('anisotropicCorrectionStep')
         self._insertFunctionStep('sharpeningStep')
         self._insertFunctionStep('outputStep')
-
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
@@ -73,8 +75,8 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         self.inputvolume.get()
         pass
 
-
     def sharpeningStep(self, iter):
+        # FIXME: Who is output
         output_one= self.anisotropicCorrectionStep(output)
         if output_one is None:
             self.inputvolume.get()
@@ -228,12 +230,12 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
     def _setMaskArgs(self, args):
         if self.IS_3D:
             if self.referenceMask.hasValue():
-                mask = conv.convertMask(self.referenceMask.get(),
+                mask = convertMask(self.referenceMask.get(),
                                         self._getTmpPath())
                 args['--solvent_mask'] = mask
 
             if self.solventMask.hasValue():
-                solventMask = conv.convertMask(self.solventMask.get(),
+                solventMask = convertMask(self.solventMask.get(),
                                                self._getTmpPath())
                 args['--solvent_mask2'] = solventMask
 
@@ -272,7 +274,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
                                                    iter=continueIter)
 
     def _getParams(self, args):
-        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
 
     def _getScratchDir(self):
         """ Returns the scratch dir value without spaces.
@@ -298,7 +300,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
             f = files[index]
             s = self._iterRegex.search(f)
             if s:
-                result = long(s.group(1))  # group 1 is 3 digits iteration
+                result = int(s.group(1))  # group 1 is 3 digits iteration
                 # number
         return result
 
@@ -312,7 +314,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
     def _splitInCTFGroups(self, imgStar):
         """ Add a new column in the image star to separate the particles
         into ctf groups """
-        conv.splitInCTFGroups(imgStar,
+        splitInCTFGroups(imgStar,
                               self.defocusRange.get(),
                               self.numParticles.get())
 
@@ -333,14 +335,14 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
             resol = row.getValue('rlnEstimatedResolution')
 
             if classDistrib > 0:
-                vol = em.Volume()
+                vol = Volume()
                 self._invertScaleVol(fnMrc)
                 vol.setFileName(self._getOutputVolFn(fnMrc))
                 vol.setObjId(itemId)
-                vol._rlnClassDistribution = em.Float(classDistrib)
-                vol._rlnAccuracyRotations = em.Float(accurracyRot)
-                vol._rlnAccuracyTranslations = em.Float(accurracyTras)
-                vol._rlnEstimatedResolution = em.Float(resol)
+                vol._rlnClassDistribution = Float(classDistrib)
+                vol._rlnAccuracyRotations = Float(accurracyRot)
+                vol._rlnAccuracyTranslations = Float(accurracyTras)
+                vol._rlnEstimatedResolution = Float(resol)
                 volSet.append(vol)
 
     def _getRefArg(self):
@@ -350,7 +352,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         It will return None if no --ref should be used. """
         if self.IS_3D:
             inputObj = self.inputVolumes.get()
-            if isinstance(inputObj, em.SetOfVolumes):
+            if isinstance(inputObj, SetOfVolumes):
                 # input SetOfVolumes as references
                 return self._getRefStar()
         return None  # No --ref should be used at this point
@@ -376,7 +378,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
 
     def _convertRef(self):
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         inputObj = self.inputVolumes.get()
         row = md.Row()
         refMd = md.MetaData()
@@ -393,7 +395,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         nyquist = 2 * partSet.getSamplingRate()
 
         if tgResol > nyquist:
-            newSize = long(round(size * nyquist / tgResol))
+            newSize = int(round(size * nyquist / tgResol))
             if newSize % 2 == 1:
                 newSize += 1
             return newSize
@@ -413,7 +415,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         newFn = self._getTmpPath('particles_subset.mrcs')
         xdim = self._getNewDim()
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         image = ih.read((index, fn))
         image.scale(xdim, xdim)
 
@@ -425,7 +427,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
 
     def _convertInput(self, imgSet):
         newDim = self._getNewDim()
-        bg = newDim / 2
+        bg = int(newDim / 2)
 
         args = '--operate_on %s --operate_out %s --norm --bg_radius %d'
 
@@ -459,7 +461,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
     def _invertScaleVol(self, fn):
         xdim = self._getInputParticles().getXDim()
         outputFn = self._getOutputVolFn(fn)
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         img = ih.read(fn)
         img.scale(xdim, xdim, xdim)
         img.write(outputFn)
@@ -469,7 +471,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
 
     def _postprocessImageRow(self, img, imgRow):
         partId = img.getParticleId()
-        imgRow.setValue(md.RLN_PARTICLE_ID, long(partId))
+        imgRow.setValue(md.RLN_PARTICLE_ID, int(partId))
         imgRow.setValue(md.RLN_MICROGRAPH_NAME,
                         "%06d@fake_movie_%06d.mrcs"
                         % (img.getFrameId(), img.getMicId()))
@@ -501,7 +503,7 @@ class ProtocolMapCorrector(pw.em.EMProtocol):
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
         mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
-        if alignType == em.ALIGN_PROJ:
+        if alignType == ALIGN_PROJ:
             mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
             mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
 

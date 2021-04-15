@@ -1,5 +1,11 @@
 # Include the README
-include *.md
+ include *.rst
 
 # Include the license file
-include LICENSE
+ include LICENSE
+
+# Include conf file
+ include cryomethods/protocols.conf
+
+# Include the requirement file
+include requirements.txt

@@ -23,8 +23,7 @@
 # *  All comments concerning this program package may be sent to the
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
-# **************************************************************************
-from itertools import izip
+# ***************** *********************************************************
 import numpy as np
 
 
@@ -32,11 +31,6 @@ class NumpyImgHandler(object):
     """ Class to provide several Numpy arrays manipulation utilities. """
 
     def __init__(self):
-        # Now it will use Xmipp image library
-        # to read and write most of formats, in the future
-        # if we want to be independent of Xmipp, we should have
-        # our own image library
-
         pass
 
     @classmethod
@@ -235,7 +229,7 @@ class MlMethods(object):
         dim = npAvgVol.shape[0]
         for eigenRow in eigVecMat:
             volBase = np.zeros((dim, dim, dim))
-            for (volFn, eigenCoef) in izip(listVol, eigenRow):
+            for (volFn, eigenCoef) in zip(listVol, eigenRow):
                 npVol = npIh.loadMrc(volFn, False)
                 restNpVol = npVol - npAvgVol
                 volBase += eigenCoef * restNpVol
@@ -278,10 +272,61 @@ class MlMethods(object):
 
 
 def correctAnisotropy(volNp, weight, q, minFreq, maxFreq):
-    from correct_anysotropy import correctAnisotropy
     # minFreq and maxFreq are in normalized frequency (max 0.5)
     size = volNp.shape[0]
     minFr = int(minFreq * size)
     maxFr = int(maxFreq * size)
 
     return correctAnisotropy(volNp, weight, q, minFr, maxFr)
+
+
+def num_flat_features(x):
+    """
+    Flat a matrix and calculate the number of features
+    """
+    sizes = x.size()[1:]
+    num_features = 1
+    for s in sizes:
+        num_features *= s
+    return num_features
+
+
+def normalize(mat):
+    """
+    Set a numpy array as standard score and after that scale the data between 0 and 1.
+    """
+    mean = mat.mean()
+    sigma = mat.std()
+    mat = (mat - mean) / sigma
+    a = mat.min()
+    b = mat.max()
+    mat = (mat-a)/(b-a)
+    return mat
+
+def calcPsd(img):
+    """
+    Calculate PSD using periodogram
+    """
+    img_f = np.fft.fft2(img)
+    img_f = np.fft.fftshift(img_f)
+    img_f = abs(img_f)
+    # img_f = img_f * img_f
+    rows, cols = img_f.shape
+    img_f = img_f / (rows * cols)
+    return img_f
+
+
+def calcAvgPsd(img, windows_size = 256, step_size = 128):
+    """
+    Calculate PSD using average periodogram
+    """
+    print(img.shape)
+    rows, cols = img.shape
+    avg_psd = np.zeros((windows_size, windows_size))
+    count = 0
+    for i in range(0, rows - windows_size, step_size):
+        for j in range(0, cols - windows_size, step_size):
+            count +=1
+            avg_psd += calcPsd(img[i:i+windows_size, j:j+windows_size])
+    avg_psd /= count
+    return np.log(avg_psd)

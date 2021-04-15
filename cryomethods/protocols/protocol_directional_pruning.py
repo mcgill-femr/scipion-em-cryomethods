@@ -23,26 +23,25 @@
 # *  All comments concerning this program package may be sent to the
 # *  e-mail address 'jmdelarosa@cnb.csic.es'
 # *
-# **************************************************************************
-import glob
+# **************************************************************************f
 from os.path import join, exists
 import math
 import numpy as np
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.params as pwparams
 import pyworkflow.protocol.constants as pwcons
 import pyworkflow.utils.path as pwpath
+from pwem.emlib.image import ImageHandler
+from pwem.objects import SetOfParticles, ALIGN_PROJ
+from pwem.protocols import ProtAnalysis3D, ALIGN_NONE
 
-import cryomethods.convertXmp as convXmp
+import cryomethods.convert.convertXmp as convXmp
 import cryomethods.constants as cmcons
-from cryomethods.convert import writeSetOfParticles, splitInCTFGroups
+from cryomethods.convert import writeSetOfParticles
 #
 
-import pyworkflow.object as pwobj
-
-class ProtDirectionalPruning(em.ProtAnalysis3D):
+class ProtDirectionalPruning(ProtAnalysis3D):
     """    
     Analyze 2D classes as assigned to the different directions. Be more
     creative and do better explanation about your method.
@@ -50,7 +49,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
     _label = 'directional_pruning'
 
     def __init__(self, *args, **kwargs):
-        em.ProtAnalysis3D.__init__(self, *args, **kwargs)
+        ProtAnalysis3D.__init__(self, *args, **kwargs)
 
     #--------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
@@ -428,7 +427,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         convXmp.writeSetOfParticles(imgSet, self._getInputXmd())
         newXdim =self._getNewDim()
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         inputVol = self.inputVolume.get()
         fn = ih.fixXmippVolumeFileName(inputVol)
         img = ih.read(fn)
@@ -567,14 +566,14 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         mdOutput.write(fnOutput)
 
     def _runRelionStep(self, fnOut, fnBlock, fnDir, imgNo, fnGallery):
-        relPart = em.SetOfParticles(filename=":memory:")
+        relPart = SetOfParticles(filename=":memory:")
         convXmp.readSetOfParticles(fnBlock, relPart)
 
         if self.copyAlignment.get():
             alignType = relPart.getAlignment()
-            alignType != em.ALIGN_NONE
+            alignType != ALIGN_NONE
         else:
-            alignType = em.ALIGN_NONE
+            alignType = ALIGN_NONE
 
         alignToPrior = getattr(self, 'alignmentAsPriors', False)
         fillRandomSubset = getattr(self, 'fillRandomSubset', False)
@@ -601,7 +600,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         self._setComputeArgs(args)
 
         params = ' '.join(
-            ['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+            ['%s %s' % (k, str(v)) for k, v in args.items()])
         print('Vamos a correr relion', params)
         self.runJob(self._getRelionProgram(), params)
 
@@ -745,17 +744,15 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
             args['--offset_step']  = self.offsetSearchStepPix.get() * 2
             args['--psi_step'] = self.inplaneAngularSamplingDeg.get() * 2
 
-
     def _copyAlignAsPriors(self, mdParts, alignType):
         # set priors equal to orig. values
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
         mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
         mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
 
-        if alignType == em.ALIGN_PROJ:
+        if alignType == ALIGN_PROJ:
             mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
             mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
-
 
     def _postprocessParticleRow(self, part, partRow):
         if part.hasAttribute('_rlnGroupName'):
@@ -796,7 +793,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         return self._getPath(filename)
 
     def _getParams(self, args):
-        params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.iteritems()])
+        params = ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
         return params
 
 
@@ -807,7 +804,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         nyquist = 2 * partSet.getSamplingRate()
 
         if tgResol > nyquist:
-            newSize = long(round(size * nyquist / tgResol))
+            newSize = int(round(size * nyquist / tgResol))
             if newSize % 2 == 1:
                 newSize += 1
             return newSize
@@ -820,7 +817,7 @@ class ProtDirectionalPruning(em.ProtAnalysis3D):
         newFn = self._getTmpPath('particles_subset.mrcs')
         xdim = self._getNewDim()
 
-        ih = em.ImageHandler()
+        ih = ImageHandler()
         image = ih.read((index, fn))
         image.scale(xdim, xdim)
 

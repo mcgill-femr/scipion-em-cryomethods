@@ -1,21 +1,14 @@
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
-import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
-from pyworkflow.object import Float
+import pyworkflow.protocol.params as params
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler
 
 from .protocol_base import ProtocolBase
 
-from ..functions import num_flat_features, calcAvgPsd
+from cryomethods.functions import num_flat_features, calcAvgPsd
 
-from pyworkflow.em.data import CTFModel
+from pwem.objects import CTFModel
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -252,7 +245,7 @@ def predict(model, device, data_loader, trainset):
             # Move tensors to the configured device
             filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
             image = data['image']
-            saveMrc(np.float32(image.numpy()), filename)
+            NumpyImgHandler.saveMrc(np.float32(image.numpy()), filename)
             image = image.to(device)
             # Forward pass
             output = model(image)
@@ -371,13 +364,14 @@ class LoaderPredict(Dataset):
         return {'image': img, 'name': img_path}
 
     def open_image(self, filename):
-        img = loadMrc(filename)
+        img = NumpyImgHandler.loadMrc(filename)
         # _min = img.min()
         # _max = img.max()
         # img = (img - _min) / (_max - _min)
         psd = calcAvgPsd(img[0,:,:], windows_size = 512, step_size = 128)
         # img = np.resize(img, (1, 512, 512))
         return torch.from_numpy(np.float32(psd))
+
 
 class LoaderTrain(Dataset):
     """
@@ -408,7 +402,7 @@ class LoaderTrain(Dataset):
         return {'image': img, 'target': target, 'name': img_path}
 
     def open_image(self, filename):
-        img = loadMrc(filename)
+        img = NumpyImgHandler.loadMrc(filename)
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)

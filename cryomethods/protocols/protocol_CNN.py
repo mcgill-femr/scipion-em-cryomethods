@@ -1,19 +1,14 @@
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
-import pyworkflow.protocol.constants as cons
 import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
 
 from pyworkflow.object import Float
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.functions import NumpyImgHandler
 
 from .protocol_base import ProtocolBase
 
-from ..functions import num_flat_features, normalize
+#FIXME Where are num_flat_features, normalize
+from cryomethods.functions import num_flat_features, normalize
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -98,13 +93,13 @@ class ProtSCNN(ProtocolBase):
     # --------------- INSERT steps functions ----------------
 
     def _insertAllSteps(self):
-        self._insertFunctionStep('convertInputStep')
-        self._insertFunctionStep('runCNNStep')
-        self._insertFunctionStep('createOutputStep')
+        self._insertFunctionStep('_convertInputStep')
+        self._insertFunctionStep('_runCNNStep')
+        self._insertFunctionStep('_createOutputStep')
 
     # --------------- STEPS functions -----------------------
 
-    def convertInputStep(self):
+    def _convertInputStep(self):
         """
         Read the input.
             - Train: it use two SetOfMicrograph, one belongs to positive class and the other to the negative class.
@@ -117,13 +112,13 @@ class ProtSCNN(ProtocolBase):
             self.good_data = list(self.positiveInput.get().getFiles())
             self.bad_data = list(self.negativeInput.get().getFiles())
 
-    def runCNNStep(self):
+    def _runCNNStep(self):
         if self.predictEnable:
             self.results = self.classsify_micrographs(self.images_path)
         else:
             self.train_nn(self.good_data, self.bad_data)
 
-    def createOutputStep(self):
+    def _createOutputStep(self):
         """ 
         Create outputs:
         Train: Create and save one plot of the training loss.
@@ -212,7 +207,6 @@ class ProtSCNN(ProtocolBase):
             model.train()
             torch.save(model.cpu(), os.path.join(
                 self.weightFolder.get(), 'model.pt'))
-
 
     def plot_loss_screening(self, loss_list, accuracy_list):
 
@@ -402,7 +396,7 @@ class LoaderPredict(Dataset):
     def __getitem__(self, item):
         data = self._data[item]
         img_path = data['file']
-        img = loadMrc(img_path)
+        img = NumpyImgHandler.loadMrc(img_path)
         img = normalize(img)
         img = np.resize(img, self._size)
         img = torch.from_numpy(img)
@@ -443,7 +437,7 @@ class LoaderTrain(Dataset):
         data = self._data[item]
         img_path = data['file']
         label = data['label']
-        img = loadMrc(img_path)
+        img = NumpyImgHandler.loadMrc(img_path)
         img = normalize(img)
         img = np.resize(img, self._size)
         img = torch.from_numpy(img)

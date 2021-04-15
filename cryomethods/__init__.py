@@ -28,18 +28,18 @@
 This sub-package contains cryoMethods protocols and tools.
 """
 import os, sys
-import pyworkflow.em
+import pwem
 import pyworkflow.utils as pwutils
 
-from .constants import RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_0, \
-    XMIPP_CRYOMETHODS_HOME, NMA_HOME
+from .constants import (RELION_CRYOMETHODS_HOME, CRYOMETHODS_HOME, V3_1, V3_0,
+                        XMIPP_CRYOMETHODS_HOME, NMA_HOME)
 
 # from bibtex import _bibtex # Load bibtex dict with references
 _logo = "cryomethods_logo.png"
 _references = []
 
 
-class Plugin(pyworkflow.em.Plugin):
+class Plugin(pwem.Plugin):
     _homeVar = CRYOMETHODS_HOME
     _pathVars = [CRYOMETHODS_HOME, RELION_CRYOMETHODS_HOME,
                  XMIPP_CRYOMETHODS_HOME]
@@ -48,10 +48,9 @@ class Plugin(pyworkflow.em.Plugin):
     @classmethod
     def _defineVariables(cls):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
-        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.0')
+        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.1.0')
         cls._defineEmVar(XMIPP_CRYOMETHODS_HOME, 'xmipp')
         cls._defineEmVar(NMA_HOME, 'nma')
-
 
     @classmethod
     def getEnviron(cls):
@@ -80,9 +79,6 @@ class Plugin(pyworkflow.em.Plugin):
         env.update({'PATH': Plugin.getVar(NMA_HOME)},
                     position=pwutils.Environ.BEGIN)
         return env
-
-        return environ
-
 
     @classmethod
     def __getRelionHome(cls, *paths):
@@ -175,7 +171,20 @@ class Plugin(pyworkflow.em.Plugin):
     @classmethod
     def getSupportedRelionVersions(cls):
         """ Return the list of supported binary versions. """
-        return [V3_0]
+        return [V3_0, V3_1]
+
+    @classmethod
+    def IS_RELION_30(cls):
+        return cls.getActiveRelionVersion().startswith('3.0')
+
+    @classmethod
+    def IS_RELION_31(cls):
+        # avoid using this, IS_GT30 is preferred
+        return cls.getActiveRelionVersion().startswith('3.1')
+
+    @classmethod
+    def IS_RELION_GT30(cls):
+        return not cls.getActiveRelionVersion().startswith('3.0')
 
     @classmethod
     def getSupportedVersions(cls):
@@ -196,7 +205,8 @@ class Plugin(pyworkflow.em.Plugin):
         env.addPackage('cryomethods', version='0.1',
                        url=url, vars=environ,
                        commands=[(commands, target)])
-        ## PIP PACKAGES ##
+
+        # PIP PACKAGES #
         def addPipModule(moduleName, *args, **kwargs):
             """ To try to add certain pipModule.
                 If it fails due to it is already add by other plugin or Scipion,
@@ -210,23 +220,5 @@ class Plugin(pyworkflow.em.Plugin):
                     return moduleName
                 else:
                     raise Exception(e)
-        #
-        # joblib = addPipModule('joblib', '0.11', target='joblib*')
-        #
-        # ## --- DEEP LEARNING TOOLKIT --- ##
-        scipy = addPipModule('scipy', '0.14.0', default=False,
-                                deps=['lapack', 'matplotlib'])
-        cython = addPipModule('cython', '0.22', target='Cython-0.22*',
-                                 default=False)
-        scikit_learn = addPipModule('scikit-learn', '0.20.0',
-                                       target='scikit_learn*',
-                                       default=True, deps=[scipy, cython])
-        # unittest2 = addPipModule('unittest2', '0.5.1', target='unittest2*',
-        #                             default=False)
-        # h5py = addPipModule('h5py', '2.8.0rc1', target='h5py*',
-        #                        default=False, deps=[unittest2])
-        # cv2 = addPipModule('opencv-python', "3.4.2.17",
-        #                       target="cv2", default=False)
 
-pyworkflow.em.Domain.registerPlugin(__name__)
 # ; python programs/src/programs_compile.py

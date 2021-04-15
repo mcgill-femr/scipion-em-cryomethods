@@ -19,7 +19,7 @@ class CondaEnvManager(object):
     if "CONDA_HOME" in env:  # TODO. Allow CONDA_HOME to be in config file
       condaRoot = "CONDA_HOME"
     if "CONDA_ACTIVATION_CMD" in env:
-      condaRoot = os.path.split(os.path.split(os.path.split(env["CONDA_ACTIVATION_CMD"])[0])[0])[0]
+      condaRoot = os.path.split(os.path.split(os.path.split(env['CONDA_ACTIVATION_CMD'])[0])[0])[0]
       condaRoot = re.sub("^\.", "", condaRoot).strip()
     else:
       if "CONDA_EXE" in env:
@@ -57,7 +57,7 @@ class CondaEnvManager(object):
                                                    condaEnv, "lib/python*/site-packages/")
       if CondaEnvManager.DICT_OF_CONDA_ENVIRONS[condaEnv]["pythonVersion"][:3]=="2.7":
         newPythonPath+=":"+env["PYTHONPATH"]
-      env.update( {"PYTHONPATH": newPythonPath})
+      env.update({"PYTHONPATH": newPythonPath})
       return env
 
   @staticmethod

@@ -1,7 +1,8 @@
 from pyworkflow.tests import *
 
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes
+from pwem.protocols import ProtImportParticles, ProtImportVolumes
 from cryomethods.protocols import ProtLandscapePCA
+
 
 class TestBase(BaseTest):
     @classmethod

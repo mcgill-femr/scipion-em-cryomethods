@@ -24,25 +24,17 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import os
-import re
-import copy
-import random
-import numpy as np
-from glob import glob
-from collections import Counter
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
-from pyworkflow.em.convert import ImageHandler
+import pwem as em
+import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
-import pyworkflow.protocol.params as params
-from pyworkflow.utils import (makePath, copyFile, replaceBaseExt)
+from pyworkflow.object import Float, String
+from pyworkflow.utils import makePath
 
 from cryomethods import Plugin
-from cryomethods.convert import (writeSetOfParticles, rowToAlignment,
-                                 relionToLocation, loadMrc, saveMrc,
-                                 alignVolumes, applyTransforms)
+from cryomethods.convert import writeSetOfParticles
+from ..convert.convert_deprecated import rowToAlignment
+from ..functions import NumpyImgHandler
 
 from .protocol_auto_base import ProtAutoBase
 
@@ -117,10 +109,9 @@ class Prot2DAutoClassifier(ProtAutoBase):
 
             hasAlign = alignType != em.ALIGN_NONE
             alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr(
-                'fillRandomSubset')
-
-            writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
+            writeSetOfParticles(imgSet, imgStar,
+                                outputDir=self._getExtraPath(),
                                 alignType=alignType,
                                 postprocessImageRow=self._postprocessParticleRow,
                                 fillRandomSubset=fillRandomSubset)
@@ -145,7 +136,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
                         mdInput.write(fn)
                     paths = self._getRunPath(self._level, clsPart)
                     makePath(paths)
-                    print ("Path: %s and newRlev: %d" % (paths, clsPart))
+                    print("Path: %s and newRlev: %d" % (paths, clsPart))
                     lastCls = clsPart
                     mdInput = md.MetaData()
                     fn = self._getFileName('input_star', lev=self._level,
@@ -200,7 +191,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
     def _mrcToNp(self, volList, avgVol=None):
         listNpVol = []
         for vol in volList:
-            volNp = loadMrc(vol, False)
+            volNp = NumpyImgHandler.loadMrc(vol, False)
             dim = volNp.shape[1]
             lenght = dim**2
             volList = volNp.reshape(lenght)
@@ -211,9 +202,9 @@ class Prot2DAutoClassifier(ProtAutoBase):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
         item.setTransform(rowToAlignment(row, em.ALIGN_2D))
 
-        item._rlnLogLikeliContribution = em.Float(
+        item._rlnLogLikeliContribution = Float(
             row.getValue('rlnLogLikeliContribution'))
-        item._rlnMaxValueProbDistribution = em.Float(
+        item._rlnMaxValueProbDistribution = Float(
             row.getValue('rlnMaxValueProbDistribution'))
-        item._rlnGroupName = em.String(row.getValue('rlnGroupName'))
+        item._rlnGroupName = String(row.getValue('rlnGroupName'))
 

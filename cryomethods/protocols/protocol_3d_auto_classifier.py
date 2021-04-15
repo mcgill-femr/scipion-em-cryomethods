@@ -24,16 +24,18 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-import os
 import numpy as np
 
-import pyworkflow.em as em
-import pyworkflow.em.metadata as md
+import pwem.emlib.metadata as md
+import pwem.emlib as emlib
 import pyworkflow.protocol.constants as cons
-from pyworkflow.utils import (makePath, copyFile)
+from emtable import Table
+from pwem import ALIGN_NONE
+from pwem.emlib.image import ImageHandler
+from pyworkflow.utils import makePath
 
 from cryomethods import Plugin
-from cryomethods.convert import writeSetOfParticles, loadMrc
+from cryomethods.convert import writeSetOfParticles
 
 from .protocol_auto_base import ProtAutoBase
 
@@ -92,6 +94,7 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
+        import random
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
         """
@@ -99,19 +102,18 @@ class Prot3DAutoClassifier(ProtAutoBase):
             makePath(self._getRunPath(self._level, 1))
             imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
             self._convertStar(copyAlignment, imgStar)
-            mdInput = self._getMetadata(imgStar)
-            mdSize = mdInput.size()
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
+            opticsTable = Table(fileName=imgStar, tableName='optics')
+            partsTable = Table(fileName=imgStar, tableName='particles')
+            self._convertVol(ImageHandler(), self.inputVolumes.get())
+            mdSize = partsTable.size()
 
-            for i in range(2, 10, 1):
+            for i in range(9, 1, -1):
                 makePath(self._getRunPath(self._level, i))
                 mStar = self._getFileName('input_star', lev=self._level, rLev=i)
-                size = 10000 * i if mdSize >= 100000 else mdSize * i / 10
-                mdAux1 = self._getMetadata()
-                mdAux2 = self._getMetadata()
-                mdAux1.randomize(mdInput)
-                mdAux2.selectPart(mdAux1, 1, size)
-                mdAux2.write(mStar)
+                size = 10000 * i if mdSize >= 100000 else int(mdSize * 0.1 * i)
+                print("partsTable: ", size, i, mdSize)
+                partsTable._rows = random.sample(partsTable._rows, k=size)
+                self.writeStar(mStar, partsTable, opticsTable)
 
         elif self._level == 1:
             imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
@@ -119,32 +121,41 @@ class Prot3DAutoClassifier(ProtAutoBase):
             self._convertStar(copyAlignment, imgStar)
 
             # find a clever way to avoid volume conversion if its already done.
-            self._convertVol(em.ImageHandler(), self.inputVolumes.get())
-
+            self._convertVol(ImageHandler(), self.inputVolumes.get())
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
-            mdData = md.MetaData(prevStar)
+            firstStarFn = self._getFileName('input_star', lev=1, rLev=1)
+            # mdData = md.MetaData(prevStar)
+            opTable = Table(fileName=firstStarFn, tableName='optics')
 
-            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            tableIn = Table(fileName=prevStar, tableName='particles')
+            cols = [str(c) for c in tableIn.getColumnNames()]
+
+            pTable = Table()
+            for row in pTable.iterRows(prevStar, key="rlnClassNumber",
+                                       tableName='particles'):
+                clsPart = row.rlnClassNumber
                 if clsPart != lastCls:
                     makePath(self._getRunPath(self._level, clsPart))
 
                     if lastCls is not None:
                         print("writing %s" % fn)
-                        mdInput.write(fn)
+                        # mdInput.write(fn)
+                        self.writeStar(fn, newPTable, opTable)
                     paths = self._getRunPath(self._level, clsPart)
                     makePath(paths)
                     print ("Path: %s and newRlev: %d" % (paths, clsPart))
                     lastCls = clsPart
-                    mdInput = md.MetaData()
+                    newPTable = Table(columns=cols, tableName='particles')
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=clsPart)
-                objId = mdInput.addObject()
-                row.writeToMd(mdInput, objId)
+                # objId = mdInput.addObject()
+                newPTable.addRow(*row)
+                # row.writeToMd(mdInput, objId)
             print("writing %s and ending the loop" % fn)
-            mdInput.write(fn)
+            self.writeStar(fn, newPTable, opTable)
+            # mdInput.write(fn)
 
     def evaluationStep(self):
         Plugin.setEnviron()
@@ -223,13 +234,14 @@ class Prot3DAutoClassifier(ProtAutoBase):
 
         # Pass stack file as None to avoid write the images files
         # If copyAlignment is set to False pass alignType to ALIGN_NONE
-        alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment else ALIGN_NONE
 
-        hasAlign = alignType != em.ALIGN_NONE
+        hasAlign = alignType != ALIGN_NONE
         alignToPrior = hasAlign and self.alignmentAsPriors.get()
         fillRandomSubset = hasAlign and self.fillRandomSubset.get()
 
-        writeSetOfParticles(imgSet, imgStar, self._getExtraPath(),
+        writeSetOfParticles(imgSet, imgStar,
+                            outputDir=self._getExtraPath(),
                             alignType=alignType,
                             postprocessImageRow=self._postprocessParticleRow,
                             fillRandomSubset=fillRandomSubset)

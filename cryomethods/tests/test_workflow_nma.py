@@ -24,17 +24,9 @@
 # *
 # **************************************************************************
 
-from pyworkflow.tests.em.workflows.test_workflow import TestWorkflow
-
-
-
-from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
-
-from xmipp3.protocols.pdb.protocol_pseudoatoms_base import NMA_MASK_THRE
 from pyworkflow.tests import *
-
-from pyworkflow.em import ProtImportParticles, ProtImportVolumes
-
+from pwem.protocols import ProtImportParticles, ProtImportVolumes
+from cryomethods.protocols.protocol_NMA_landscape import ProtLandscapeNMA
 
 class TestBase(BaseTest):
     @classmethod
@@ -79,7 +71,6 @@ class TestBase(BaseTest):
         return protImport
 
 
-
 class CryoMetTestNMA(TestBase):
     """ Check the images are converted properly to spider format. """
     @classmethod
@@ -102,7 +93,7 @@ class CryoMetTestNMA(TestBase):
         protConvertVol.inputParticles.set(self.protImport.outputParticles)
         protConvertVol.subsetSize.set(100)
         protConvertVol.inputVolume.set(self.protImportVol.outputVolumes)
-        protConvertVol.maskMode.set(NMA_MASK_THRE)
+        protConvertVol.maskMode.set(0)
         protConvertVol.maskThreshold.set(0.2)
         protConvertVol.pseudoAtomRadius.set(2.5)
         self.launchProtocol(protConvertVol)
