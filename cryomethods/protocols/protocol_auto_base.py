@@ -572,14 +572,13 @@ class ProtAutoBase(ProtocolBase):
                         break
 
             if self.stopDict[mapId]:
-                if mapId != newMapId:
-                    if newMapId != '00.000':
-                        print(mdClass)
-                        mdClass.write(classMd)
-                    classMd = self._getFileName('mdataForClass', id=mapId)
-                    mdClass = self._getMetadata(classMd)
-                    newMapId = mapId
-
+                # if mapId != newMapId:
+                #     if newMapId != '00.000':
+                #         print(mdClass)
+                #         mdClass.write(classMd)
+                #     classMd = self._getFileName('mdataForClass', id=mapId)
+                #     mdClass = self._getMetadata(classMd)
+                #     newMapId = mapId
                 classId = self._clsIdDict[mapId]
                 newRow = row._replace(rlnClassNumber=classId)
                 finalTable.addRow(*newRow)
@@ -587,9 +586,9 @@ class ProtAutoBase(ProtocolBase):
                 classId = int(mapId.split('.')[1])
                 newRow = row._replace(rlnClassNumber=classId)
                 outTable.addRow(*newRow)
-        if self.stopDict[mapId]:
-            if mdClass.size() != 0:
-                mdClass.write(classMd)
+        # if self.stopDict[mapId]:
+        #     if mdClass.size() != 0:
+        #         mdClass.write(classMd)
 
         if finalTable.size() != 0:
             print("finalTable.size: ", finalTable.size())
