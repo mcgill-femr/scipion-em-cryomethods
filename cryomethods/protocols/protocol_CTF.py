@@ -141,9 +141,9 @@ class ProtDCTF(ProtocolBase):
         Method to create the model and train it
         """
         # this file path need to be changed 
-        trainset = LoaderTrain(images_path, '/home/alex/cryoem/norm.txt')
+        trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(
-            trainset, batch_size=32, shuffle=True, num_workers=32, pin_memory=True)
+            trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
         # Set device
@@ -201,7 +201,7 @@ class ProtDCTF(ProtocolBase):
         Method to prepare the model and calculate the CTF of the psd
         """
         # this file path need to be changed 
-        trainset = LoaderPredict(images_path, '/home/alex/cryoem/norm.txt')
+        trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/norm.txt') #'/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -263,8 +263,11 @@ def train(model, device, train_loader, optimizer, loss_function):
     model.train()
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
+        print("JV")
+        print(data['image'])
         data, target = data['image'].to(device), data['target'].to(device)
-        
+        print("JV")
+
         # Forward pass
         output = model(data)
         loss = loss_function(output, target)       
@@ -381,11 +384,11 @@ class LoaderTrain(Dataset):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
-        self.normalization = Normalization(None)        
-        self.normalization.load(norm_file)
+        self.normalization = Normalization(None)
+        #self.normalization.load(norm_file)
 
         dataMatrix = np.array([d['target'] for d in data])
-        dataMatrix = self.normalization.transform(dataMatrix)
+        #dataMatrix = self.normalization.transform(dataMatrix)
         
         for i in range(len(data)):
             data[i]['target'] = dataMatrix[i]
@@ -402,7 +405,8 @@ class LoaderTrain(Dataset):
         return {'image': img, 'target': target, 'name': img_path}
 
     def open_image(self, filename):
-        img = NumpyImgHandler.loadMrc(filename)
+        #img = NumpyImgHandler.loadMrc(filename)
+        img = NumpyImgHandler.load(filename)
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)
