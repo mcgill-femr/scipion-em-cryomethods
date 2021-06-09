@@ -30,6 +30,7 @@ import pwem.emlib.metadata as md
 import pyworkflow.protocol.constants as cons
 from pyworkflow.object import Float, String
 from pyworkflow.utils import makePath
+from emtable import Table
 
 from cryomethods import Plugin
 from cryomethods.convert import writeSetOfParticles
@@ -92,59 +93,65 @@ class Prot2DAutoClassifier(ProtAutoBase):
 
     # -------------------------- STEPS functions -------------------------------
     def convertInputStep(self, resetDeps, copyAlignment):
-        """ Create the input file in STAR format as expected by Relion.
-        If the input particles comes from Relion, just link the file.
-        """
-        imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
 
-        if self._level == 1:
+        if self._level == 0:
             makePath(self._getRunPath(self._level, 1))
-            imgSet = self._getInputParticles()
-            self.info("Converting set from '%s' into '%s'" %
-                      (imgSet.getFileName(), imgStar))
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=0)
+            self._convertStar(copyAlignment, imgStar)
+            opticsTable = Table(fileName=imgStar, tableName='optics')
+            partsTable = Table(fileName=imgStar, tableName='particles')
+            #self._convertVol(ImageHandler(), self.inputVolumes.get())
+            mdSize = partsTable.size()
 
-            # Pass stack file as None to avoid write the images files
-            # If copyAlignment is set to False pass alignType to ALIGN_NONE
-            alignType = imgSet.getAlignment() if copyAlignment else em.ALIGN_NONE
+            for i in range(9, 1, -1):
+                makePath(self._getRunPath(self._level, i))
+                mStar = self._getFileName('input_star', lev=self._level, rLev=i)
+                size = 10000 * i if mdSize >= 100000 else int(mdSize * 0.1 * i)
+                print("partsTable: ", size, i, mdSize)
+                partsTable._rows = random.sample(partsTable._rows, k=size)
+                self.writeStar(mStar, partsTable, opticsTable)
 
-            hasAlign = alignType != em.ALIGN_NONE
-            alignToPrior = hasAlign and self._getBoolAttr('alignmentAsPriors')
-            fillRandomSubset = hasAlign and self._getBoolAttr('fillRandomSubset')
-            writeSetOfParticles(imgSet, imgStar,
-                                outputDir=self._getExtraPath(),
-                                alignType=alignType,
-                                postprocessImageRow=self._postprocessParticleRow,
-                                fillRandomSubset=fillRandomSubset)
-            if alignToPrior:
-                self._copyAlignAsPriors(imgStar, alignType)
+        elif self._level == 1:
+            imgStar = self._getFileName('input_star', lev=self._level, rLev=1)
+            makePath(self._getRunPath(self._level, 1))
+            self._convertStar(copyAlignment, imgStar)
 
-            if self.doCtfManualGroups:
-                self._splitInCTFGroups(imgStar)
-
+            # find a clever way to avoid volume conversion if its already done.
+            #self._convertVol(ImageHandler(), self.inputVolumes.get())
         else:
             lastCls = None
             prevStar = self._getFileName('outputData', lev=self._level - 1)
-            mdData = md.MetaData(prevStar)
+            firstStarFn = self._getFileName('input_star', lev=1, rLev=1)
+            # mdData = md.MetaData(prevStar)
+            opTable = Table(fileName=firstStarFn, tableName='optics')
 
-            for row in md.iterRows(mdData, sortByLabel=md.RLN_PARTICLE_CLASS):
-                clsPart = row.getValue(md.RLN_PARTICLE_CLASS)
+            tableIn = Table(fileName=prevStar, tableName='particles')
+            cols = [str(c) for c in tableIn.getColumnNames()]
+
+            pTable = Table()
+            for row in pTable.iterRows(prevStar, key="rlnClassNumber",
+                                       tableName='particles'):
+                clsPart = row.rlnClassNumber
                 if clsPart != lastCls:
                     makePath(self._getRunPath(self._level, clsPart))
 
                     if lastCls is not None:
                         print("writing %s" % fn)
-                        mdInput.write(fn)
+                        # mdInput.write(fn)
+                        self.writeStar(fn, newPTable, opTable)
                     paths = self._getRunPath(self._level, clsPart)
                     makePath(paths)
                     print("Path: %s and newRlev: %d" % (paths, clsPart))
                     lastCls = clsPart
-                    mdInput = md.MetaData()
+                    newPTable = Table(columns=cols, tableName='particles')
                     fn = self._getFileName('input_star', lev=self._level,
                                            rLev=clsPart)
-                objId = mdInput.addObject()
-                row.writeToMd(mdInput, objId)
+                # objId = mdInput.addObject()
+                newPTable.addRow(*row)
+                # row.writeToMd(mdInput, objId)
             print("writing %s and ending the loop" % fn)
-            mdInput.write(fn)
+            self.writeStar(fn, newPTable, opTable)
+            # mdInput.write(fn)
 
     def evaluationStep(self):
         Plugin.setEnviron()
@@ -198,6 +205,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
             listNpVol.append(volList)
         return listNpVol, listNpVol[0].dtype
 
+    '''
     def _updateParticle(self, item, row):
         item.setClassId(row.getValue(md.RLN_PARTICLE_CLASS))
         item.setTransform(rowToAlignment(row, em.ALIGN_2D))
@@ -207,4 +215,30 @@ class Prot2DAutoClassifier(ProtAutoBase):
         item._rlnMaxValueProbDistribution = Float(
             row.getValue('rlnMaxValueProbDistribution'))
         item._rlnGroupName = String(row.getValue('rlnGroupName'))
+    '''
 
+    def _convertStar(self, copyAlignment, imgStar):
+        from pwem import ALIGN_NONE
+
+        imgSet = self._getInputParticles()
+        self.info("Converting set from '%s' into '%s'" %
+                  (imgSet.getFileName(), imgStar))
+
+        # Pass stack file as None to avoid write the images files
+        # If copyAlignment is set to False pass alignType to ALIGN_NONE
+        alignType = imgSet.getAlignment() if copyAlignment else ALIGN_NONE
+
+        hasAlign = alignType != ALIGN_NONE
+        alignToPrior = hasAlign and self.alignmentAsPriors.get()
+        fillRandomSubset = hasAlign and self.fillRandomSubset.get()
+
+        writeSetOfParticles(imgSet, imgStar,
+                            outputDir=self._getExtraPath(),
+                            alignType=alignType,
+                            postprocessImageRow=self._postprocessParticleRow,
+                            fillRandomSubset=fillRandomSubset)
+        if alignToPrior:
+            self._copyAlignAsPriors(imgStar, alignType)
+
+        if self.doCtfManualGroups:
+            self._splitInCTFGroups(imgStar)
