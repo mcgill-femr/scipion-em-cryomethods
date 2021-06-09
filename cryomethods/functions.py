@@ -62,6 +62,31 @@ class NumpyImgHandler(object):
         return a.data_withMrc(fn)
 
     @classmethod
+    def load(cls, fn):
+        """Return a NumPy array memory mapped from an existing MRC file.
+
+        The returned NumPy array will have an attribute, Mrc, that is
+        an instance of the Mrc class.  You can use that to access the
+        header or extended header of the file.  For instance, if x
+        was returned by bindFile(), x.Mrc.hdr.Num is the number of x
+        samples, number of y samples, and number of sections from the
+        file's header.
+
+        Positional parameters:
+        fn -- Is the name of the MRC file to bind.
+
+        Keyword parameters:
+        writable -- If True, the returned array will allow the elements of
+        the array to be modified.  The Mrc instance packaged with the
+        array will also allow modification of the header and extended
+        header entries.  Changes made to the array elements or the header
+        will affect the file to which the array is bound.
+        """
+        import mrc
+        return mrc.load(fn)
+
+
+    @classmethod
     def saveMrc(cls, npVol, fn):
         import mrc
         mrc.save(npVol.astype('float32'), fn, ifExists='overwrite')
