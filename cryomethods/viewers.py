@@ -30,8 +30,7 @@ import os
 from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, ChimeraClientView, showj
 from pyworkflow import gui
-
-from cryomethods.convert.convert import loadMrc, saveMrc
+from cryomethods.functions import NumpyImgHandler
 
 try:
     from itertools import izip
@@ -555,27 +554,11 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.plot(vals)
         plt.show()
 
-
-
-    def _getParticles(self):
-        pass
-        # weightPath= self.addWeights.get()
-        # with open(weightPath) as f:
-        #     lines = f.readlines()
-        # parts= np.loadtxt(lines, delimiter=', ', unpack=True)
-
-    # particleArray = self.protocol._getExtraPath('Particle_Weights')
-    # partWeights = np.save(particleArray, parts)
-    # return partWeights
-
-
-
     def _viewPlot(self, paramName=None):
         if self.plot.get() == 0:
             self._view2DPlot()
         else:
             self._view3DHeatMap()
-
 
     def _genralplot(self,paramName=None):
         nPCA = self.pcaCount.get()
@@ -600,8 +583,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return coords
 
     def _viewHeatMap(self, paramName=None):
-        fn = self.protocol._getExtraPath("all_good_particles.npy")
-        weight = np.load(fn)
+        weight = self._getWeights()
         nPCA = self.pcaCount.get()
         nBins = self.binSize.get()
         coords= self._genralplot()
@@ -658,12 +640,12 @@ class PcaLandscapeViewer(ProtocolViewer):
             inputMaps = self.protocol._getMrcVolumes()
             for j, (v, w) in enumerate(izip(inputMaps, weigths)):
 
-                npVol = loadMrc(v, False)
+                npVol = NumpyImgHandler.loadMrc(v, False)
                 if j == 0:
                     dType = npVol.dtype
                     newMap = np.zeros(npVol.shape)
                 newMap += (w*npVol/sum(weigths))
-            saveMrc(newMap.astype(dType), fn)
+            NumpyImgHandler.saveMrc(newMap.astype(dType), fn)
 
         f.close()
         # volSet = self.protocol._createSetOfVolumes()
@@ -736,12 +718,10 @@ class PcaLandscapeViewer(ProtocolViewer):
         return xplotter
 
     def _view2DPlot(self):
-        fn= self.protocol._getExtraPath("all_good_particles.npy")
-        weight = np.load(fn)
-        print (weight, "weight")
+        weights = self._getWeights()
         nBins = self.binSize.get()
         coords = self._genralplot()
-        xedges, yedges, counts=self._getEdges(coords, nBins, weight)
+        xedges, yedges, counts=self._getEdges(coords, nBins, weights)
 
         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
@@ -793,16 +773,12 @@ class PcaLandscapeViewer(ProtocolViewer):
         plt.show()
 
     def _scatterPlot(self, paramName=None):
-        fn = self.protocol._getExtraPath("particles.npy")
-        weight = np.load(fn)
-        print (weight, "weight")
+        weight = self._getWeights()
         matProj = self._loadPcaCoordinates()
         area = (50 * np.ones(117))  # 0 to 15 point radii
-        colors = weight
-        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=colors, alpha=0.5)
+        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=weight, alpha=0.5)
         plt.colorbar()
         plt.show()
-
 
     def _getCoordMapFiles(self):
         return self.protocol._getExtraPath('new_map_coordinates.txt')
@@ -816,8 +792,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         return w
 
     def _view3DHeatMap(self):
-        fn= self.protocol._getExtraPath("particles.npy")
-        weight = np.load(fn)
+        weight = self._getWeights()
         nBins = self.binSize.get()
         coords = self._genralplot()
         xedges, yedges, counts = self._getEdges(coords, nBins, weight)
@@ -862,13 +837,13 @@ class PcaLandscapeViewer(ProtocolViewer):
         nPCA = self.pcaCount.get()
         print (nPCA)
         avgVol = self.protocol._getPath('extramap_average.mrc')
-        npAvgVol = loadMrc(avgVol, False)
+        npAvgVol = NumpyImgHandler.loadMrc(avgVol, False)
         print ("average map is here")
         dType = npAvgVol.dtype
         fnIn = self.protocol._getMrcVolumes()
         volNum = self.volNumb.get()
         initVolNum = volNum - 1
-        iniVolNp = loadMrc(fnIn[0], False)
+        iniVolNp = NumpyImgHandler.loadMrc(fnIn[0], False)
 
         dim = iniVolNp.shape[0]
         print (len(iniVolNp), "iniVolNp")
@@ -890,7 +865,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             volSelect= fnIn[initVolNum:volNum]
             print(volSelect, "volSelect")
             for (vol, eigenCoef) in izip(volSelect,eignRow):
-                volInp = loadMrc(vol, False)
+                volInp = NumpyImgHandler.loadMrc(vol, False)
                 volInpR = volInp.reshape(lenght)
                 volSubs = volInpR - npAvgVol.reshape(lenght)
                 base += volSubs * eigenCoef
@@ -899,7 +874,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             break
         nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
         print('-------------saving map %s-----------------' % nameVol)
-        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+        NumpyImgHandler.saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
         #
         # # ----------------matproj-----------------------------------------
         matProj = []
@@ -907,12 +882,12 @@ class PcaLandscapeViewer(ProtocolViewer):
         baseMrcFile = sorted(glob(baseMrc))
         volSelect = fnIn[initVolNum:volNum]
         for vol in volSelect:
-            volNp = loadMrc(vol, False)
+            volNp = NumpyImgHandler.loadMrc(vol, False)
             restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
             volRow = restNpVol.reshape(lenght)
             rowCoef = []
             for baseVol in baseMrcFile:
-                npVol = loadMrc(baseVol, writable=False)
+                npVol = NumpyImgHandler.loadMrc(baseVol, writable=False)
                 baseVol_row = npVol.reshape(lenght)
                 baseVol_col = baseVol_row.transpose()
                 projCoef = np.dot(volRow, baseVol_col)
@@ -925,21 +900,27 @@ class PcaLandscapeViewer(ProtocolViewer):
         for projRow in matProj:
             vol = np.zeros((dim, dim, dim))
             for baseVol, proj in zip(baseMrcFile, projRow):
-                volNpo = loadMrc(baseVol, False)
+                volNpo = NumpyImgHandler.loadMrc(baseVol, False)
                 vol += volNpo * proj
             finalVol = vol + npAvgVol
             nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
             print('-------------saving reconstruct_vols %s-----------------' % nameRes)
-            saveMrc(finalVol.astype(dType),
+            NumpyImgHandler.saveMrc(finalVol.astype(dType),
                         self.protocol._getExtraPath('Select_PC', nameRes))
         finalVol= fnIn[volNum]
 
         orgVol = 'original_%02d.mrc' % (self.volNumb.get())
         dst = self.protocol._getExtraPath('Select_PC', orgVol)
-        # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
+        # NumpyImgHandler.saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
         copyfile(finalVol, dst)
 
-
+    def _getWeights(self):
+        inputClasses = self.protocol.inputClasses.get()
+        weightList = []
+        for cls in inputClasses:
+            size = cls.getSize()
+            weightList.append(size)
+        return weightList
 
 
 class PointPath():
