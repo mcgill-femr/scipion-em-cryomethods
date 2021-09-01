@@ -641,7 +641,7 @@ class PcaLandscapeViewer(ProtocolViewer):
             fn = self.protocol._getPath("volume_%02d.mrc" %i)
             weigths = []
             for coord in coords:
-                value = map(float, l.split())
+                value = list(map(float, l.split()))
                 weigths.append(self._getDistanceWeigth(value, coord))
 
             inputMaps = self.protocol._getMrcVolumes()
@@ -662,7 +662,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         f = open(self._getCoordMapFiles(), 'w')
         for x, y in izip (xData, yData):
-            print(x, y, end="", file=f)
+            print(x, y, end="\n", file=f)
         f.close()
 
     def _loadPcaCoordinates(self):
