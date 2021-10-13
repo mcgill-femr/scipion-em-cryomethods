@@ -1,8 +1,8 @@
-##Cryomethods plugin
+# Cryomethods plugin
 
 Cryomethods is a cryo-electron microscopy image processing plugin of Scipion framwork focussed mainly on processing macromolecular complexes showing extensive heterogeneity. Cryomethods will be integrated in the Scipion plugin manager but in the meantime you can install from the following steps:
 
-# 1) Install CUDA: (i.e. sudo apt install nvidia-cuda-toolkit=10.1.243-3)
+# 1) Install CUDA: (i.e. $sudo apt install nvidia-cuda-toolkit=10.1.243-3)
 
 # 2) Install miniconda: (https://docs.conda.io/en/latest/miniconda.html)
 
