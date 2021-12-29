@@ -1120,17 +1120,24 @@ class ProtocolBase(EMProtocol):
         return self.getAttributeValue('doSubsets', False)
 
     def _copyAlignAsPriors(self, imgStar, alignType):
-        mdParts = md.MetaData(imgStar)
+
+        from emtable import Table
+        mdParts = Table(fileName=imgStar, tableName='particles')
+        mdOptics = Table(fileName=imgStar, tableName='optics')	
 
         # set priors equal to orig. values
-        mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_X_PRIOR, md.RLN_ORIENT_ORIGIN_X)
-        mdParts.copyColumn(md.RLN_ORIENT_ORIGIN_Y_PRIOR, md.RLN_ORIENT_ORIGIN_Y)
-        mdParts.copyColumn(md.RLN_ORIENT_PSI_PRIOR, md.RLN_ORIENT_PSI)
-        if alignType == ALIGN_PROJ:
-            mdParts.copyColumn(md.RLN_ORIENT_ROT_PRIOR, md.RLN_ORIENT_ROT)
-            mdParts.copyColumn(md.RLN_ORIENT_TILT_PRIOR, md.RLN_ORIENT_TILT)
+        mdParts.addColumns('rlnOriginXPriorAngst=rlnOriginXAngst')
+        mdParts.addColumns('rlnOriginYPriorAngst=rlnOriginYAngst')
+        mdParts.addColumns('rlnAnglePsiPrior=rlnAnglePsi')
 
-        mdParts.write(imgStar)
+        if alignType == ALIGN_PROJ:
+            mdParts.addColumns('rlnAngleRotPrior=rlnAngleRot')
+            mdParts.addColumns('rlnAngleTiltPrior=rlnAngleTilt')
+        
+                        
+        with open(imgStar, "w") as f:
+            mdParts.writeStar(f, tableName='particles')
+            mdOptics.writeStar(f, tableName='optics')
 
     def _defineInput(self, args):
         args['--i'] = self._getFileName('input_star')
