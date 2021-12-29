@@ -28,7 +28,7 @@ import os
 import re
 from collections import OrderedDict
 import numpy as np
-from pwem import ALIGN_PROJ
+from pwem import ALIGN_PROJ, ALIGN_2D #JV 
 from pwem.emlib.image import ImageHandler
 from pyworkflow.object import Float, String
 from scipy import stats, interpolate
@@ -706,6 +706,7 @@ class ProtAutoBase(ProtocolBase):
         """ Read some information about the produced Relion 3D classes
         from the *model.star file.
         """
+       
         self._classesInfo = {}  # store classes info, indexed by class id
 
         # this is for the level
@@ -724,17 +725,23 @@ class ProtAutoBase(ProtocolBase):
     def _fillClassesFromIter(self, clsSet):
         from ..convert import createReader
         """ Create the SetOfClasses3D from a given iteration. """
+            
         self._loadClassesInfo()
-        dataStar = self._getFileName('finalData')
-
+        dataStar = self._getFileName('finalData') 
         pixelSize = self.inputParticles.get().getSamplingRate()
-        self._reader = createReader(alignType=ALIGN_PROJ,
+        
+        if (self.IS_3D):
+        	self._reader = createReader(alignType=ALIGN_PROJ,
+                                    pixelSize=pixelSize)
+        else:
+        	self._reader = createReader(alignType=ALIGN_2D, #JV
                                     pixelSize=pixelSize)
 
         mdIter = Table.iterRows('particles@' + dataStar, key='rlnImageId')
         clsSet.classifyItems(updateItemCallback=self._updateParticle,
                              updateClassCallback=self._updateClass,
-                             itemDataIterator=mdIter)
+                             itemDataIterator=mdIter,
+                             doClone=False) #JV
 
     def _updateParticle(self, item, row):
         item.setClassId(row.rlnClassNumber)
@@ -749,7 +756,12 @@ class ProtAutoBase(ProtocolBase):
         if classId in self._classesInfo:
             index, fn, row = self._classesInfo[classId]
             fn += ":mrc"
-            item.setAlignmentProj()
+            
+            if (self.IS_3D):
+                item.setAlignmentProj()
+            else:
+                item.setAlignment(ALIGN_2D)
+                
             item.getRepresentative().setLocation(index, fn)
             item._rlnclassDistribution = Float(
                 row.getValue('rlnClassDistribution'))
@@ -757,6 +769,8 @@ class ProtAutoBase(ProtocolBase):
                 row.getValue('rlnAccuracyRotations'))
             item._rlnAccuracyTranslations = Float(
                 row.getValue('rlnAccuracyTranslations'))
+            item._rlnEstimatedResolution = Float(
+                row.getValue('rlnEstimatedResolution')) #JV
 
     def _getRLevList(self):
         """ Return the list of iteration files, give the rLevTemplate. """
