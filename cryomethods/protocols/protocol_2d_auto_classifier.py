@@ -218,7 +218,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
     '''
 
     def _convertStar(self, copyAlignment, imgStar):
-        from pwem import ALIGN_NONE
+        from pwem import ALIGN_NONE, ALIGN_2D
 
         imgSet = self._getInputParticles()
         self.info("Converting set from '%s' into '%s'" %
@@ -227,7 +227,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
         # Pass stack file as None to avoid write the images files
         # If copyAlignment is set to False pass alignType to ALIGN_NONE
         alignType = imgSet.getAlignment() if copyAlignment else ALIGN_NONE
-
+        
         hasAlign = alignType != ALIGN_NONE
         alignToPrior = hasAlign and self.alignmentAsPriors.get()
         fillRandomSubset = hasAlign and self.fillRandomSubset.get()
@@ -238,6 +238,7 @@ class Prot2DAutoClassifier(ProtAutoBase):
                             postprocessImageRow=self._postprocessParticleRow,
                             fillRandomSubset=fillRandomSubset)
         if alignToPrior:
+            alignType = ALIGN_2D 
             self._copyAlignAsPriors(imgStar, alignType)
 
         if self.doCtfManualGroups:
