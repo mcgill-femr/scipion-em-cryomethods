@@ -30,8 +30,7 @@ import os
 from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, ChimeraClientView, showj
 from pyworkflow import gui
-
-from cryomethods.convert.convert import loadMrc, saveMrc
+from cryomethods.functions import NumpyImgHandler
 
 try:
     from itertools import izip
@@ -488,49 +487,48 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _defineParams(self, form):
         form.addSection(label='Results')
         form.addParam('plotAutovalues', params.LabelParam,
-                      label="Display cumulative sum of eigenvalues")
+                      label="Eigenvalues cumulative sum (%)")
 
         group = form.addGroup('Landscape')
         group.addParam('heatMap', params.EnumParam,
-                      choices=['MDS', 'LocallyLinearEmbedding',
-                               'Isomap', 'TSNE'],
-                      default=MDS,
-                      label='Non-linear Manifold embedding',
-                      help='select')
+                       choices=['MDS', 'LocallyLinearEmbedding',
+                                'Isomap', 'TSNE'],
+                       default=MDS,
+                       label='Non-linear Manifold embedding',
+                       help='select')
         group.addParam('interpolateType', params.EnumParam,
                        choices=['linear', 'cubic'],
                        default=0,
                        label="Interpolation Type")
+        group.addParam('pcaCount', params.IntParam, default=10,
+                       label="Select number of principal components")
         group.addParam('binSize', params.IntParam, default=6,
                        label="select bin size")
         group.addParam('neighbourCount', params.IntParam, default=3,
                        label="Select neighbour points",
                        condition="heatMap==1 or heatMap==2")
-
-        group.addParam('points', params.IntParam, default=5,
-                       label="Select number of volumes you want to show")
         group.addParam('plot', params.EnumParam,
                        choices=['2D', '3D'],
                        default=0,
                        label='view 2D or 3D free-energy landscape.')
-        group.addParam('dimensionality', params.LabelParam,
+        group.addParam('points', params.IntParam, default=5,
+                       label="Select number of volumes you want to show")
+        group.addParam('trajectory', params.LabelParam,
                        label='View trajectory in 2D free-energy landscape')
-        group.addParam('scatterPlot', params.LabelParam,
-                       label='scatter plot of 2d free-energy landscape')
+        # group.addParam('scatterPlot', params.LabelParam,
+        #                label='scatter plot of 2d free-energy landscape')
 
         group = form.addGroup('Guess PC value')
         group.addParam('volNumb', params.IntParam, default=1,
                        label="Select the volume to reconstruct")
-        group.addParam('pcaCount', params.IntParam, default=10,
-                       label="Select number of principal components")
-        group.addParam('reconstructVol', params.LabelParam,
-                       label="reconstruct map with selected PC value ")
+        # group.addParam('reconstructVol', params.LabelParam,
+        #                label="reconstruct map with selected PC value ")
 
     def _getVisualizeDict(self):
         visualizeDict = {'plotAutovalues': self._plotAutovalues,
-                         'dimensionality': self._viewHeatMap,
                          'plot': self._viewPlot,
-                         'scatterPlot': self._scatterPlot
+                         'trajectory': self._viewTraj,
+                         # 'scatterPlot': self._scatterPlot
                          # 'reconstructVol': self._pcaReconstruction
                          }
 
@@ -551,31 +549,67 @@ class PcaLandscapeViewer(ProtocolViewer):
     def _plotAutovalues(self, paramName=None):
         fn = self.protocol._getExtraPath('EigenFile', 'eigenvalues.npy')
         autoVal = np.load(fn)
-        vals = (np.cumsum(autoVal))
+        sumVals = np.sum(autoVal)
+        vals = np.cumsum(autoVal/sumVals)
+        # print("EigenVals and sum: ", autoVal, vals)
+        # plt.plot(autoVal)
         plt.plot(vals)
         plt.show()
-
-
-
-    def _getParticles(self):
-        pass
-        # weightPath= self.addWeights.get()
-        # with open(weightPath) as f:
-        #     lines = f.readlines()
-        # parts= np.loadtxt(lines, delimiter=', ', unpack=True)
-
-    # particleArray = self.protocol._getExtraPath('Particle_Weights')
-    # partWeights = np.save(particleArray, parts)
-    # return partWeights
-
-
 
     def _viewPlot(self, paramName=None):
         if self.plot.get() == 0:
             self._view2DPlot()
         else:
-            self._view3DHeatMap()
+            self._view3DPlot()
 
+    def _view2DPlot(self):
+        grid_x, grid_y, boltzLaw = self._getGridAndBoltzman()
+
+        plt.figure()
+        plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
+        plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
+                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
+        # ----------showing x,y,z under cursor---------------------------
+        Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
+
+        def fmt(x, y):
+            # get closest point with known data
+            dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
+            idx = np.argmin(dist)
+            z = Zflat[idx]
+            return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
+        # -------------------------------------------------------------------
+
+        plt.gca().format_coord = fmt
+        plt.colorbar()
+        savePlot = self.protocol._getExtraPath('2d_PLOT.png')
+        plt.savefig(savePlot)
+        # draw colorbar
+        plt.show()
+
+    def _view3DPlot(self):
+        grid_x, grid_y, boltzLaw = self._getGridAndBoltzman()
+
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.plot_surface(grid_x, grid_y, boltzLaw, rstride=1, cstride=1,
+                        cmap='viridis', edgecolor='none')
+        # draw colorbar
+        plt.show()
+
+    def _viewTraj(self, paramName=None):
+        coords = self._genralplot()
+        grid_x, grid_y, boltzLaw = self._getGridAndBoltzman()
+
+        win = self.tkWindow(HeatMapWindow,
+                            title='Heat Map',
+                            coords=coords,
+                            callback=self._getMaps
+                            )
+        plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
+                                   boltzLaw, figure=win.figure)
+        self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
+        win.show()
 
     def _genralplot(self,paramName=None):
         nPCA = self.pcaCount.get()
@@ -599,51 +633,6 @@ class PcaLandscapeViewer(ProtocolViewer):
             coords = man.fit_transform(matProj[:, 0:nPCA])
         return coords
 
-    def _viewHeatMap(self, paramName=None):
-        fn = self.protocol._getExtraPath("all_good_particles.npy")
-        weight = np.load(fn)
-        nPCA = self.pcaCount.get()
-        nBins = self.binSize.get()
-        coords= self._genralplot()
-        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
-
-        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
-        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
-
-        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
-        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
-        H2 = counts.reshape(counts.size)
-        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-
-        if self.interpolateType == LINEAR:
-            intType = 'linear'
-        else:
-            intType = 'cubic'
-        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
-                                    bounds_error='True')
-        znew = f(a2, b2)
-        # ---------------------------finding maxima on 2d map-------------------
-        minima = znew.max()
-        print(minima, "minimaaa")
-        tempValue = -(25)
-        fac= np.true_divide(znew, minima)
-        boltzFac = tempValue * fac
-        boltzParts = self.protocol._getExtraPath('boltzFac')
-        np.save(boltzParts, boltzFac)
-        boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
-
-        # ---------------------------------------------------------------
-
-        win = self.tkWindow(HeatMapWindow,
-                            title='Heat Map',
-                            coords=coords,
-                            callback=self._getMaps
-                            )
-        plotter = self._createPlot("Heat Map", "x", "y", grid_x, grid_y,
-                                   boltzLaw, figure=win.figure)
-        self.path = PointPath(plotter.getLastSubPlot(), self._getPoints)
-        win.show()
-
     def _getMaps(self, coords):
         Plugin.setEnviron()
         coordMaps = self._getCoordMapFiles()
@@ -652,29 +641,20 @@ class PcaLandscapeViewer(ProtocolViewer):
             fn = self.protocol._getPath("volume_%02d.mrc" %i)
             weigths = []
             for coord in coords:
-                value = map(float, l.split())
+                value = list(map(float, l.split()))
                 weigths.append(self._getDistanceWeigth(value, coord))
 
             inputMaps = self.protocol._getMrcVolumes()
             for j, (v, w) in enumerate(izip(inputMaps, weigths)):
 
-                npVol = loadMrc(v, False)
+                npVol = NumpyImgHandler.loadMrc(v, False)
                 if j == 0:
                     dType = npVol.dtype
                     newMap = np.zeros(npVol.shape)
                 newMap += (w*npVol/sum(weigths))
-            saveMrc(newMap.astype(dType), fn)
+            NumpyImgHandler.saveMrc(newMap.astype(dType), fn)
 
         f.close()
-        # volSet = self.protocol._createSetOfVolumes()
-        # volSet.setSamplingRate(pixelSize)
-        # newVol = vol.clone()
-        # newVol.setObjId(None)
-        # newVol.setLocation(volOut)
-        # volSet.append(newVol)
-        # volSet.write()
-        #
-        # self.objectView(volSet).show()
 
     def _getPoints(self, data):
         xData = data.getXData()
@@ -682,7 +662,7 @@ class PcaLandscapeViewer(ProtocolViewer):
 
         f = open(self._getCoordMapFiles(), 'w')
         for x, y in izip (xData, yData):
-            print(x, y, end="", file=f)
+            print(x, y, end="\n", file=f)
         f.close()
 
     def _loadPcaCoordinates(self):
@@ -735,13 +715,122 @@ class PcaLandscapeViewer(ProtocolViewer):
         xplotter.plotHeatMap(img, x, y, boltzLaw)
         return xplotter
 
-    def _view2DPlot(self):
-        fn= self.protocol._getExtraPath("all_good_particles.npy")
-        weight = np.load(fn)
-        print (weight, "weight")
+    def _scatterPlot(self, paramName=None):
+        weight = self._getWeights()
+        matProj = self._loadPcaCoordinates()
+        area = (50 * np.ones(117))  # 0 to 15 point radii
+        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=weight, alpha=0.5)
+        plt.colorbar()
+        plt.show()
+
+    def _getCoordMapFiles(self):
+        return self.protocol._getExtraPath('new_map_coordinates.txt')
+
+    def __getCoordMapFiles(self):
+        return self.protocol._getExtraPath('all_map_coordinates.txt')
+
+    def _getDistanceWeigth(self, p1, p2):
+        d = -1*((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
+        w = np.exp(d)
+        return w
+
+    def _pcaReconstruction(self, paramName=None):
+        Plugin.setEnviron()
+        if not os.path.exists(self.protocol._getExtraPath('Select_PC')):
+            os.mkdir(self.protocol._getExtraPath('Select_PC'))
+        nPCA = self.pcaCount.get()
+        print (nPCA)
+        avgVol = self.protocol._getPath('extramap_average.mrc')
+        npAvgVol = NumpyImgHandler.loadMrc(avgVol, False)
+        print ("average map is here")
+        dType = npAvgVol.dtype
+        fnIn = self.protocol._getMrcVolumes()
+        volNum = self.volNumb.get()
+        initVolNum = volNum - 1
+        iniVolNp = NumpyImgHandler.loadMrc(fnIn[0], False)
+
+        dim = iniVolNp.shape[0]
+        print (len(iniVolNp), "iniVolNp")
+        lenght = dim ** 3
+        reshapeVol = iniVolNp.reshape(lenght)
+        subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
+        # -------------------------covariance matrix----------------------
+        cov_matrix= np.load(
+            self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
+        print (len(cov_matrix), "cov_matrix")
+        u, s, vh = np.linalg.svd(cov_matrix)
+        sCut = int(self.pcaCount.get())
+        print (sCut, "scut")
+        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
+        # --------------------obatining base-----------------------------
+        for eignRow in vhDel.T:
+            base = np.zeros(lenght)
+            # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
+            volSelect= fnIn[initVolNum:volNum]
+            print(volSelect, "volSelect")
+            for (vol, eigenCoef) in izip(volSelect,eignRow):
+                volInp = NumpyImgHandler.loadMrc(vol, False)
+                volInpR = volInp.reshape(lenght)
+                volSubs = volInpR - npAvgVol.reshape(lenght)
+                base += volSubs * eigenCoef
+                volBase = base.reshape((dim, dim, dim))
+                # break
+            break
+        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
+        print('-------------saving map %s-----------------' % nameVol)
+        NumpyImgHandler.saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
+        #
+        # # ----------------matproj-----------------------------------------
+        matProj = []
+        baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
+        baseMrcFile = sorted(glob(baseMrc))
+        volSelect = fnIn[initVolNum:volNum]
+        for vol in volSelect:
+            volNp = NumpyImgHandler.loadMrc(vol, False)
+            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
+            volRow = restNpVol.reshape(lenght)
+            rowCoef = []
+            for baseVol in baseMrcFile:
+                npVol = NumpyImgHandler.loadMrc(baseVol, writable=False)
+                baseVol_row = npVol.reshape(lenght)
+                baseVol_col = baseVol_row.transpose()
+                projCoef = np.dot(volRow, baseVol_col)
+                rowCoef.append(projCoef)
+        matProj.append(rowCoef)
+        print (matProj, "matProj")
+        print ("length of bese file", len(baseMrcFile))
+        #
+        # # obtaining volumes from coordinates-----------------------------------
+        for projRow in matProj:
+            vol = np.zeros((dim, dim, dim))
+            for baseVol, proj in zip(baseMrcFile, projRow):
+                volNpo = NumpyImgHandler.loadMrc(baseVol, False)
+                vol += volNpo * proj
+            finalVol = vol + npAvgVol
+            nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
+            print('-------------saving reconstruct_vols %s-----------------' % nameRes)
+            NumpyImgHandler.saveMrc(finalVol.astype(dType),
+                        self.protocol._getExtraPath('Select_PC', nameRes))
+        finalVol= fnIn[volNum]
+
+        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
+        dst = self.protocol._getExtraPath('Select_PC', orgVol)
+        # NumpyImgHandler.saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
+        copyfile(finalVol, dst)
+
+    def _getWeights(self):
+        inputClasses = self.protocol.inputClasses.get()
+        weightList = []
+        for cls in inputClasses:
+            size = cls.getSize()
+            weightList.append(size)
+        return weightList
+
+    def _getGridAndBoltzman(self):
+        weights = self._getWeights()
         nBins = self.binSize.get()
         coords = self._genralplot()
-        xedges, yedges, counts=self._getEdges(coords, nBins, weight)
+        xedges, yedges, counts=self._getEdges(coords, nBins, weights)
 
         a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
         b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
@@ -766,181 +855,8 @@ class PcaLandscapeViewer(ProtocolViewer):
         boltzFac = tempValue * fac
         boltzParts = self.protocol._getExtraPath('boltzFac')
         np.save(boltzParts, boltzFac)
-        boltzLaw= np.load(self.protocol._getExtraPath('boltzFac.npy'))
-
-        # ---------------------------------------------------------------
-
-        plt.figure()
-        plt.contour(grid_x, grid_y, boltzLaw.T, 10, linewidths=1.5, colors='k')
-        plt.contourf(grid_x, grid_y, boltzLaw.T, 25, cmap=plt.cm.hot,
-                          vmax=(boltzLaw).max(), vmin=(boltzLaw).min())
-        # ----------showing x,y,z under cursor---------------------------
-        Xflat, Yflat, Zflat = grid_x.flatten(), grid_y.flatten(), boltzLaw.T.flatten()
-
-        def fmt(x, y):
-            # get closest point with known data
-            dist = np.linalg.norm(np.vstack([Xflat - x, Yflat - y]), axis=0)
-            idx = np.argmin(dist)
-            z = Zflat[idx]
-            return 'x={x:.5f}  y={y:.5f}  z={z:.5f}'.format(x=x, y=y, z=z)
-        # -------------------------------------------------------------------
-
-        plt.gca().format_coord = fmt
-        plt.colorbar()
-        savePlot = self.protocol._getExtraPath('2d_PLOT.png')
-        plt.savefig(savePlot)
-        # draw colorbar
-        plt.show()
-
-    def _scatterPlot(self, paramName=None):
-        fn = self.protocol._getExtraPath("particles.npy")
-        weight = np.load(fn)
-        print (weight, "weight")
-        matProj = self._loadPcaCoordinates()
-        area = (50 * np.ones(117))  # 0 to 15 point radii
-        colors = weight
-        plt.scatter(matProj[:, 0], matProj[:, 1], s=area, c=colors, alpha=0.5)
-        plt.colorbar()
-        plt.show()
-
-
-    def _getCoordMapFiles(self):
-        return self.protocol._getExtraPath('new_map_coordinates.txt')
-
-    def __getCoordMapFiles(self):
-        return self.protocol._getExtraPath('all_map_coordinates.txt')
-
-    def _getDistanceWeigth(self, p1, p2):
-        d = -1*((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
-        w = np.exp(d)
-        return w
-
-    def _view3DHeatMap(self):
-        fn= self.protocol._getExtraPath("particles.npy")
-        weight = np.load(fn)
-        nBins = self.binSize.get()
-        coords = self._genralplot()
-        xedges, yedges, counts = self._getEdges(coords, nBins, weight)
-
-        a = np.linspace(xedges.min(), xedges.max(), num=counts.shape[0])
-        b = np.linspace(yedges.min(), yedges.max(), num=counts.shape[0])
-
-        a2 = np.linspace(xedges.min(), xedges.max(), num=100)
-        b2 = np.linspace(yedges.min(), yedges.max(), num=100)
-        H2 = counts.reshape(counts.size)
-        grid_x, grid_y = np.meshgrid(a2, b2, sparse=False, indexing='ij')
-        if self.interpolateType == LINEAR:
-            intType = 'linear'
-        else:
-            intType = 'cubic'
-        f = sc.interpolate.interp2d(a, b, H2, kind=intType,
-                                    bounds_error='True')
-        znew = f(a2, b2)
-        # ---------------------------finding maxima on 2d map-------------------
-        minima = znew.max()
-        print (minima, "minimaaa")
-        tempValue = -25
-        fac = np.true_divide(znew, minima)
-        boltzFac = tempValue * fac
-        boltzParts = self.protocol._getExtraPath('boltzFac')
-        np.save(boltzParts, boltzFac)
         boltzLaw = np.load(self.protocol._getExtraPath('boltzFac.npy'))
-
-        # ---------------------------------------------------------------
-
-        fig= plt.figure()
-        ax = fig.gca(projection='3d')
-        ax.plot_surface(grid_x, grid_y, boltzLaw, rstride=1, cstride=1,
-                        cmap='viridis', edgecolor='none')
-        # draw colorbar
-        plt.show()
-    # --------------decide pca count to reconstruct vols-----------------
-    def _pcaReconstruction(self, paramName=None):
-        Plugin.setEnviron()
-        if not os.path.exists(self.protocol._getExtraPath('Select_PC')):
-            os.mkdir(self.protocol._getExtraPath('Select_PC'))
-        nPCA = self.pcaCount.get()
-        print (nPCA)
-        avgVol = self.protocol._getPath('extramap_average.mrc')
-        npAvgVol = loadMrc(avgVol, False)
-        print ("average map is here")
-        dType = npAvgVol.dtype
-        fnIn = self.protocol._getMrcVolumes()
-        volNum = self.volNumb.get()
-        initVolNum = volNum - 1
-        iniVolNp = loadMrc(fnIn[0], False)
-
-        dim = iniVolNp.shape[0]
-        print (len(iniVolNp), "iniVolNp")
-        lenght = dim ** 3
-        reshapeVol = iniVolNp.reshape(lenght)
-        subsAvgVol= reshapeVol- npAvgVol.reshape(lenght)
-        # -------------------------covariance matrix----------------------
-        cov_matrix= np.load(
-            self.protocol._getExtraPath('CovMatrix', 'covMatrix.npy'))
-        print (len(cov_matrix), "cov_matrix")
-        u, s, vh = np.linalg.svd(cov_matrix)
-        sCut = int(self.pcaCount.get())
-        print (sCut, "scut")
-        vhDel = np.transpose(np.delete(vh, np.s_[sCut:vh.shape[1]], axis=0))
-        # --------------------obatining base-----------------------------
-        for eignRow in vhDel.T:
-            base = np.zeros(lenght)
-            # volSelect = self.protocol._getExtraPath('volume_id_%02d.mrc' % (self.volNumb.get()))
-            volSelect= fnIn[initVolNum:volNum]
-            print(volSelect, "volSelect")
-            for (vol, eigenCoef) in izip(volSelect,eignRow):
-                volInp = loadMrc(vol, False)
-                volInpR = volInp.reshape(lenght)
-                volSubs = volInpR - npAvgVol.reshape(lenght)
-                base += volSubs * eigenCoef
-                volBase = base.reshape((dim, dim, dim))
-                # break
-            break
-        nameVol = 'reconstruct_base_%02d.mrc' % (self.volNumb.get())
-        print('-------------saving map %s-----------------' % nameVol)
-        saveMrc(volBase.astype(dType),self.protocol._getExtraPath('Select_PC',nameVol))
-        #
-        # # ----------------matproj-----------------------------------------
-        matProj = []
-        baseMrc = self.protocol._getExtraPath('Select_PC', 'reconstruct_base_??.mrc')
-        baseMrcFile = sorted(glob(baseMrc))
-        volSelect = fnIn[initVolNum:volNum]
-        for vol in volSelect:
-            volNp = loadMrc(vol, False)
-            restNpVol = volNp.reshape(lenght) - npAvgVol.reshape(lenght)
-            volRow = restNpVol.reshape(lenght)
-            rowCoef = []
-            for baseVol in baseMrcFile:
-                npVol = loadMrc(baseVol, writable=False)
-                baseVol_row = npVol.reshape(lenght)
-                baseVol_col = baseVol_row.transpose()
-                projCoef = np.dot(volRow, baseVol_col)
-                rowCoef.append(projCoef)
-        matProj.append(rowCoef)
-        print (matProj, "matProj")
-        print ("length of bese file", len(baseMrcFile))
-        #
-        # # obtaining volumes from coordinates-----------------------------------
-        for projRow in matProj:
-            vol = np.zeros((dim, dim, dim))
-            for baseVol, proj in zip(baseMrcFile, projRow):
-                volNpo = loadMrc(baseVol, False)
-                vol += volNpo * proj
-            finalVol = vol + npAvgVol
-            nameRes = 'reconstruct_%02d.mrc' % (self.volNumb.get())
-            print('-------------saving reconstruct_vols %s-----------------' % nameRes)
-            saveMrc(finalVol.astype(dType),
-                        self.protocol._getExtraPath('Select_PC', nameRes))
-        finalVol= fnIn[volNum]
-
-        orgVol = 'original_%02d.mrc' % (self.volNumb.get())
-        dst = self.protocol._getExtraPath('Select_PC', orgVol)
-        # saveMrc(finalVol.astype(dType),self.protocol._getExtraPath('Select_PC', orgVol))
-        copyfile(finalVol, dst)
-
-
-
+        return grid_x, grid_y, boltzLaw
 
 class PointPath():
         """ Graphical manager based on Matplotlib to handle mouse
@@ -1053,7 +969,7 @@ class HeatMapWindow(gui.Window):
 
     def _createFigureBox(self, content):
         from pyworkflow.gui.matplotlib_image import FigureFrame
-        figFrame = FigureFrame(content, figsize=(13, 13))
+        figFrame = FigureFrame(content, figsize=(6, 6))
         figFrame.grid(row=0, column=0, padx=5, columnspan=2)
         self.figure = figFrame.figure
 

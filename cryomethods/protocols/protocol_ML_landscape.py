@@ -49,7 +49,7 @@ NOTALIGN = 1
 
 
 class ProtLandscapePCA(EMProtocol):
-    _label = 'Control PCA'
+    _label = 'Energy Landscape'
     FILE_KEYS = ['data', 'optimiser', 'sampling']
     PREFIXES = ['']
 
@@ -68,18 +68,9 @@ class ProtLandscapePCA(EMProtocol):
         self.rLevIter = self.rLevDir + 'relion_it%(iter)03d_'
         # add to keys, data.star, optimiser.star and sampling.star
         myDict = {
-            'input_star': self.levDir + 'input_rLev-%(rLev)03d.star',
-            'outputData': self.levDir + 'output_data.star',
             'map': self.levDir + 'map_id-%(id)s.mrc',
             'avgMap': self.levDir+ 'map_average.mrc',
-            'modelFinal': self.levDir + 'model.star',
-            'relionMap': self.rLevDir + 'relion_it%(iter)03d_class%(ref3d)03d.mrc',
-            'outputModel': self.levDir + 'output_model.star',
             'data': self.rLevIter + 'data.star',
-            'rawFinalModel': self._getExtraPath('raw_final_model.star'),
-            'rawFinalData': self._getExtraPath('raw_final_data.star'),
-            'finalModel': self._getExtraPath('final_model.star'),
-            'finalData': self._getExtraPath('final_data.star'),
             'finalAvgMap': self._getExtraPath('map_average.mrc'),
             'optimiser': self.rLevIter + 'optimiser.star',
             'all_avgPmax_xmipp': self._getTmpPath('iterations_avgPmax_xmipp.xmd'),
@@ -101,16 +92,16 @@ class ProtLandscapePCA(EMProtocol):
     # -------------------------- DEFINE param functions ------------------------
     def _defineParams(self, form):
         form.addSection(label='Input')
-        form.addParam('inputVolumes', params.PointerParam,
-                      pointerClass='SetOfVolumes',
+        form.addParam('inputClasses', params.PointerParam,
+                      pointerClass='SetOfClasses3D',
                       important=True,
-                      label='Input volumes',
-                      help='Initial reference 3D maps')
+                      label='Input classes',
+                      help='Please, pick a set of classes 3D.')
         form.addParam('resLimit', params.FloatParam, default=20,
                       label="Resolution Limit (A)",
                       help="Resolution limit used to low pass filter both "
                            "input and reference map(s).")
-        form.addParam('alignment', params.EnumParam, default=0,
+        form.addParam('alignment', params.EnumParam, default=1,
                       choices=['Yes, align Volumes',
                                'No volumes alignment'],
                       label='Align Input Volumes?')
@@ -132,67 +123,38 @@ class ProtLandscapePCA(EMProtocol):
                       label="count of PCA",
                       condition='thresholdMode==%d' % PCA_COUNT,
                       help='Number of PCA you want to select.')
-
-        # group.addParam('addWeights', params.FileParam, label="Weight File path",
-        #               allowsNull=True,
-        #               help='Specify a path to weights for volumes.')
-        #
-
         form.addParallelSection(threads=0, mpi=0)
 
     # --------------------------- INSERT steps functions -----------------------
     def _insertAllSteps(self):
-        inputVols = self.inputVolumes.get()
-        volId = inputVols.getObjId()
-        self._insertFunctionStep('convertInputStep', volId)
+        inputCls = self.inputClasses.get()
+        self._insertFunctionStep('convertInputStep', inputCls.getObjId())
         self._insertFunctionStep('analyzePCAStep')
 
     #-------------------------step function-------------------------------------
     def convertInputStep(self, resetId):
-        inputVols = self.inputVolumes.get()
+        """ Preprocess all volumes prior to clustering"""
+        inputCls = self.inputClasses.get()
         ih = ImageHandler()
-        for i, vol in enumerate(inputVols):
-            num = vol.getObjId()
+        for i, class3D in enumerate(inputCls):
+            num = class3D.getObjId()
+            vol = class3D.getRepresentative()
             newFn = self._getExtraPath('volume_id_%03d.mrc' % num)
             ih.convert(vol, newFn)
 
-        sampling_rate = inputVols.getSamplingRate()
-        print(sampling_rate, "sampling rate before")
-        resLimitDig = self.resLimit.get()
-        print(resLimitDig, "resLimitDig")
-        inputVols.setSamplingRate(resLimitDig)
-        print(inputVols.getSamplingRate(), "after")
-
-    #     ----------------alignment---------------------------
-    def alignVols(self):
-        self._getAverageVol()
-        avgVol= self._getFileName('avgMap')
-        npAvgVol = npih.loadMrc(avgVol, False)
-        dType = npAvgVol.dtype
-        fnIn = self._getMrcVolumes()
-        for vols in fnIn:
-            npVolAlign = npih.loadMrc(vols, False)
-            npVolFlipAlign = np.fliplr(npVolAlign)
-
-            axis, shifts, angles, score = npih.alignVolumes(npVolAlign, npAvgVol)
-            axisf, shiftsf, anglesf, scoref = npih.alignVolumes(npVolFlipAlign,
-                                                           npAvgVol)
-            if scoref > score: 
-                npVol = npih.applyTransforms(npVolFlipAlign, shiftsf, anglesf, axisf)
-            else:
-                npVol = npih.applyTransforms(npVolAlign, shifts, angles, axis)
-
-            npih.saveMrc(npVol.astype(dType), vols)
+        # sampling_rate = inputCls.getSamplingRate()
+        # print(sampling_rate, "sampling rate before")
+        # resLimitDig = self.resLimit.get()
+        # print(resLimitDig, "resLimitDig")
+        # inputCls.setSamplingRate(resLimitDig)
+        # print(inputCls.getSamplingRate(), "after")
 
     def analyzePCAStep(self):
         self._createFilenameTemplates()
         Plugin.setEnviron()
         if self.alignment.get()==0:
             self.alignVols()
-            fnIn= self._getMrcVolumes()
-        else:
-            fnIn = self._getMrcVolumes()
-
+        fnIn = self._getMrcVolumes()
         self._getAverageVol()
 
         avgVol = self._getFileName('avgMap')
@@ -246,8 +208,9 @@ class ProtLandscapePCA(EMProtocol):
                 vol += volNpo * proj
             finalVol= vol + npAvgVol
             nameVol = 'volume_reconstructed_%02d.mrc' % (orignCount)
-            print('-------------saving original_vols %s-----------------' % nameVol)
-            npih.saveMrc(finalVol.astype(dType), self._getExtraPath('reconstructed_vols', nameVol))
+            print('----------saving original_vols %s-------------' % nameVol)
+            npih.saveMrc(finalVol.astype(dType),
+                         self._getExtraPath('reconstructed_vols', nameVol))
             orignCount += 1
 
         # difference b/w input vol and original vol-----------------------------
@@ -260,8 +223,9 @@ class ProtLandscapePCA(EMProtocol):
             volInpThree = npih.loadMrc(b, False)
             volDiff= volRec - volInpThree
             nameVol = 'volDiff_%02d.mrc' % (diffCount)
-            print('-------------saving original_vols %s-----------------' % nameVol)
-            npih.saveMrc(volDiff.astype(dType), self._getExtraPath('volDiff', nameVol))
+            print('---------saving original_vols %s--------------' % nameVol)
+            npih.saveMrc(volDiff.astype(dType),
+                         self._getExtraPath('volDiff', nameVol))
             diffCount += 1
 
         #save coordinates:
@@ -269,9 +233,30 @@ class ProtLandscapePCA(EMProtocol):
         coorPath = self._getExtraPath('Coordinates')
 
         mat_file = os.path.join(coorPath, 'matProj_splic')
-        coordNumpy= np.save(mat_file, matProj)
+        np.save(mat_file, matProj)
 
     # -------------------------- UTILS functions ------------------------------
+    def alignVols(self):
+        self._getAverageVol()
+        avgVol= self._getFileName('avgMap')
+        npAvgVol = npih.loadMrc(avgVol, False)
+        dType = npAvgVol.dtype
+        fnIn = self._getMrcVolumes()
+        for vols in fnIn:
+            npVolAlign = npih.loadMrc(vols, False)
+            npVolFlipAlign = np.fliplr(npVolAlign)
+
+            axis, shifts, angles, score = npih.alignVolumes(npVolAlign, npAvgVol)
+            axisf, shiftsf, anglesf, scoref = npih.alignVolumes(npVolFlipAlign,
+                                                           npAvgVol)
+            if scoref > score:
+                npVol = npih.applyTransforms(npVolFlipAlign, shiftsf,
+                                             anglesf, axisf)
+            else:
+                npVol = npih.applyTransforms(npVolAlign, shifts,
+                                             angles, axis)
+            npih.saveMrc(npVol.astype(dType), vols)
+
     def _getMrcVolumes(self):
         return sorted(glob(self._getExtraPath('volume_id_*.mrc')))
 
