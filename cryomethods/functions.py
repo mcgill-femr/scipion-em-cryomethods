@@ -24,7 +24,11 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # ***************** *********************************************************
+from multiprocessing import Pool
+
 import numpy as np
+from numpy import abs, sqrt, exp, log
+from numpy.fft import fftn, ifftn
 
 
 class NumpyImgHandler(object):
@@ -355,3 +359,149 @@ def calcAvgPsd(img, windows_size = 256, step_size = 128):
             avg_psd += calcPsd(img[i:i+windows_size, j:j+windows_size])
     avg_psd /= count
     return np.log(avg_psd)
+
+
+def fftnfreq(n, d=1):
+    "Return the Discrete Fourier Transform sample frequencies"
+    f = np.fft.fftfreq(n, d)
+    return np.meshgrid(f, f, f)
+
+
+def shell(f):
+    "Return a normalized shell of spatial frequencies, around frequency f"
+    global f_norm, f_width
+    S = exp(- (f_norm - f)**2 / (2 * f_width**2))
+    return S / np.sum(S)
+
+
+def spiral_filter(voxel_n, voxel_size):
+    "Return the freq-domain spiral filter for the three dimensions (x, y, z)"
+    fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
+    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+
+    def H(fi):
+        return -1j * np.nan_to_num(fi / f_norm)
+
+    with np.errstate(invalid='ignore'):  # ignore divide-by-0 warning in one bin
+        return H(fx), H(fy), H(fz)
+
+
+def mask_in_sphere(n):
+    "Return a mask selecting voxels of the biggest sphere inside a n*n*n grid"
+    coords = np.r_[:n] - n/2
+    x, y, z = np.meshgrid(coords, coords, coords)
+    r = sqrt(x**2 + y**2 + z**2)
+    return r < n/2
+
+
+def linear_fit_params(x, y):
+    "Return the parameters a[...], b[...] when fitting y[:,...] to a+b*x[:]"
+    # See https://en.wikipedia.org/wiki/Ordinary_least_squares#Matrix/vector_formulation
+    X = np.column_stack((np.ones(len(x)), x))
+    return np.tensordot(np.linalg.pinv(X), y, 1)
+
+
+def amplitude_map(f):
+    "Return the amplitude map and noise corresponding to the given frequency"
+    global FV, Hx, Hy, Hz, mask_background, threshold, power_norm
+
+    SFV = shell(f) * FV  # volume in frequency space, at frequency f
+
+    v0 = ifftn(SFV)  # volume "at frequency f"
+
+    vx = ifftn(Hx * SFV)  # conjugate volumes at this frequency
+    vy = ifftn(Hy * SFV)
+    vz = ifftn(Hz * SFV)
+
+    m = sqrt(abs(v0)**2 + abs(vx)**2 + abs(vy)**2 + abs(vz)**2)  # amplitude
+
+    q = np.quantile(m[mask_background], threshold)  # noise level
+
+    # Something related to the SNR (all noise = 0.5 < Cref < 1 = no noise).
+    Cref = m / (m + q)  # will be used to weight m
+
+    # Amplitude map and noise at the corresponding frequency.
+    Mod_f = log(Cref * m * power_norm)
+    noise_f = log(q * power_norm)
+
+    # Amplitude map and estimated noise at the corresponding frequency.
+    return Mod_f, noise_f
+
+
+def bfactor(vol, mask_in_molecule, voxel_size, min_res=15, max_res=2.96,
+            num_points=10, noise_threshold=0.9, f_voxel_width=4.8,
+            only_above_noise=False):
+    "Return a map with the local b-factors at each voxel"
+    global FV, Hx, Hy, Hz, mask_background, threshold, power_norm, f_norm, f_width
+
+    voxel_n, _, _ = vol.shape  # vol is a 3d array n*n*n
+
+    # Set some global variables.
+    FV = fftn(vol)  # precompute the volume's Fourier transform
+    threshold = noise_threshold  # to use in amplitude_map()
+    power_norm = sqrt(voxel_n*voxel_n*voxel_n)  # normalization
+
+    # To select voxels with background data (used in the quantile evaluation).
+    mask_background = np.logical_and(~mask_in_molecule.astype(bool),
+                                     mask_in_sphere(voxel_n))
+
+    # Get ready to select frequencies (using a shell in frequency space).
+    fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
+    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+    f_width = f_voxel_width / (voxel_n * voxel_size)  # frequency width
+
+    # Define the spiral filter in frequency space.
+    Hx, Hy, Hz = spiral_filter(voxel_n, voxel_size)
+
+    # Compute amplitude maps at frequencies between min and max resolution.
+    freqs = np.linspace(1/min_res, 1/max_res, num_points)
+
+    with Pool() as pool:
+        mods, noises = zip(*pool.map(amplitude_map, freqs))
+        Mod = np.array(mods)
+        noise = np.array(noises)
+
+    # Compute the local b-factor map.
+    f2 = freqs**2
+    a_b = linear_fit_params(f2, Mod)  # contains the fit parameters per voxel
+
+    return a_b[1,:,:,:]  # the second parameter of the fit is the "b" map!
+
+
+def occupancy(vol, mask_in_molecule, voxel_size, min_res=20, max_res=3,
+              num_points=10, protein_threshold=0.25, f_voxel_width=4.6):
+    "Return a map with the local occupancy at each voxel"
+    global f_norm, f_width
+
+    voxel_n, _, _ = vol.shape  # vol is a 3d array n*n*n
+    FV = fftn(vol)  # precompute the volume's Fourier transform
+
+    # Get ready to select frequencies (using a shell in frequency space).
+    fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
+    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+    f_width = f_voxel_width / (voxel_n * voxel_size)  # frequency width
+
+    # Define the spiral filter in frequency space.
+    Hx, Hy, Hz = spiral_filter(voxel_n, voxel_size)
+
+    # Compute occupancy maps at frequencies between min and max resolution.
+    freqs = linspace(1/min_res, 1/max_res, num_points)
+
+    omap = np.zeros_like(vol)
+    for f in freqs:
+        SFV = shell(f) * FV  # volume in frequency space, at frequency f
+
+        v0 = ifftn(SFV)  # volume "at frequency f"
+
+        vx = ifftn(Hx * SFV)  # conjugate volumes at this frequency
+        vy = ifftn(Hy * SFV)
+        vz = ifftn(Hz * SFV)
+
+        m = sqrt(abs(v0)**2 + abs(vx)**2 + abs(vy)**2 + abs(vz)**2)  # amplitude
+
+        q = np.quantile(m[mask_in_molecule], protein_threshold)  # signal level
+
+        omap += (m >= q)  # add 1 to voxels with amplitude above that quantile
+    omap /= len(freqs)
+
+    return omap

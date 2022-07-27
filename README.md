@@ -98,3 +98,21 @@ Cryomethods is a cryo-electron microscopy image processing plugin of Scipion fra
 
   #Check that in scipion.cof (/home/jvargas/Software/scipion/config/scipion.conf) the environment variables RELION_CRUOMETHODS_HOME, XMIPP_CRYOMETHODS_HOME and CRYOMETHODS_HOME   
   #are correctly set up, if not change the path (in my case Relion path was incorrect).
+
+  ## 6) Use case: 3D autoclassification 
+  We have included a use case to show how to run the 3D autoclassification method of CryoMethods plugin with real data. To run this example run in the command line the following line:
+
+$scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test3DAutoClasifier
+
+This line, download the test data and run the 3D autoclassification method automatically. To open the new created project run the following line:
+
+$scipion3 last
+
+## 7) Use case: 2D autoclassification
+To run this example run in the command line the following line:
+
+$scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test2DAutoClasifier
+
+This line, download the test data and run the 3D autoclassification method automatically. To open the new created project run the following line:
+
+$scipion3 last
