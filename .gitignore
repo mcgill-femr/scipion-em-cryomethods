@@ -1,5 +1,6 @@
 #### Python
 *.pyc
+*.egg-info/
 
 #### Eclipse and so on
 .project
