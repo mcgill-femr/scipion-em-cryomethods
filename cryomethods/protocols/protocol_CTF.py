@@ -91,6 +91,7 @@ class ProtDCTF(ProtocolBase):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
             self.images_path = self.imgSet.getFiles()
+
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
@@ -140,6 +141,7 @@ class ProtDCTF(ProtocolBase):
         """
         Method to create the model and train it
         """
+
         # this file path need to be changed 
         trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(
@@ -170,7 +172,9 @@ class ProtDCTF(ProtocolBase):
             print('\nEpoch:', epoch, '/', self.epochs.get())
             train(model, device, data_loader, optimizer, criterion_train)
             if self.weightEveryEpoch:
-                torch.save(model.cpu().state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
+                #torch.save(model.cpu().state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
+                torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt')) #JV
+
                 model = model.to(device)
 
             loss = self.calcLoss(model, data_loader, device, criterion_test)
@@ -178,7 +182,8 @@ class ProtDCTF(ProtocolBase):
 
         if not self.weightEveryEpoch:
             model.train()
-            torch.save(model.cpu(), os.path.join(self.weightFolder.get(), 'model.pt'))
+            #torch.save(model.cpu(), os.path.join(self.weightFolder.get(), 'model.pt'))
+            torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model.pt')) # JV
 
         print(self.loss_list)
         self.plot_loss_screening(self.loss_list)
@@ -201,7 +206,7 @@ class ProtDCTF(ProtocolBase):
         Method to prepare the model and calculate the CTF of the psd
         """
         # this file path need to be changed 
-        trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/norm.txt') #'/home/alex/cryoem/norm.txt')
+        trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt') #'/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -211,7 +216,10 @@ class ProtDCTF(ProtocolBase):
         print('Device:', device)
         # Create the model and load weights
         model = Regresion(size_in=(1, 512, 512), size_out=4)
+
         model.load_state_dict(torch.load(self.weightsfile.get()))
+        #model.load(torch.load(self.weightsfile.get()))
+
         model = model.to(device)
         return predict(model, device, data_loader, trainset)
 
@@ -242,8 +250,10 @@ def predict(model, device, data_loader, trainset):
     psd_list = []
     with torch.no_grad():
         for data in data_loader:
+
             # Move tensors to the configured device
-            filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
+            #filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
+            filename =  os.path.basename(data['name'][0]) + '_psd.mrc'
             image = data['image']
             NumpyImgHandler.saveMrc(np.float32(image.numpy()), filename)
             image = image.to(device)
@@ -263,10 +273,7 @@ def train(model, device, train_loader, optimizer, loss_function):
     model.train()
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
-        print("JV")
-        print(data['image'])
         data, target = data['image'].to(device), data['target'].to(device)
-        print("JV")
 
         # Forward pass
         output = model(data)
@@ -278,7 +285,7 @@ def train(model, device, train_loader, optimizer, loss_function):
         optimizer.step()
 
         # Print data
-        if batch_idx % 50 == 0:
+        if batch_idx % 5 == 0:
             print('Train: [{}/{} ({:.0f}%)]    \tLoss: {:.6f}'.format(
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
@@ -354,7 +361,10 @@ class LoaderPredict(Dataset):
         Plugin.setEnviron()
 
         self.normalization = Normalization(None)
-        self.normalization.load(norm_file)
+        #self.normalization.load(norm_file)
+        self.normalization.load_hardcoded()
+        
+        
         self._data = [i for i in datafiles]
 
     def __len__(self):
@@ -466,6 +476,12 @@ class Normalization():
             self._max_value = np.array(data['max'], dtype=np.float32)
             self._mean = np.array(data['mean'], dtype=np.float32)
             self._std = np.array(data['std'], dtype=np.float32)
+            
+    def load_hardcoded(self):
+        self._min_value = -1 
+        self._max_value = 1
+        self._mean = 0.5
+        self._std =  1
 
     def print_values(self):
         print('Min:', self._min_value)
