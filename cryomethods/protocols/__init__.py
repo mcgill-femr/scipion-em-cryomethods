@@ -35,6 +35,6 @@ from .protocol_loc_occupancy import ProtLocOccupancy
 #from .protocol_volume_clustering import ProtVolClustering
 #from .protocol_correction import ProtocolMapCorrector
 from .protocol_ML_landscape import ProtLandscapePCA
-#from .protocol_CNN import ProtSCNN
-#from .protocol_CTF import ProtDCTF
+from .protocol_CNN import ProtSCNN
+from .protocol_CTF import ProtDCTF
 # from .protocol_NMA_landscape import ProtLandscapeNMA
