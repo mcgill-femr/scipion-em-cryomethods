@@ -23,11 +23,11 @@ import os
 import json
 
 
-class ProtDCTF(ProtocolBase):
+class Protdctf(ProtocolBase):
     """
     Calculate the CTF with deep learning.
     """
-    _label = 'CTFDeep'
+    _label = 'dctf'
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -95,12 +95,14 @@ class ProtDCTF(ProtocolBase):
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
+            self.images_path = []
+
             for ctf in self.ctfs:
                 target = list(ctf.getDefocus())
                 target.append(ctf.getResolution())
                 img = ctf.getPsdFile()
                 self.data.append({'img':img, 'target': np.array(target, dtype=np.float32)})
-
+                self.images_path.append(img)
     def runCTFStep(self):
         if self.predictEnable:
             self.psd_list, self.results = self.predict_CTF(self.images_path)
@@ -141,9 +143,8 @@ class ProtDCTF(ProtocolBase):
         """
         Method to create the model and train it
         """
-
-        # this file path need to be changed 
-        trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
+        trainset = LoaderTrain(images_path,self.images_path) #JV
+#       trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(
             trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -205,8 +206,8 @@ class ProtDCTF(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        # this file path need to be changed 
-        trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt') #'/home/alex/cryoem/norm.txt')
+        trainset = LoaderPredict(images_path,self.images_path)
+        #trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt') #'/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
