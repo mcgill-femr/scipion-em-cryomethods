@@ -37,11 +37,12 @@ class Protdctf(ProtocolBase):
     def _defineParams(self, form):
 
         form.addSection('Params')
-        line = form.addLine('General')
-        line.addParam('predictEnable', params.BooleanParam, default=False,
+
+        group = form.addGroup('General')
+        group.addParam('predictEnable', params.BooleanParam, default=False,
                       label='Predict',
                       help='Set true if you want to predict, set false if you want to train.')
-        line.addParam('useGPU', params.BooleanParam, default=True,
+        group.addParam('useGPU', params.BooleanParam, default=True,
                       label='Use GPU',
                       help='Enable the use of the GPU')
 
@@ -54,6 +55,14 @@ class Protdctf(ProtocolBase):
                        label='Weigths file:',
                        help='Select the weights file of the neuronal network model.')
 
+        group = form.addGroup('PSD estimation')
+        group.addParam('window_size', params.IntParam, default=256,
+                       label='Window size:',
+                       help='Window size of the estimated PSD.')
+        group.addParam('step_size', params.IntParam, default=128,
+                       label='Step size:',
+                       help='Size of the step in the periodogram averaging to estimate the PSD.')
+
         group = form.addGroup('Train', condition="not predictEnable")
         group.addParam('trainSet', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfCTF',
@@ -65,9 +74,6 @@ class Protdctf(ProtocolBase):
         group.addParam('pretrainedModel', params.PathParam, condition="transferLearning",
                        label='Pretrained Model:',
                        help='Select the weights file of the pretrained neuronal network model.')
-        group.addParam('weightFolder', params.PathParam,
-                       label='Weight folder:',
-                       help='Folder where the weights will be saved.')
         group.addParam('lr', params.FloatParam, default=0.0001,
                        label='Learning rate',
                        help='Learning rate.')
@@ -91,21 +97,22 @@ class Protdctf(ProtocolBase):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
             self.images_path = self.imgSet.getFiles()
-
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
             self.images_path = []
 
             for ctf in self.ctfs:
+
                 target = list(ctf.getDefocus())
                 target.append(ctf.getResolution())
                 img = ctf.getPsdFile()
                 self.data.append({'img':img, 'target': np.array(target, dtype=np.float32)})
                 self.images_path.append(img)
+
     def runCTFStep(self):
         if self.predictEnable:
-            self.psd_list, self.results = self.predict_CTF(self.images_path)
+            self.psd_list, self.results = self.predict_CTF(self.images_path, self.window_size.get())
         else:
             self.train_nn(self.data)
 
@@ -138,15 +145,13 @@ class Protdctf(ProtocolBase):
 
     # --------------- UTILS functions -------------------------
 
-    
-    def train_nn(self, images_path):
+    def train_nn(self, data):
         """
         Method to create the model and train it
         """
-        trainset = LoaderTrain(images_path,self.images_path) #JV
+        trainset = LoaderTrain(data,self.images_path, self.window_size.get(), self.step_size.get()) #JV
 #       trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
-        data_loader = DataLoader(
-            trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
+        data_loader = DataLoader(trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
         # Set device
@@ -155,7 +160,7 @@ class Protdctf(ProtocolBase):
         print('Device:', device)
 
         # Create the model
-        model = Regresion(size_in=(1, 512, 512), size_out=4)
+        model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=4)
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
         model = model.to(device)
@@ -174,7 +179,8 @@ class Protdctf(ProtocolBase):
             train(model, device, data_loader, optimizer, criterion_train)
             if self.weightEveryEpoch:
                 #torch.save(model.cpu().state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
-                torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt')) #JV
+                #torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt')) #JV
+                torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt')) #JV
 
                 model = model.to(device)
 
@@ -184,7 +190,7 @@ class Protdctf(ProtocolBase):
         if not self.weightEveryEpoch:
             model.train()
             #torch.save(model.cpu(), os.path.join(self.weightFolder.get(), 'model.pt'))
-            torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model.pt')) # JV
+            torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights.pt')) # JV
 
         print(self.loss_list)
         self.plot_loss_screening(self.loss_list)
@@ -202,11 +208,11 @@ class Protdctf(ProtocolBase):
         plt.tight_layout()
         plt.savefig('loss.png')
 
-    def predict_CTF(self, images_path):
+    def predict_CTF(self, images_path, window_size):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path,self.images_path)
+        trainset = LoaderPredict(images_path, self.images_path, self.window_size.get(), self.step_size.get())
         #trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt') #'/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=1,
                                  shuffle=False, num_workers=1, pin_memory=False)
@@ -216,13 +222,12 @@ class Protdctf(ProtocolBase):
         device = torch.device("cuda" if use_cuda else "cpu")
         print('Device:', device)
         # Create the model and load weights
-        model = Regresion(size_in=(1, 512, 512), size_out=4)
+        model = Regresion(size_in=(1, window_size, window_size), size_out=4)
 
         model.load_state_dict(torch.load(self.weightsfile.get()))
-        #model.load(torch.load(self.weightsfile.get()))
 
         model = model.to(device)
-        return predict(model, device, data_loader, trainset)
+        return predict(model, device, data_loader, trainset, self._getExtraPath())
 
     def calcLoss(self, model, data_loader, device, loss_function):
         """
@@ -241,8 +246,7 @@ class Protdctf(ProtocolBase):
 
         return test_loss / len(data_loader.dataset)
 
-
-def predict(model, device, data_loader, trainset):
+def predict(model, device, data_loader, trainset, extraPath):
     """
     Method to predict using the neuronal network
     """
@@ -251,10 +255,9 @@ def predict(model, device, data_loader, trainset):
     psd_list = []
     with torch.no_grad():
         for data in data_loader:
-
             # Move tensors to the configured device
             #filename = 'psd/' + os.path.basename(data['name'][0]) + '_psd.mrc'
-            filename =  os.path.basename(data['name'][0]) + '_psd.mrc'
+            filename = extraPath + '/' + os.path.basename(data['name'][0]) + '_psd.mrc'
             image = data['image']
             NumpyImgHandler.saveMrc(np.float32(image.numpy()), filename)
             image = image.to(device)
@@ -356,17 +359,17 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-
-    def __init__(self, datafiles, norm_file):
+    def __init__(self, datafiles, norm_file, window_size, step_size):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
         self.normalization = Normalization(None)
         #self.normalization.load(norm_file)
         self.normalization.load_hardcoded()
-        
-        
+
         self._data = [i for i in datafiles]
+        self._window_size = window_size
+        self.step_size = step_size
 
     def __len__(self):
         return len(self._data)
@@ -382,7 +385,7 @@ class LoaderPredict(Dataset):
         # _min = img.min()
         # _max = img.max()
         # img = (img - _min) / (_max - _min)
-        psd = calcAvgPsd(img[0,:,:], windows_size = 512, step_size = 128)
+        psd = calcAvgPsd(img[0,:,:], windows_size=self._window_size, step_size=self.step_size)
         # img = np.resize(img, (1, 512, 512))
         return torch.from_numpy(np.float32(psd))
 
@@ -391,7 +394,7 @@ class LoaderTrain(Dataset):
     """
     Class to load the dataset for train
     """
-    def __init__(self, data, norm_file):
+    def __init__(self, data, norm_file, window_size, step_size):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
@@ -405,6 +408,8 @@ class LoaderTrain(Dataset):
             data[i]['target'] = dataMatrix[i]
         
         self._data = data
+        self._window_size = window_size
+        self._step_size = step_size
 
     def __len__(self):
         return len(self._data)
@@ -421,7 +426,7 @@ class LoaderTrain(Dataset):
         _min = img.min()
         _max = img.max()
         img = (img - _min) / (_max - _min)
-        img = np.resize(img, (1, 512, 512))
+        img = np.resize(img, (1, self._window_size, self._window_size))
         return torch.from_numpy(img)
 
 
