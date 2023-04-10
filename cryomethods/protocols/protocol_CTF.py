@@ -35,7 +35,6 @@ class Protdctf(ProtocolBase):
     # --------------- DEFINE param functions ---------------
 
     def _defineParams(self, form):
-
         form.addSection('Params')
 
         group = form.addGroup('General')
@@ -101,8 +100,13 @@ class Protdctf(ProtocolBase):
             self.ctfs = self.trainSet.get()
             self.data = []
             self.images_path = []
+            extended_ctf = CTFModel()
 
             for ctf in self.ctfs:
+                extended_ctf.set(ctf)
+                dic_ctf = extended_ctf.getObjDict()
+                print(dic_ctf['_objValue._micObj._filename'])
+                print("/-------------------------------/")
 
                 target = list(ctf.getDefocus())
                 target.append(ctf.getResolution())
@@ -150,7 +154,6 @@ class Protdctf(ProtocolBase):
         Method to create the model and train it
         """
         trainset = LoaderTrain(data,self.images_path, self.window_size.get(), self.step_size.get()) #JV
-#       trainset = LoaderTrain(images_path,'/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt')  #/home/alex/cryoem/norm.txt')
         data_loader = DataLoader(trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -161,6 +164,7 @@ class Protdctf(ProtocolBase):
 
         # Create the model
         model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=4)
+
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
         model = model.to(device)
@@ -206,21 +210,21 @@ class Protdctf(ProtocolBase):
         plt.xlabel('Epoch')
         plt.legend()
         plt.tight_layout()
-        plt.savefig('loss.png')
+        plt.savefig(self._getPath() +'/'+ 'loss.png')
 
     def predict_CTF(self, images_path, window_size):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
         trainset = LoaderPredict(images_path, self.images_path, self.window_size.get(), self.step_size.get())
-        #trainset = LoaderPredict(images_path, '/home/jvargas/ScipionUserData/projects/TestWorkflowRelion3Betagal/images.txt') #'/home/alex/cryoem/norm.txt')
-        data_loader = DataLoader(trainset, batch_size=1,
-                                 shuffle=False, num_workers=1, pin_memory=False)
+        data_loader = DataLoader(trainset, batch_size=1,shuffle=False, num_workers=12, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
+
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
         print('Device:', device)
+
         # Create the model and load weights
         model = Regresion(size_in=(1, window_size, window_size), size_out=4)
 

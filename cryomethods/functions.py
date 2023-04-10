@@ -332,33 +332,128 @@ def normalize(mat):
     mat = (mat-a)/(b-a)
     return mat
 
+
+def normalize(mat, max_value, min_value):
+    """
+    Set a numpy array as standard score and after that scale the data between -1 and 1.
+    """
+    mat = (mat-min_value)/(max_value-min_value)
+    mat = 2*(mat - 0.5)
+    return mat
+
 def calcPsd(img):
     """
-    Calculate PSD using periodogram
+    Calculate PSD using periodogram averaging
     """
     img_f = np.fft.fft2(img)
     img_f = np.fft.fftshift(img_f)
     img_f = abs(img_f)
     # img_f = img_f * img_f
     rows, cols = img_f.shape
-    img_f = img_f / (rows * cols)
+    img_f = np.log(img_f / (rows * cols))
+
+    q_80 = np.quantile(img_f, 0.8)
+    q_20 = np.quantile(img_f, 0.2)
+    img_f[img_f >= q_80] = q_80
+    img_f[img_f < q_20] = q_20
+    img_f = normalize(img_f, q_80, q_20)
+
+    if False:
+        x = np.linspace(-1, 1, img_f.shape[0])
+        y = np.linspace(-1, 1, img_f.shape[0])
+        img_f = img_f - polyfit2d(x, y, img_f, kx=2, ky=2, order=2)
+
     return img_f
 
 
-def calcAvgPsd(img, windows_size = 256, step_size = 128):
+def calcAvgPsd(img, windows_size=256, step_size=128):
     """
     Calculate PSD using average periodogram
     """
-    print(img.shape)
     rows, cols = img.shape
     avg_psd = np.zeros((windows_size, windows_size))
     count = 0
     for i in range(0, rows - windows_size, step_size):
         for j in range(0, cols - windows_size, step_size):
-            count +=1
-            avg_psd += calcPsd(img[i:i+windows_size, j:j+windows_size])
+            count += 1
+            avg_psd += calcPsd(img[i:i + windows_size, j:j + windows_size])
     avg_psd /= count
-    return np.log(avg_psd)
+
+    x = np.linspace(-1, 1, windows_size)
+    y = np.linspace(-1, 1, windows_size)
+    avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
+
+    q_plus = np.quantile(avg_psd, 0.96)
+    q_minus = np.quantile(avg_psd, 0.04)
+    avg_psd[avg_psd > q_plus] = q_plus
+    avg_psd[avg_psd < q_minus] = q_minus
+    avg_psd = normalize(avg_psd, q_plus, q_minus)
+
+    return avg_psd
+
+def polyfit2d(x, y, z, kx=3, ky=3, order=None):
+    '''
+    https://stackoverflow.com/questions/33964913/equivalent-of-polyfit-for-a-2d-polynomial-in-python
+    Two dimensional polynomial fitting by least squares.
+    Fits the functional form f(x,y) = z.
+
+    Notes
+    -----
+    Resultant fit can be plotted with:
+    np.polynomial.polynomial.polygrid2d(x, y, soln.reshape((kx+1, ky+1)))
+
+    Parameters
+    ----------
+    x, y: array-like, 1d
+        x and y coordinates.
+    z: np.ndarray, 2d
+        Surface to fit.
+    kx, ky: int, default is 3
+        Polynomial order in x and y, respectively.
+    order: int or None, default is None
+        If None, all coefficients up to maxiumum kx, ky, ie. up to and including x^kx*y^ky, are considered.
+        If int, coefficients up to a maximum of kx+ky <= order are considered.
+
+    Returns
+    -------
+    Return paramters from np.linalg.lstsq.
+
+    soln: np.ndarray
+        Array of polynomial coefficients.
+    residuals: np.ndarray
+    rank: int
+    s: np.ndarray
+    '''
+
+    #np.polynomial.polynomial.polyfit()
+    # grid coords
+    x, y = np.meshgrid(x, y)
+
+    # coefficient array, up to x^kx, y^ky
+    coeffs = np.ones((kx+1, ky+1))
+
+    # solve array
+    a = np.zeros((coeffs.size, x.size))
+
+    # for each coefficient produce array x^i, y^j
+    for index, (j, i) in enumerate(np.ndindex(coeffs.shape)):
+        # do not include powers greater than order
+        if order is not None and i + j > order:
+            arr = np.zeros_like(x)
+        else:
+            arr = coeffs[i, j] * x**i * y**j
+
+        a[index] = arr.ravel()
+
+    # do leastsq fitting and return leastsq result
+
+    c = np.linalg.lstsq(a.T, np.ravel(z), rcond=None)[0]
+
+    z = x*0
+    for index, (j, i) in enumerate(np.ndindex(coeffs.shape)):
+        z += c[index] * x**i * y**j
+    return z
+    #return c[0]+x*c[1]+x**2*c[2]+y*c[3]+x*y*c[4]+x**2*y*c[5]+y**2*c[6]+x*y**2*c[7]+x**2*y**2*c[8]
 
 
 def fftnfreq(n, d=1):
