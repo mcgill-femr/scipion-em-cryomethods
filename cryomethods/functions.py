@@ -370,6 +370,7 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
     """
     Calculate PSD using average periodogram
     """
+
     rows, cols = img.shape
     avg_psd = np.zeros((windows_size, windows_size))
     count = 0

@@ -1,22 +1,17 @@
 
 import pyworkflow.protocol.params as params
-
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
-
 from .protocol_base import ProtocolBase
-
 from cryomethods.functions import num_flat_features, calcAvgPsd
-
 from pwem.objects import CTFModel
-
 import torch
 from torch.utils.data import Dataset, DataLoader
-
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import optim
+from PIL import Image
 
+from torch import optim
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -54,14 +49,6 @@ class Protdctf(ProtocolBase):
                        label='Weigths file:',
                        help='Select the weights file of the neuronal network model.')
 
-        group = form.addGroup('PSD estimation')
-        group.addParam('window_size', params.IntParam, default=256,
-                       label='Window size:',
-                       help='Window size of the estimated PSD.')
-        group.addParam('step_size', params.IntParam, default=128,
-                       label='Step size:',
-                       help='Size of the step in the periodogram averaging to estimate the PSD.')
-
         group = form.addGroup('Train', condition="not predictEnable")
         group.addParam('trainSet', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfCTF',
@@ -82,6 +69,20 @@ class Protdctf(ProtocolBase):
         group.addParam('weightEveryEpoch', params.BooleanParam, default=True,
                        label='Save weight per epoch',
                        help='Enable if you want to save the weights per epoch, otherwise it will only save the weight of the las epoch.')
+
+
+        form.addSection('PSD')
+        group = form.addGroup('PSD estimation')
+        group.addParam('window_size', params.IntParam, default=256,
+                       label='Window size:',
+                       help='Window size of the estimated PSD.')
+        group.addParam('step_size', params.IntParam, default=128,
+                       label='Step size:',
+                       help='Size of the step in the periodogram averaging to estimate the PSD.')
+        group.addParam('downsampling', params.FloatParam, default=1.0,
+                       label='Downsampling factor:',
+                       help='Downsampling to be applied to input images to improve PSD estimation.')
+
 
     # --------------- INSERT steps functions ----------------
 
@@ -105,14 +106,19 @@ class Protdctf(ProtocolBase):
             for ctf in self.ctfs:
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
-                print(dic_ctf['_objValue._micObj._filename'])
-                print("/-------------------------------/")
+                filename_img = dic_ctf['_objValue._micObj._filename']
+                print(filename_img)
 
                 target = list(ctf.getDefocus())
                 target.append(ctf.getResolution())
-                img = ctf.getPsdFile()
-                self.data.append({'img':img, 'target': np.array(target, dtype=np.float32)})
-                self.images_path.append(img)
+                #img = ctf.getPsdFile()
+
+                filename_psd = self.calc_psd_per_mic(filename_img)
+                print(filename_psd)
+                print("/-------------------------------/")
+
+                self.data.append({'img':filename_psd, 'target': np.array(target, dtype=np.float32)})
+                self.images_path.append(filename_psd)
 
     def runCTFStep(self):
         if self.predictEnable:
@@ -148,6 +154,21 @@ class Protdctf(ProtocolBase):
         return []
 
     # --------------- UTILS functions -------------------------
+    def calc_psd_per_mic(self,filename_img,):
+        img = NumpyImgHandler.loadMrc(filename_img)
+        img = img[0,:,:]
+        print(img.shape)
+        new_size = np.int32( (np.float32(img.shape)/2) )
+        print(new_size)
+        PIL_image = Image.fromarray(img)
+        PIL_image = PIL_image.resize(new_size)
+        img  = np.array(PIL_image)
+        print(img.transpose().shape)
+
+        psd = calcAvgPsd(img, self.window_size.get(), self.step_size.get())
+        filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
+        NumpyImgHandler.saveMrc(psd, filename_psd)
+        return filename_psd
 
     def train_nn(self, data):
         """
