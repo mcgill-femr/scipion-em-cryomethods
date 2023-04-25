@@ -17,6 +17,9 @@ import matplotlib.pyplot as plt
 import os
 import json
 
+norm_defocus = 10000
+norm_angle = 90
+norm_resolution = 5
 
 class Protdctf(ProtocolBase):
     """
@@ -93,6 +96,7 @@ class Protdctf(ProtocolBase):
 
     # --------------- STEPS functions -----------------------
 
+
     def convertInputStep(self):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
@@ -109,8 +113,13 @@ class Protdctf(ProtocolBase):
                 filename_img = dic_ctf['_objValue._micObj._filename']
                 print(filename_img)
 
-                target = list(ctf.getDefocus())
-                target.append(ctf.getResolution())
+                defocus = np.asarray(ctf.getDefocus())
+                defocus[0:2] /= norm_defocus
+                defocus[2] /= norm_angle
+                resolution = np.asarray(ctf.getResolution())
+                resolution /= norm_resolution
+                target = list(defocus)
+                target.append(resolution)
                 #img = ctf.getPsdFile()
 
                 filename_psd = self.calc_psd_per_mic(filename_img)
@@ -118,7 +127,7 @@ class Protdctf(ProtocolBase):
                 print("/-------------------------------/")
 
                 self.data.append({'img':filename_psd, 'target': np.array(target, dtype=np.float32)})
-                self.images_path.append(filename_psd)
+                #self.images_path.append(filename_psd)
 
     def runCTFStep(self):
         if self.predictEnable:
@@ -131,10 +140,10 @@ class Protdctf(ProtocolBase):
             self.ctfResults = self._createSetOfCTF()
             for i, img in enumerate(self.imgSet):
                 ctf = CTFModel()
-                ctf.setResolution(self.results[i][3])                
+                ctf.setResolution(self.results[i][3]*norm_resolution)
                 ctf.setMicrograph(img)
                 ctf.setPsdFile(self.psd_list[i])
-                ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
+                ctf.setStandardDefocus(self.results[i][0]*norm_defocus, self.results[i][1]*norm_defocus, self.results[i][2]*norm_angle)
                 self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
             # self._defineSourceRelation(self.inputImgs, self.out)
@@ -155,15 +164,14 @@ class Protdctf(ProtocolBase):
 
     # --------------- UTILS functions -------------------------
     def calc_psd_per_mic(self,filename_img,):
+        #TODO: impose a fixed sampling rate of for example 2 A/px
         img = NumpyImgHandler.loadMrc(filename_img)
         img = img[0,:,:]
-        print(img.shape)
-        new_size = np.int32( (np.float32(img.shape)/2) )
-        print(new_size)
+        new_size = np.int32( (np.float32(img.shape)/self.downsampling.get()) )
+
         PIL_image = Image.fromarray(img)
         PIL_image = PIL_image.resize(new_size)
         img  = np.array(PIL_image)
-        print(img.transpose().shape)
 
         psd = calcAvgPsd(img, self.window_size.get(), self.step_size.get())
         filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
@@ -174,8 +182,8 @@ class Protdctf(ProtocolBase):
         """
         Method to create the model and train it
         """
-        trainset = LoaderTrain(data,self.images_path, self.window_size.get(), self.step_size.get()) #JV
-        data_loader = DataLoader(trainset, batch_size=5, shuffle=True, num_workers=1, pin_memory=True)
+        trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
+        data_loader = DataLoader(trainset, batch_size=6, shuffle=True, num_workers=10, pin_memory=True)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
         # Set device
@@ -188,6 +196,7 @@ class Protdctf(ProtocolBase):
 
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
+
         model = model.to(device)
         print('Model:', model)
 
@@ -206,7 +215,6 @@ class Protdctf(ProtocolBase):
                 #torch.save(model.cpu().state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt'))
                 #torch.save(model.state_dict(), os.path.join(self.weightFolder.get(), 'model_' + str(epoch) + '.pt')) #JV
                 torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt')) #JV
-
                 model = model.to(device)
 
             loss = self.calcLoss(model, data_loader, device, criterion_test)
@@ -266,6 +274,11 @@ class Protdctf(ProtocolBase):
                 data, target = data['image'].to(device), data['target'].to(device)
                 # Forward pass
                 output = model(data)
+
+ #               for index in range(0,target.shape[0]):
+ #                   if 100 * torch.abs(target[index,0]-target[index,1])/target[index,0] < 15 :
+ #                       output[index,2] = target[index,2]
+
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
 
@@ -420,17 +433,18 @@ class LoaderTrain(Dataset):
     Class to load the dataset for train
     """
     def __init__(self, data, norm_file, window_size, step_size):
+        #TODO remove norm_file if is not required and Notmalization step
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
         self.normalization = Normalization(None)
         #self.normalization.load(norm_file)
 
-        dataMatrix = np.array([d['target'] for d in data])
+        #dataMatrix = np.array([d['target'] for d in data])
         #dataMatrix = self.normalization.transform(dataMatrix)
         
-        for i in range(len(data)):
-            data[i]['target'] = dataMatrix[i]
+        #for i in range(len(data)):
+        #    data[i]['target'] = dataMatrix[i]
         
         self._data = data
         self._window_size = window_size
@@ -448,9 +462,9 @@ class LoaderTrain(Dataset):
     def open_image(self, filename):
         #img = NumpyImgHandler.loadMrc(filename)
         img = NumpyImgHandler.load(filename)
-        _min = img.min()
-        _max = img.max()
-        img = (img - _min) / (_max - _min)
+        #_min = img.min()
+        #_max = img.max()
+        #img = (img - _min) / (_max - _min)
         img = np.resize(img, (1, self._window_size, self._window_size))
         return torch.from_numpy(img)
 
