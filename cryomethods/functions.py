@@ -392,6 +392,43 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
 
     return avg_psd
 
+
+def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
+    """
+    Calculate PSD using average periodogram in parallel
+    """
+    import concurrent.futures
+    rows, cols = img.shape
+    avg_psd = np.zeros((windows_size, windows_size))
+    count = 0
+    regions = []
+    for i in range(0, rows - windows_size, step_size):
+        for j in range(0, cols - windows_size, step_size):
+            count += 1
+            regions.append((i, j))
+
+    def calc_region_psd(region):
+        i, j = region
+        return calcPsd(img[i:i + windows_size, j:j + windows_size])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        psd_futures = [executor.submit(calc_region_psd, region) for region in regions]
+        for future in concurrent.futures.as_completed(psd_futures):
+            avg_psd += future.result()
+
+    avg_psd /= count
+
+    x = np.linspace(-1, 1, windows_size)
+    y = np.linspace(-1, 1, windows_size)
+    avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
+
+    q_plus = np.quantile(avg_psd, 0.96)
+    q_minus = np.quantile(avg_psd, 0.04)
+    avg_psd[avg_psd > q_plus] = q_plus
+    avg_psd[avg_psd < q_minus] = q_minus
+    avg_psd = normalize(avg_psd, q_plus, q_minus)
+
+    return avg_psd
 def polyfit2d(x, y, z, kx=3, ky=3, order=None):
     '''
     https://stackoverflow.com/questions/33964913/equivalent-of-polyfit-for-a-2d-polynomial-in-python
