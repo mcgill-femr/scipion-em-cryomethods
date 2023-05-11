@@ -311,7 +311,7 @@ def predict(model, device, data_loader, trainset, batch_size, extraPath):
             # Move tensors to the configured device
             image = image.to(device)
             # Forward pass
-            output = model(image)
+            output = model(image) 
             output = trainset.normalization.inv_transform(output.cpu().numpy())
             # Save results
 
