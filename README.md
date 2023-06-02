@@ -31,7 +31,7 @@ bash <path/to>/scipion.sh
 The instructions to install Cryomethods via CLI are provided [here](./Ubuntu&#32;Installer/README.md).
 The instructions are meant for Ubuntu but can be adapted to any other Linux distribution.
 
-Alternatively, installation scripts are provided for Ubuntu [20.04](./Ubuntu&#32;Installer/Install_script_ubuntu_20.04.sh) and [22.04](Ubuntu&#32;Installer/Install_script_ubuntu_22.04.sh). Simply launch the script, e.g.:
+Alternatively, installation scripts are provided for Ubuntu [20.04](./Ubuntu&#32;Installer/Install_script_ubuntu_20_04.sh) and [22.04](Ubuntu&#32;Installer/Install_script_ubuntu_22_04.sh). Simply launch the script, e.g.:
 ```bash
 bash <path/to>/Install_script_ubuntu_22.04.sh
 ```
