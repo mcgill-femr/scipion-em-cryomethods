@@ -22,7 +22,7 @@ docker container run -it \
 		     -e OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
 		     --runtime=nvidia \
 		     --gpus all \
-		     bmandracchia/scipion3:version2 \
+		     scipion3cuda/cryomethods:1 \
 		     bash	     
 #		     /home/scipion/scipion3/scipion3
 	
