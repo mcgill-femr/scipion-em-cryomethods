@@ -4,7 +4,7 @@ These instruction are written for Ubuntu/Linux but can be easily adapted to any 
 
 ## 1) Install CUDA: 
 
-  #for example:
+  For example:
   ```bash
   $sudo apt install nvidia-cuda-toolkit=10.1.243-3
   ```
@@ -13,9 +13,11 @@ These instruction are written for Ubuntu/Linux but can be easily adapted to any 
 
   #link to install (https://docs.conda.io/en/latest/miniconda.html)
   
+  ```bash
   $eval "$(/home/jvargas/.local/miniconda3/bin/conda shell.bash)"
   
   $conda activate
+  ```
 
 ## 3) Install scipion3 (for a detailed description check https://scipion-em.github.io/docs/docs/scipion-modes/how-to-install.html):
 
