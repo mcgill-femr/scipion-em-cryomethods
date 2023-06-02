@@ -13,25 +13,37 @@ To install Docker on your machine check the instructions on the official webpage
 
 2. Download the Dockerfile provided [here](./Docker/Dockerfile)
 
-Use the package manager [pip](https://pip.pypa.io/en/stable/) to install foobar.
-
+3. Build the Docker image
 ```bash
-pip install foobar
+docker build -t scipion3cuda/cryomethods:1 .
 ```
+4. Create on your computer a folder where you are going to store your scipion projects
+
+5. Download the bash script provided [here](./Docker/scipion.sh). Change the script writing in the HOSTDATAFOLDER variable the path to a folder where you are going to store your scipion projects and in the HOSTNAME variable your username.
+
+6. Everytime you want to start the Docker container simply launch the script:
+```bash
+bash <path/to>/scipion.sh 
+```
+
+### CLI install
+
+The instructions to install Cryomethods via CLI are provided [here](Ubuntu Installer/README.md).
+The instructions are meant for Ubuntu but can be adapted to any other Linux distribution.
+
+Alternatively, installation scripts are provided for Ubuntu [20.04](Ubuntu Installer/Install_script_ubuntu_20.04.sh) and [22.04](Ubuntu Installer/Install_script_ubuntu_22.04.sh). Simply launch the script, e.g.:
+```bash
+bash ./Install_script_ubuntu_22.04.sh
+```
+and a prompt will guide you through the installation process.
+
 
 ## Usage
 
-```python
-import foobar
+To run one of the provided examples, inside the container launch:
 
-# returns 'words'
-foobar.pluralize('word')
-
-# returns 'geese'
-foobar.pluralize('goose')
-
-# returns 'phenomenon'
-foobar.singularize('phenomena')
+```bash
+~/scipion/scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test2DAutoClasifier
 ```
 
 ## Contributing
@@ -43,4 +55,4 @@ Please make sure to update tests as appropriate.
 
 ## License
 
-[MIT](https://choosealicense.com/licenses/mit/)
+[GPL-3.0](./LICENSE)
