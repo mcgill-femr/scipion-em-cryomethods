@@ -48,7 +48,7 @@ class Plugin(pwem.Plugin):
     @classmethod
     def _defineVariables(cls):
         cls._defineEmVar(CRYOMETHODS_HOME, 'cryomethods-0.1')
-        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-3.1.0')
+        cls._defineEmVar(RELION_CRYOMETHODS_HOME, 'relion-4.0')
         cls._defineEmVar(XMIPP_CRYOMETHODS_HOME, 'xmipp')
         cls._defineEmVar(NMA_HOME, 'nma')
 
