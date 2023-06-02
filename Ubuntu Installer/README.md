@@ -1,6 +1,4 @@
-# Cryomethods plugin
-
-Cryomethods is a cryo-electron microscopy image processing plugin of Scipion framwork focussed mainly on processing macromolecular complexes showing extensive heterogeneity. Cryomethods will be integrated in the Scipion plugin manager but in the meantime you can install from the following steps:
+# Instructions for Manual install of Cryomethods plugin
 
 ## 1) Install CUDA: 
 
