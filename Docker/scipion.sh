@@ -1,8 +1,10 @@
 # Variables
-HOSTDATAFOLDER='/home/biagio/Code/Scipion/ScipionUserData'
-DOCKERDATAFOLDER='/home/scipion/ScipionUserData'
-HOSTUSER='biagio'
+HOSTUSER='<your username>'
+HOSTDATAFOLDER='<path/to>/ScipionUserData'
+
+# Do not change the following variables unless necessary
 DOCKERUSER='999' # default id of the docker user outside the container (inside the container the user is named scipion)
+DOCKERDATAFOLDER='/home/scipion/ScipionUserData'
 
 # change permissions of the data folder so that it can be used inside docker (meanwhile in the host pc it must be accessed by root)
 sudo chown -Rv $DOCKERUSER $HOSTDATAFOLDER > /dev/null 2>&1
