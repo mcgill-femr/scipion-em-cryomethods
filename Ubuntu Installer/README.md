@@ -1,6 +1,7 @@
 # Instructions for Manual install of Cryomethods plugin
 
-These instruction are written for Ubuntu/Linux but can be easily adapted to any other Linux distribution
+These instruction are written for Ubuntu/Linux but can be easily adapted to any other Linux distribution. 
+If you are using Ubuntu 22.04, we recommend to use the provided scripts for guided installation. 
 
 ## 1) Install CUDA
 
