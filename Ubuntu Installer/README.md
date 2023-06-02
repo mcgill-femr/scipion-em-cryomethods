@@ -1,10 +1,13 @@
 # Instructions for Manual install of Cryomethods plugin
 
+These instruction are written for Ubuntu/Linux but can be easily adapted to any other Linux distribution
+
 ## 1) Install CUDA: 
 
   #for example:
-  
+  ```bash
   $sudo apt install nvidia-cuda-toolkit=10.1.243-3
+  ```
 
 ## 2) Install miniconda: 
 
