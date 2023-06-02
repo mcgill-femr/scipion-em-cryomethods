@@ -10,7 +10,7 @@ sudo chown -Rv $DOCKERUSER $HOSTDATAFOLDER > /dev/null 2>&1
 # This command allows any local application to access the display server. This behavior is switched off when the application is shut down
 xhost +local:
 
-# This command runs a containerized version of bahs/scipion. 
+# This command runs a containerized version of scipion3. 
 # If the image is not present locally, it should be automatically downloaded (this not working at the moment)
 docker container run -it \
 		     --rm \
