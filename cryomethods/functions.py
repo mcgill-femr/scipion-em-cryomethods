@@ -324,9 +324,9 @@ def normalize(mat):
     """
     Set a numpy array as standard score and after that scale the data between 0 and 1.
     """
-    mean = mat.mean()
-    sigma = mat.std()
-    mat = (mat - mean) / sigma
+    #mean = mat.mean()
+    #sigma = mat.std()
+    #mat = (mat - mean) / sigma
     a = mat.min()
     b = mat.max()
     mat = (mat-a)/(b-a)
@@ -338,7 +338,7 @@ def normalize(mat, max_value, min_value):
     Set a numpy array as standard score and after that scale the data between -1 and 1.
     """
     mat = (mat-min_value)/(max_value-min_value)
-    mat = 2*(mat - 0.5)
+    #mat = 2*(mat - 0.5)
     return mat
 
 def calcPsd(img):
@@ -352,8 +352,8 @@ def calcPsd(img):
     rows, cols = img_f.shape
     img_f = np.log(img_f / (rows * cols))
 
-    q_80 = np.quantile(img_f, 0.8)
-    q_20 = np.quantile(img_f, 0.2)
+    q_80 = np.quantile(img_f, 0.99)
+    q_20 = np.quantile(img_f, 0.01)
     img_f[img_f >= q_80] = q_80
     img_f[img_f < q_20] = q_20
     img_f = normalize(img_f, q_80, q_20)
@@ -384,8 +384,8 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 0.96)
-    q_minus = np.quantile(avg_psd, 0.04)
+    q_plus = np.quantile(avg_psd, 0.99)
+    q_minus = np.quantile(avg_psd, 0.01)
     avg_psd[avg_psd > q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)
@@ -422,13 +422,13 @@ def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 0.96)
-    q_minus = np.quantile(avg_psd, 0.04)
+    q_plus = np.quantile(avg_psd, 1)
+    q_minus = np.quantile(avg_psd, 0)
     avg_psd[avg_psd > q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)
-
     return avg_psd
+
 def polyfit2d(x, y, z, kx=3, ky=3, order=None):
     '''
     https://stackoverflow.com/questions/33964913/equivalent-of-polyfit-for-a-2d-polynomial-in-python

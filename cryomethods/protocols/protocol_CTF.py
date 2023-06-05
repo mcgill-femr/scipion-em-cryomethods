@@ -1,12 +1,14 @@
 
 import pyworkflow.protocol.params as params
+from networkx.algorithms.bipartite import color
+
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd, calcAvgPsd_parallel
 from pwem.objects import CTFModel
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
@@ -189,9 +191,27 @@ class Protdctf(ProtocolBase):
         """
         Method to create the model and train it
         """
-        trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
-        data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=10, pin_memory=True)
-        print('Total data... {}'.format(len(data_loader.dataset)))
+        # Especifica el porcentaje del conjunto de validación
+        validation_ratio = 0.2  # 20% para validación
+        # Calcula el tamaño del conjunto de validación
+        validation_size = int(validation_ratio * len(data))
+        # Calcula el tamaño del conjunto de entrenamiento
+        train_size = len(data) - validation_size
+        # Divide el dataset en conjuntos de entrenamiento y validación
+        train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+
+        # Crea los DataLoaders para entrenamiento y validación
+        nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
+        trainset = LoaderTrain(train_dataset, self.images_path, self.window_size.get(), self.step_size.get())
+        data_loader_training = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=nthreads, pin_memory=True)
+
+        valset = LoaderTrain(val_dataset, self.images_path, self.window_size.get(), self.step_size.get())
+        data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads, pin_memory=False)
+
+        #trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
+        #data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=10, pin_memory=True)
+        print('Total data training... {}'.format(len(data_loader_training.dataset)))
+        print('Total data validation... {}'.format(len(data_loader_val.dataset)))
 
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
@@ -212,41 +232,55 @@ class Protdctf(ProtocolBase):
         criterion_train = weighted_mse_loss
         criterion_test = nn.MSELoss(reduction = 'sum')
 
-        self.loss_list = []
-        self.accuracy_list = []
+        self.loss_list_training = []
+        self.loss_list_val = []
 
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
-            train(model, device, data_loader, optimizer, criterion_train)
+            train(model, device, data_loader_training, optimizer, criterion_train)
+
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt')) #JV
                 model = model.to(device)
 
-            loss = self.calcLoss(model, data_loader, device, criterion_test)
-            self.loss_list.append(loss)
+            loss = self.calcLoss(model, data_loader_training, device, criterion_test)
+            self.loss_list_training.append(loss)
 
             if(epoch % 20 == 0):
-                self.plot_loss_screening(self.loss_list)
+                loss_val = self.calcLoss(model, data_loader_val, device, criterion_test)
+                self.loss_list_val.append(loss_val)
+                self.plot_loss_screening(self.loss_list_training,self.loss_list_val)
+            else:
+                self.loss_list_val.append(np.nan)
 
         if not self.weightEveryEpoch:
             model.train()
             torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights.pt')) # JV
 
-        print(self.loss_list)
-        self.plot_loss_screening(self.loss_list)
+        print("Training loss")
+        print(self.loss_list_training)
 
-    def plot_loss_screening(self, loss_list):
+        print("Validation loss")
+        print(self.loss_list_val)
+
+        self.plot_loss_screening(self.loss_list_training,self.loss_list_val)
+
+    def plot_loss_screening(self, loss_list_traning,loss_list_val):
         """
-        Create the plot figure using the values of loss_list
-        """        
+        Create the plot figure using the values of loss_list, plotting both the line and the connected points.
+
+        Args:
+            loss_list (list): List of loss values.
+        """
         plt.figure(figsize=(11, 8))
-        plt.plot(loss_list)
+        plt.plot(loss_list_traning, marker='o', linestyle='-', color='blue', label='Loss training set')
+        plt.plot(loss_list_val, marker='o', linestyle='-', color='red', label='Loss validation set')
         plt.title('Loss function')
         plt.ylabel('Loss function')
         plt.xlabel('Epoch')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(self._getPath() +'/'+ 'loss.png')
+        plt.savefig(self._getPath() + '/' + 'loss.png')
 
     def predict_CTF(self, images_path, window_size):
         """
@@ -282,15 +316,11 @@ class Protdctf(ProtocolBase):
                 # Forward pass
                 output = model(data)
 
- #               for index in range(0,target.shape[0]):
- #                   if 100 * torch.abs(target[index,0]-target[index,1])/target[index,0] < 15 :
- #                       output[index,2] = target[index,2]
-
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
 
         return test_loss / len(data_loader.dataset)
-
+        return test_loss
 def predict(model, device, data_loader, trainset, batch_size, extraPath):
     """
     Method to predict using the neuronal network
@@ -311,7 +341,7 @@ def predict(model, device, data_loader, trainset, batch_size, extraPath):
             # Move tensors to the configured device
             image = image.to(device)
             # Forward pass
-            output = model(image) 
+            output = model(image)
             output = trainset.normalization.inv_transform(output.cpu().numpy())
             # Save results
 
@@ -558,7 +588,8 @@ class Normalization():
 
 
 def weighted_mse_loss(input, target):
-    weight = 10 * torch.abs(target[:, 0] - target[:, 1])
+    #weight = 10 * torch.abs(target[:, 0] - target[:, 1])
+    weight = 10 * torch.square(target[:, 0] - target[:, 1])
     loss = (input - target) ** 2
     loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss)/len(loss)
