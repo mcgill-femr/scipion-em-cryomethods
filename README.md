@@ -17,7 +17,7 @@ To install Docker on your machine check the instructions on the official webpage
 ```bash
 docker build -t scipion3cuda/cryomethods:1 .
 ```
-4. Create on your computer a folder where you are going to store your scipion projects.
+4. Create on your computer a folder where you are going to store your scipion projects, e.g. '~/ScipionUserData'.
 
 5. Download the bash script provided [here](./Docker/scipion.sh). Change the script writing in the HOSTDATAFOLDER variable the path to a folder where you are going to store your scipion projects and in the HOSTNAME variable your username.
 
