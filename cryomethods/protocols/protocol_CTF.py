@@ -482,7 +482,7 @@ class LoaderPredict(Dataset):
         Plugin.setEnviron()
 
         self.normalization = Normalization(None)
-        self.normalization.load('/mnt/DATOS2/jvargas/training_normalization.json')
+        self.normalization.load('./training_normalization.json')
         #self.normalization.load_hardcoded()
 
         self._data = [i for i in datafiles]
@@ -557,7 +557,7 @@ class Normalization():
         self.set_max_min(dataMatrix)
         dataMatrix = self.scale(dataMatrix)
         self.set_mean_std(dataMatrix)
-        self.save(filename='/mnt/DATOS2/jvargas/training_normalization.json')
+        self.save(filename='./training_normalization.json')
 
     def process_data(self, data):
         dataMatrix = []

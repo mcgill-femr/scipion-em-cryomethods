@@ -1,118 +1,58 @@
-# Cryomethods plugin
+# Cryomethods plugin for Scipion
 
 Cryomethods is a cryo-electron microscopy image processing plugin of Scipion framwork focussed mainly on processing macromolecular complexes showing extensive heterogeneity. Cryomethods will be integrated in the Scipion plugin manager but in the meantime you can install from the following steps:
 
-## 1) Install CUDA: 
+## Installation
 
-  #for example:
-  
-  $sudo apt install nvidia-cuda-toolkit=10.1.243-3
+### Docker (recommended)
 
-## 2) Install miniconda: 
+This is the easiest and most reliable way to install and run Cryomethods if you don't have scipion previously installed on your computer.
 
-  #link to install (https://docs.conda.io/en/latest/miniconda.html)
-  
-  $eval "$(/home/jvargas/.local/miniconda3/bin/conda shell.bash)"
-  
-  $conda activate
+1. Install Docker (if you don't have it already). 
+To install Docker on your machine check the instructions on the official webpage https://docs.docker.com/get-docker/
 
-## 3) Install scipion3 (for a detailed description check https://scipion-em.github.io/docs/docs/scipion-modes/how-to-install.html):
+2. Download the Dockerfile provided [here](./Docker/Dockerfile)
 
-  $sudo apt-get install gcc-8 g++-8 libopenmpi-dev make libopenmpi-dev python3-tk libfftw3-dev libhdf5-dev libtiff-dev libjpeg-dev libsqlite3-dev openjdk-8-jdk
-  
-  $export PATH=$PATH:/usr/local/cuda/bin
-  
-  $conda activate
-  
-  $export CXX_CUDA=g++-8
-  
-  $pip install --user scipion-installer
-  
-  $python -m scipioninstaller /path/where/you/want/scipion -j 4
+3. Build the Docker image
+```bash
+docker build -t scipion3cuda/cryomethods:1 .
+```
+4. Create on your computer a folder where you are going to store your scipion projects, e.g. '~/ScipionUserData'.
 
-## 4) Install Relion3
+5. Download the bash script provided [here](./Docker/scipion.sh). Change the script writing in the HOSTDATAFOLDER variable the path to a folder where you are going to store your scipion projects and in the HOSTNAME variable your username.
 
-  #if you do not have installed cmake , install it $sudo apt-get install cmake 
-  
-  $scipion3 plugins 
+6. Everytime you want to start the Docker container simply launch the script:
+```bash
+bash <path/to>/scipion.sh 
+```
 
-  #Relion requires gcc & g++ version 8. It is very likely that you are running version 9 or newer. You have to do the following:
-  
-  #Use update-alternatives to change gcc to version 8 (https://linuxconfig.org/how-to-switch-between-multiple-gcc-and-g-compiler-versions-on-ubuntu-20-04-lts-focal-fossa)
+### CLI install
 
-  $sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-8 8
-  
-  $sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 8
-  
-  $sudo update-alternatives --config gcc #(select version 8 for Relion compilation only, then change again to the previous version)
+The instructions to install Cryomethods manually via CLI are provided [here](./Ubuntu&#32;Installer/README.md).
+The instructions are meant for Ubuntu but can be adapted to any other Linux distribution.
 
-## 5) Install cryomethods:
+Alternatively, installation scripts are provided for Ubuntu [20.04](./Ubuntu&#32;Installer/Install_script_ubuntu_20_04.sh) and [22.04](Ubuntu&#32;Installer/Install_script_ubuntu_22_04.sh). Simply launch the script, e.g.:
+```bash
+bash <path/to>/Install_script_ubuntu_22.04.sh
+```
+and a prompt will guide you through the installation process.
 
-  #Download cryomethods plugin in the folder where Scipion is installed, in my case:
 
-  $cd  /home/jvargas/Software
-  
-  $git clone https://github.com/mcgill-femr/scipion-em-cryomethods.git
+## Usage
 
-  #Download cryomethods inside scipion/em folder, in my case: /home/jvargas/Software/scipion/software/em
-  
-  $cd /home/jvargas/Software/scipion/software/em
-  
-  $git clone https://github.com/mcgill-femr/cryomethods.git 
+To run one of the provided examples, launch inside the container:
 
-  #rename cryomehods folder
-  
-  $mv cryomethods cryomethods-0.1
-  
-  #install swig from anaconda
-  
-  $conda install -c anaconda swig #(install swig)
+```bash
+~/scipion/scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test2DAutoClasifier
+```
 
-  #install python3-dev
-  
-  $sudo apt-get install python3-dev
-  
-  #enter cryomethods folder
-  
-  $cd cryomethods-0.1
+## Contributing
 
-  #compile alignLib
-  
-  $scipion3 python alignLib/compile.py #should compile without errors
+Pull requests are welcome. For major changes, please open an issue first
+to discuss what you would like to change.
 
-  #install cryomethods plugin in scipion
-  
-  $scipion3 installp -p scipion-em-cryomethods --devel
+Please make sure to update tests as appropriate.
 
-  #Copy libraries to scipion libraries from alignLib folder (inside cryomethods folder) to scipion lib folder, in my case:
-  
-  $cd alignLib/frm/swig
+## License
 
-  $ln -s /home/jvargas/Software/scipion/software/em/cryomethods-0.1/alignLib/SpharmonicKit27/libsphkit.so /home/jvargas/Software/scipion/software/lib/libsphkit.so
-  
-  $ln -s /home/jvargas/Software/scipion/software/em/cryomethods-0.1/alignLib/frm/swig/_swig_frm.so /home/jvargas/Software/scipion/software/lib/_swig_frm.so
-
-  #scipion config update
-  
-  $scipion3 config --update 
-
-  #Check that in scipion.cof (/home/jvargas/Software/scipion/config/scipion.conf) the environment variables RELION_CRUOMETHODS_HOME, XMIPP_CRYOMETHODS_HOME and CRYOMETHODS_HOME   
-  #are correctly set up, if not change the path (in my case Relion path was incorrect).
-
-  ## 6) Use case: 3D autoclassification 
-  We have included a use case to show how to run the 3D autoclassification method of CryoMethods plugin with real data. To run this example run in the command line the following line:
-
-$scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test3DAutoClasifier
-
-This line, download the test data and run the 3D autoclassification method automatically. To open the new created project run the following line:
-
-$scipion3 last
-
-## 7) Use case: 2D autoclassification
-To run this example run in the command line the following line:
-
-$scipion3 tests cryomethods.tests.test_protocols_cryomethods.Test2DAutoClasifier
-
-This line, download the test data and run the 3D autoclassification method automatically. To open the new created project run the following line:
-
-$scipion3 last
+[GPL-3.0](./LICENSE)
