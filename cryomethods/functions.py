@@ -352,8 +352,8 @@ def calcPsd(img):
     rows, cols = img_f.shape
     img_f = np.log(img_f / (rows * cols))
 
-    q_80 = np.quantile(img_f, 0.99)
-    q_20 = np.quantile(img_f, 0.01)
+    q_80 = np.quantile(img_f, 0.98)
+    q_20 = np.quantile(img_f, 0.02)
     img_f[img_f >= q_80] = q_80
     img_f[img_f < q_20] = q_20
     img_f = normalize(img_f, q_80, q_20)
@@ -384,8 +384,8 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 0.99)
-    q_minus = np.quantile(avg_psd, 0.01)
+    q_plus = np.quantile(avg_psd, 0.98)
+    q_minus = np.quantile(avg_psd, 0.02)
     avg_psd[avg_psd > q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)

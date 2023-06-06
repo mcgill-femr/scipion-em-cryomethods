@@ -99,7 +99,14 @@ class Protdctf(ProtocolBase):
     def convertInputStep(self):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
-            self.images_path = self.imgSet.getFiles()
+
+            self.images_path = []
+            for i, img in enumerate(self.imgSet):
+                loc = img.getLocation()
+                self.images_path.append(loc[1])
+
+            #self.images_path = self.imgSet.getFiles()
+
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
@@ -119,8 +126,9 @@ class Protdctf(ProtocolBase):
 
                 filename_psd = self.calc_psd_per_mic(filename_img)
                 print(filename_psd)
-                print("/-------------------------------/")
                 self.data.append({'img':filename_psd, 'target': np.array(target, dtype=np.float32)})
+                print("/-------------------------------/")
+
 
     def runCTFStep(self):
 
@@ -245,6 +253,7 @@ class Protdctf(ProtocolBase):
 
             loss = self.calcLoss(model, data_loader_training, device, criterion_test)
             self.loss_list_training.append(loss)
+            print('Loss epoch: {:.6f}'.format(loss))
 
             if(epoch % 20 == 0):
                 loss_val = self.calcLoss(model, data_loader_val, device, criterion_test)
@@ -286,7 +295,7 @@ class Protdctf(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path, self.images_path, self.window_size.get(), self.step_size.get())
+        trainset = LoaderPredict(images_path, self.window_size.get(), self.step_size.get())
         data_loader = DataLoader(trainset, batch_size=self.batch_size.get(),shuffle=False, num_workers=12, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -320,7 +329,7 @@ class Protdctf(ProtocolBase):
                 test_loss += loss_function(output, target).item()
 
         return test_loss / len(data_loader.dataset)
-        return test_loss
+
 def predict(model, device, data_loader, trainset, batch_size, extraPath):
     """
     Method to predict using the neuronal network
@@ -377,7 +386,33 @@ def train(model, device, train_loader, optimizer, loss_function):
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
+'''
+import torch
+import torch.nn as nn
+import torchvision.models as models
 
+# Definir una subclase personalizada de ResNet-50
+class ResNetRegression(nn.Module):
+    def __init__(self, num_classes=4):
+        super(ResNetRegression, self).__init__()
+        resnet = models.resnet50(pretrained=True)
+        self.features = nn.Sequential(*list(resnet.children())[:-1])  # Eliminar la última capa lineal
+
+        # Agregar una capa lineal personalizada para la regresión
+        self.regression_layer = nn.Linear(resnet.fc.in_features, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.regression_layer(x)
+        return x
+
+# Crear una instancia del modelo personalizado
+model = ResNetRegression()
+
+# Imprimir la estructura del modelo
+print(model)
+'''
 class Regresion(nn.Module):
     """
     Neuronal Network model
@@ -442,7 +477,7 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-    def __init__(self, datafiles, norm_file, window_size, step_size):
+    def __init__(self, datafiles,  window_size, step_size):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
