@@ -1,6 +1,5 @@
 
 import pyworkflow.protocol.params as params
-from networkx.algorithms.bipartite import color
 
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
@@ -210,10 +209,10 @@ class Protdctf(ProtocolBase):
 
         # Crea los DataLoaders para entrenamiento y validación
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
-        trainset = LoaderTrain(train_dataset, self.images_path, self.window_size.get(), self.step_size.get())
+        trainset = LoaderTrain(train_dataset, self._getExtraPath(), self.window_size.get(), self.step_size.get())
         data_loader_training = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=nthreads, pin_memory=True)
 
-        valset = LoaderTrain(val_dataset, self.images_path, self.window_size.get(), self.step_size.get())
+        valset = LoaderTrain(val_dataset, self._getExtraPath(), self.window_size.get(), self.step_size.get())
         data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads, pin_memory=False)
 
         #trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
@@ -295,7 +294,7 @@ class Protdctf(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path, self.window_size.get(), self.step_size.get())
+        trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get())
         data_loader = DataLoader(trainset, batch_size=self.batch_size.get(),shuffle=False, num_workers=12, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -477,12 +476,15 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-    def __init__(self, datafiles,  window_size, step_size):
+    def __init__(self, datafiles,  normalization_path, window_size, step_size):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
-        self.normalization = Normalization(None)
-        self.normalization.load('/mnt/DATOS2/jvargas/training_normalization.json')
+        normalization_path = os.path.dirname(normalization_path) + '/training_normalization.json'
+        self.normalization = Normalization(None, None)
+        self.normalization.load(normalization_path)
+
+        #self.normalization.load('/mnt/DATOS2/jvargas/training_normalization.json')
         #self.normalization.load_hardcoded()
 
         self._data = [i for i in datafiles]
@@ -511,11 +513,12 @@ class LoaderTrain(Dataset):
     """
     Class to load the dataset for train
     """
-    def __init__(self, data, norm_file, window_size, step_size):
+
+    def __init__(self, data, extra_path , window_size, step_size):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
-        self.normalization = Normalization(data)
+        self.normalization = Normalization(data,extra_path)
         #self.normalization.load(norm_file)
 
         dataMatrix = np.array([d['target'] for d in data])
@@ -548,7 +551,7 @@ class LoaderTrain(Dataset):
 
 class Normalization():
 
-    def __init__(self, data):
+    def __init__(self, data, extra_path):
 
         if data is None:
             return
@@ -557,7 +560,12 @@ class Normalization():
         self.set_max_min(dataMatrix)
         dataMatrix = self.scale(dataMatrix)
         self.set_mean_std(dataMatrix)
-        self.save(filename='/mnt/DATOS2/jvargas/training_normalization.json')
+        filename =  extra_path+'/training_normalization.json'
+
+        if os.path.exists(filename):
+            pass
+        else:
+            self.save(filename=extra_path + '/training_normalization.json')
 
     def process_data(self, data):
         dataMatrix = []
