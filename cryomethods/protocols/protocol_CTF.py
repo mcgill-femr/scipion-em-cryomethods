@@ -104,8 +104,6 @@ class Protdctf(ProtocolBase):
                 loc = img.getLocation()
                 self.images_path.append(loc[1])
 
-            #self.images_path = self.imgSet.getFiles()
-
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
@@ -182,17 +180,20 @@ class Protdctf(ProtocolBase):
     def calc_psd_per_mic(self,filename_img,):
         #TODO: impose a fixed sampling rate of for example 2 A/px
         img = NumpyImgHandler.loadMrc(filename_img)
-        img = img[0,:,:]
-#       new_size = np.int32( (np.float32(img.shape)/self.downsampling.get()) )
-#       PIL_image = Image.fromarray(img)
-#       PIL_image = PIL_image.resize(new_size)
-#       img  = np.array(PIL_image)
+        img = img[0, :, :]
+        new_size = tuple( int(element / self.downsampling.get()) for element in img.shape)
+        PIL_image = Image.fromarray(img)
+
+        resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
+        img = np.asarray(resized_image)
 
         #psd = calcAvgPsd(img, self.window_size.get(), self.step_size.get())
-        psd = calcAvgPsd_parallel(img, self.window_size.get(), self.step_size.get())
+        psd = calcAvgPsd_parallel(img, windows_size=self.window_size.get(), step_size=self.step_size.get())
         filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
         NumpyImgHandler.saveMrc(psd, filename_psd)
         return filename_psd
+
+
 
     def train_nn(self, data):
         """
@@ -236,26 +237,26 @@ class Protdctf(ProtocolBase):
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
 
-        criterion_train = weighted_mse_loss
-        criterion_test = nn.MSELoss(reduction = 'sum')
+        loss_function = weighted_mse_loss
+        #criterion_test = nn.MSELoss(reduction = 'sum')
 
         self.loss_list_training = []
         self.loss_list_val = []
 
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
-            train(model, device, data_loader_training, optimizer, criterion_train)
+            train(model, device, data_loader_training, optimizer, loss_function)
 
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt')) #JV
                 model = model.to(device)
 
-            loss = self.calcLoss(model, data_loader_training, device, criterion_test)
+            loss = self.calcLoss(model, data_loader_training, device, loss_function)
             self.loss_list_training.append(loss)
             print('Loss epoch: {:.6f}'.format(loss))
 
             if(epoch % 20 == 0):
-                loss_val = self.calcLoss(model, data_loader_val, device, criterion_test)
+                loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
                 self.loss_list_val.append(loss_val)
                 self.plot_loss_screening(self.loss_list_training,self.loss_list_val)
             else:
@@ -274,15 +275,9 @@ class Protdctf(ProtocolBase):
         self.plot_loss_screening(self.loss_list_training,self.loss_list_val)
 
     def plot_loss_screening(self, loss_list_traning,loss_list_val):
-        """
-        Create the plot figure using the values of loss_list, plotting both the line and the connected points.
-
-        Args:
-            loss_list (list): List of loss values.
-        """
         plt.figure(figsize=(11, 8))
-        plt.plot(loss_list_traning, marker='o', linestyle='-', color='blue', label='Loss training set')
-        plt.plot(loss_list_val, marker='o', linestyle='-', color='red', label='Loss validation set')
+        plt.plot(loss_list_traning, marker='o', linestyle='-', color='blue', label='Loss training')
+        plt.plot(loss_list_val, marker='o', color='red', label='Loss validation')
         plt.title('Loss function')
         plt.ylabel('Loss function')
         plt.xlabel('Epoch')
@@ -327,7 +322,8 @@ class Protdctf(ProtocolBase):
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
 
-        return test_loss / len(data_loader.dataset)
+        num_batches = len(data_loader.dataset) / data_loader.batch_size
+        return test_loss / num_batches
 
 def predict(model, device, data_loader, trainset, batch_size, extraPath):
     """
@@ -372,7 +368,7 @@ def train(model, device, train_loader, optimizer, loss_function):
 
         # Forward pass
         output = model(data)
-        loss = loss_function(output, target)       
+        loss = loss_function(output, target)
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -632,7 +628,8 @@ class Normalization():
 
 def weighted_mse_loss(input, target):
     #weight = 10 * torch.abs(target[:, 0] - target[:, 1])
-    weight = 10 * torch.square(target[:, 0] - target[:, 1])
+    #weight = 10 * torch.square(target[:, 0] - target[:, 1])
+    weight = 1 - torch.exp(-1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
     loss = (input - target) ** 2
     loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss)/len(loss)

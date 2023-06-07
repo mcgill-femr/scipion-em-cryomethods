@@ -384,9 +384,9 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 0.98)
-    q_minus = np.quantile(avg_psd, 0.02)
-    avg_psd[avg_psd > q_plus] = q_plus
+    q_plus = np.quantile(avg_psd, 0.99)
+    q_minus = np.quantile(avg_psd, 0.01)
+    avg_psd[avg_psd >= q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)
 
@@ -422,9 +422,9 @@ def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 1)
-    q_minus = np.quantile(avg_psd, 0)
-    avg_psd[avg_psd > q_plus] = q_plus
+    q_plus = np.quantile(avg_psd, 0.99)
+    q_minus = np.quantile(avg_psd, 0.01)
+    avg_psd[avg_psd >= q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)
     return avg_psd
