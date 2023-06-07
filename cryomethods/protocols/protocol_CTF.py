@@ -178,16 +178,16 @@ class Protdctf(ProtocolBase):
         print("/------------------------")
 
     def calc_psd_per_mic(self,filename_img,):
-        #TODO: impose a fixed sampling rate of for example 2 A/px
         img = NumpyImgHandler.loadMrc(filename_img)
         img = img[0, :, :]
+
+        # Resize image if necesary to adjust downsampling
         new_size = tuple( int(element / self.downsampling.get()) for element in img.shape)
         PIL_image = Image.fromarray(img)
-
         resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
         img = np.asarray(resized_image)
 
-        #psd = calcAvgPsd(img, self.window_size.get(), self.step_size.get())
+        #Calculate psd:
         psd = calcAvgPsd_parallel(img, windows_size=self.window_size.get(), step_size=self.step_size.get())
         filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
         NumpyImgHandler.saveMrc(psd, filename_psd)
@@ -289,7 +289,7 @@ class Protdctf(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get())
+        trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(), self.downsampling.get())
         data_loader = DataLoader(trainset, batch_size=self.batch_size.get(),shuffle=False, num_workers=12, pin_memory=False)
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -472,7 +472,7 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-    def __init__(self, datafiles,  normalization_path, window_size, step_size):
+    def __init__(self, datafiles,  normalization_path, window_size, step_size, downsampling):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
@@ -486,7 +486,7 @@ class LoaderPredict(Dataset):
         self._data = [i for i in datafiles]
         self._window_size = window_size
         self.step_size = step_size
-
+        self.downsampling = downsampling
     def __len__(self):
         return len(self._data)
 
@@ -498,11 +498,15 @@ class LoaderPredict(Dataset):
 
     def open_image(self, filename):
         img = NumpyImgHandler.loadMrc(filename)
-        psd = calcAvgPsd_parallel(img[0,:,:], windows_size=self._window_size, step_size=self.step_size)
-        _min = psd.min()
-        _max = psd.max()
-        psd = (psd - _min) / (_max - _min)
-        psd = np.resize(psd, (self._window_size, self._window_size))
+        img = img[0,:,:]
+
+        # Resize image if necesary to adjust downsampling
+        new_size = tuple( int(element / self.downsampling) for element in img.shape)
+        PIL_image = Image.fromarray(img)
+        resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
+        img = np.asarray(resized_image)
+
+        psd = calcAvgPsd_parallel(img, windows_size=self._window_size, step_size=self.step_size)
         return torch.from_numpy(np.float32(psd))
 
 class LoaderTrain(Dataset):
