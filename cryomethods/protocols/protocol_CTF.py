@@ -249,11 +249,12 @@ class Protdctf(ProtocolBase):
 
             loss = self.calcLoss(model, data_loader_training, device, loss_function)
             self.loss_list_training.append(loss)
-            print('Loss epoch: {:.6f}'.format(loss))
+            print('Loss epoch training: {:.6f}'.format(loss))
 
-            if (epoch % 20 == 0):
+            if (epoch % 10 == 0):
                 loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
                 self.loss_list_val.append(loss_val)
+                print('Loss epoch validation: {:.6f}'.format(loss))
                 self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
             else:
                 self.loss_list_val.append(np.nan)
