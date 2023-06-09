@@ -111,14 +111,25 @@ class Protdctf(ProtocolBase):
             self.images_path = []
             path_psd = self._getExtraPath()
             sampling = self.sampling.get()
+
+            ctfs  = []
+            for i, ctf in enumerate(self.ctfs):
+                extended_ctf = CTFModel()
+                extended_ctf.set(ctf)
+                dic_ctf = extended_ctf.getObjDict()
+                filename_img = dic_ctf['_objValue._micObj._filename']
+                sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
+                defocus = np.asarray(ctf.getDefocus())
+                resolution = np.asarray(ctf.getResolution())
+                ctfs.append([defocus, resolution, filename_img, sampling_rate])
+
             nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
             pool = mp.Pool(processes=nthreads)
 
             args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
                            step_size=self.step_size.get())
-            results = pool.map(args, self.ctfs)
-
-            # results = pool.map(process_ctf,self.ctfs)
+            results = pool.map(args, ctfs)
+            #results = pool.map(process_ctf, ctfs)
 
             # Agrega los resultados al atributo 'data'
             self.data.extend(results)
@@ -635,22 +646,25 @@ def weighted_mse_loss(input, target):
     return torch.sum(loss) / len(loss)
 
 
-def process_ctf(ctf, path_psd, sampling, window_size, step_size):
-    extended_ctf = CTFModel()
-    extended_ctf.set(ctf)
-    dic_ctf = extended_ctf.getObjDict()
-    filename_img = dic_ctf['_objValue._micObj._filename']
-    sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
+def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
+    #path_psd = '/mnt/DATOS2/jvargas/ScipionUserData/projects/RNP_Vargas/Runs/003369_Protdctf/extra/'
+    #extended_ctf = CTFModel()
+    #extended_ctf.set(ctf)
+    #dic_ctf = extended_ctf.getObjDict()
+    #filename_img = dic_ctf['_objValue._micObj._filename']
+    #sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
 
-    print(filename_img)
-
-    defocus = np.asarray(ctf.getDefocus())
-    resolution = np.asarray(ctf.getResolution())
+    #print(filename_img)
+    defocus, resolution, filename_img, sampling_rate = ctf
+    defocus = np.asarray(defocus)
+    resolution = np.asarray(resolution)
     target = list(defocus)
     target.append(resolution)
 
+    print(filename_img)
     filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
     print(filename_psd)
+    print("--------------------------------------------------------")
 
     return {'img': filename_psd, 'target': np.array(target, dtype=np.float32)}
 
@@ -667,6 +681,5 @@ def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, windo
     psd = calcAvgPsd(img, window_size, step_size)
     filename_psd = path_psd + '/' + os.path.splitext(os.path.basename(filename_img))[0] + '_psd.mrc'
     NumpyImgHandler.saveMrc(psd, filename_psd)
-    print(filename_psd)
 
     return filename_psd
