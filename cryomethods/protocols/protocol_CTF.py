@@ -8,7 +8,7 @@ from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
@@ -67,7 +67,14 @@ class Protdctf(ProtocolBase):
         group.addParam('lr', params.FloatParam, default=0.0001,
                        label='Learning rate',
                        help='Learning rate.')
-        group.addParam('epochs', params.IntParam, default=20,
+        group.addParam('validation_ratio', params.FloatParam, default=0.20, expertLevel=params.LEVEL_ADVANCED,
+                       label='Validation ratio',
+                       help='Percentage of the validation set.')
+        group.addParam('validation_split', params.BooleanParam, default=True, expertLevel=params.LEVEL_ADVANCED,
+                       label='Validation splitting',
+                       help='If True the splitting is done randomply if False the last images are assigned to validation.')
+
+        group.addParam('epochs', params.IntParam, default=100,
                        label='Number of epochs',
                        help='The number of epochs for the training.')
         group.addParam('weightEveryEpoch', params.BooleanParam, default=True,
@@ -187,15 +194,31 @@ class Protdctf(ProtocolBase):
         return filename_psd
 
     def train_nn(self, data):
-        """Method to create the model and train it"""
+        """
+        Method to create the model and train it
+        """
         # Especifica el porcentaje del conjunto de validación
-        validation_ratio = 0.2  # 20% para validación
+        validation_ratio = self.validation_ratio.get()
         # Calcula el tamaño del conjunto de validación
         validation_size = int(validation_ratio * len(data))
         # Calcula el tamaño del conjunto de entrenamiento
         train_size = len(data) - validation_size
+
         # Divide el dataset en conjuntos de entrenamiento y validación
-        train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+
+        if (self.validation_split.get):
+            train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+        else:
+            # Obtener los índices del conjunto de datos
+            indices = list(range(len(data)))
+
+            # Dividir los índices en subconjuntos de acuerdo con las proporciones
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
+
+            # Utilizar los índices para obtener los subconjuntos correspondientes
+            train_dataset = Subset(data, train_indices)
+            val_dataset = Subset(data, val_indices)
 
         # Crea los DataLoaders para entrenamiento y validación
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
@@ -296,6 +319,22 @@ class Protdctf(ProtocolBase):
 
         # Create the model and load weights
         model = Regresion(size_in=(1, window_size, window_size), size_out=4)
+
+        # Crear una instancia del modelo
+        # model = Net()
+
+        # Configurar el modelo en modo de evaluación
+        # model.eval()
+
+        # Realizar múltiples pasadas hacia adelante con Dropout activado
+        # num_samples = 100
+        # predictions = []
+        # for _ in range(num_samples):
+        #    output = model(input)
+        #    predictions.append(output)
+
+        # Calcular la predicción final promediando las salidas
+        # prediction_mean = torch.mean(torch.stack(predictions), dim=0)
 
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
@@ -412,14 +451,23 @@ class Regresion(nn.Module):
     """
     Neuronal Network model
     """
-    def __init__(self, size_in=(1, 419, 419), size_out=3):
+    def __init__(self, size_in=(1, 256, 256), size_out=4):
         super(Regresion, self).__init__()
 
         self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
+        self.bn_1a_3x3 = nn.BatchNorm2d(32)
+
         self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        self.bn_2a_3x3 = nn.BatchNorm2d(32)
+
         self.Conv2d_2b_3x3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn_2b_3x3 = nn.BatchNorm2d(64)
+
         self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
+        self.bn_3b_1x1 = nn.BatchNorm2d(80)
+
         self.Conv2d_4a_3x3 = nn.Conv2d(80, 192, kernel_size=3)
+        self.bn_4a_3x3 = nn.BatchNorm2d(192)
 
         self.flat_size = num_flat_features(self._get_conv_ouput(size_in))
 
@@ -433,26 +481,31 @@ class Regresion(nn.Module):
 
     def _forward_conv(self, x):
         x = self.Conv2d_1a_3x3(x)
+        x = self.bn_1a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_2a_3x3(x)
+        x = self.bn_2a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_2b_3x3(x)
+        x = self.bn_2b_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = F.max_pool2d(x, kernel_size=3, stride=2)
 
         x = self.Conv2d_3b_1x1(x)
+        x = self.bn_3b_1x1(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_4a_3x3(x)
+        x = self.bn_4a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = F.max_pool2d(x, kernel_size=3, stride=2)
 
