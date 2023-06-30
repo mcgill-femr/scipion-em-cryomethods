@@ -5,7 +5,7 @@ from functools import partial
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
-from cryomethods.functions import num_flat_features, calcAvgPsd, calcAvgPsd_parallel
+from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -129,9 +129,7 @@ class Protdctf(ProtocolBase):
             args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
                            step_size=self.step_size.get())
             results = pool.map(args, ctfs)
-            #results = pool.map(process_ctf, ctfs)
 
-            # Agrega los resultados al atributo 'data'
             self.data.extend(results)
             pool.close()
             pool.join()
@@ -189,9 +187,7 @@ class Protdctf(ProtocolBase):
         return filename_psd
 
     def train_nn(self, data):
-        """
-        Method to create the model and train it
-        """
+        """Method to create the model and train it"""
         # Especifica el porcentaje del conjunto de validación
         validation_ratio = 0.2  # 20% para validación
         # Calcula el tamaño del conjunto de validación
@@ -211,8 +207,6 @@ class Protdctf(ProtocolBase):
         data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
                                      pin_memory=False)
 
-        # trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
-        # data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=10, pin_memory=True)
         print('Total data training... {}'.format(len(data_loader_training.dataset)))
         print('Total data validation... {}'.format(len(data_loader_val.dataset)))
 
@@ -254,7 +248,7 @@ class Protdctf(ProtocolBase):
             if (epoch % 10 == 0):
                 loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
                 self.loss_list_val.append(loss_val)
-                print('Loss epoch validation: {:.6f}'.format(loss))
+                print('Loss epoch validation: {:.6f}'.format(loss_val))
                 self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
             else:
                 self.loss_list_val.append(np.nan)
@@ -418,7 +412,6 @@ class Regresion(nn.Module):
     """
     Neuronal Network model
     """
-
     def __init__(self, size_in=(1, 419, 419), size_out=3):
         super(Regresion, self).__init__()
 
@@ -478,23 +471,19 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-
-    def __init__(self, datafiles, normalization_path, window_size, step_size, sampling_rate, sampling):
+    def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
-        normalization_path = os.path.dirname(normalization_path) + '/training_normalization.json'
+        normalization_path = os.path.dirname(weight_path) + '/training_normalization.json'
         self.normalization = Normalization(None, None)
         self.normalization.load(normalization_path)
 
-        # self.normalization.load('/mnt/DATOS2/jvargas/training_normalization.json')
-        # self.normalization.load_hardcoded()
-
         self._data = [i for i in datafiles]
         self._window_size = window_size
-        self.step_size = step_size
-        self.sampling_rate = sampling_rate
-        self.sampling = sampling
+        self._step_size = step_size
+        self._sampling_rate = sampling_rate
+        self._sampling = sampling
 
     def __len__(self):
         return len(self._data)
@@ -511,12 +500,12 @@ class LoaderPredict(Dataset):
 
         # Resize image if necesary to adjust downsampling
         new_size = (
-        int(img.shape[1] * self.sampling_rate / self.sampling), int(img.shape[0] * self.sampling_rate / self.sampling))
+        int(img.shape[1] * self._sampling_rate / self._sampling), int(img.shape[0] * self._sampling_rate / self._sampling))
         PIL_image = Image.fromarray(img)
         resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
         img = np.asarray(resized_image)
 
-        psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self.step_size)
+        psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self._step_size)
         return torch.from_numpy(np.float32(psd))
 
 
@@ -524,13 +513,11 @@ class LoaderTrain(Dataset):
     """
     Class to load the dataset for train
     """
-
     def __init__(self, data, extra_path, window_size, step_size):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
         self.normalization = Normalization(data, extra_path)
-        # self.normalization.load(norm_file)
 
         dataMatrix = np.array([d['target'] for d in data])
         dataMatrix = self.normalization.transform(dataMatrix)
@@ -556,7 +543,7 @@ class LoaderTrain(Dataset):
         return torch.from_numpy(img)
 
 
-class Normalization():
+class Normalization:
 
     def __init__(self, data, extra_path):
 
@@ -564,6 +551,7 @@ class Normalization():
             return
 
         dataMatrix = self.process_data(data)
+
         self.set_max_min(dataMatrix)
         dataMatrix = self.scale(dataMatrix)
         self.set_mean_std(dataMatrix)
@@ -648,14 +636,6 @@ def weighted_mse_loss(input, target):
 
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
-    #path_psd = '/mnt/DATOS2/jvargas/ScipionUserData/projects/RNP_Vargas/Runs/003369_Protdctf/extra/'
-    #extended_ctf = CTFModel()
-    #extended_ctf.set(ctf)
-    #dic_ctf = extended_ctf.getObjDict()
-    #filename_img = dic_ctf['_objValue._micObj._filename']
-    #sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
-
-    #print(filename_img)
     defocus, resolution, filename_img, sampling_rate = ctf
     defocus = np.asarray(defocus)
     resolution = np.asarray(resolution)
@@ -678,8 +658,8 @@ def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, windo
     resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
     img = np.asarray(resized_image)
 
-    # Calculate psd:
-    psd = calcAvgPsd(img, window_size, step_size)
+    # Calculate psd with some extra noise for data augmentation
+    psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
     filename_psd = path_psd + '/' + os.path.splitext(os.path.basename(filename_img))[0] + '_psd.mrc'
     NumpyImgHandler.saveMrc(psd, filename_psd)
 

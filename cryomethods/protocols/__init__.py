@@ -37,6 +37,5 @@ from .protocol_volume_selector import ProtInitialVolumeSelector
 from .protocol_ML_landscape import ProtLandscapePCA
 from .protocol_CNN import ProtSCNN
 from .protocol_CTF import Protdctf
-from .protocol_CTF_2 import Protdctf2
 
 # from .protocol_NMA_landscape import ProtLandscapeNMA

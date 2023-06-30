@@ -366,11 +366,10 @@ def calcPsd(img):
     return img_f
 
 
-def calcAvgPsd(img, windows_size=256, step_size=128):
+def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False):
     """
     Calculate PSD using average periodogram
     """
-
     rows, cols = img.shape
     avg_psd = np.zeros((windows_size, windows_size))
     count = 0
@@ -379,6 +378,9 @@ def calcAvgPsd(img, windows_size=256, step_size=128):
             count += 1
             avg_psd += calcPsd(img[i:i + windows_size, j:j + windows_size])
     avg_psd /= count
+
+    if add_noise:
+        avg_psd = avg_psd + np.random.normal(0, 0.01, avg_psd.shape)
 
     x = np.linspace(-1, 1, windows_size)
     y = np.linspace(-1, 1, windows_size)
@@ -430,41 +432,6 @@ def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
     return avg_psd
 
 def polyfit2d(x, y, z, kx=3, ky=3, order=None):
-    '''
-    https://stackoverflow.com/questions/33964913/equivalent-of-polyfit-for-a-2d-polynomial-in-python
-    Two dimensional polynomial fitting by least squares.
-    Fits the functional form f(x,y) = z.
-
-    Notes
-    -----
-    Resultant fit can be plotted with:
-    np.polynomial.polynomial.polygrid2d(x, y, soln.reshape((kx+1, ky+1)))
-
-    Parameters
-    ----------
-    x, y: array-like, 1d
-        x and y coordinates.
-    z: np.ndarray, 2d
-        Surface to fit.
-    kx, ky: int, default is 3
-        Polynomial order in x and y, respectively.
-    order: int or None, default is None
-        If None, all coefficients up to maxiumum kx, ky, ie. up to and including x^kx*y^ky, are considered.
-        If int, coefficients up to a maximum of kx+ky <= order are considered.
-
-    Returns
-    -------
-    Return paramters from np.linalg.lstsq.
-
-    soln: np.ndarray
-        Array of polynomial coefficients.
-    residuals: np.ndarray
-    rank: int
-    s: np.ndarray
-    '''
-
-    #np.polynomial.polynomial.polyfit()
-    # grid coords
     x, y = np.meshgrid(x, y)
 
     # coefficient array, up to x^kx, y^ky
@@ -491,7 +458,6 @@ def polyfit2d(x, y, z, kx=3, ky=3, order=None):
     for index, (j, i) in enumerate(np.ndindex(coeffs.shape)):
         z += c[index] * x**i * y**j
     return z
-    #return c[0]+x*c[1]+x**2*c[2]+y*c[3]+x*y*c[4]+x**2*y*c[5]+y**2*c[6]+x*y**2*c[7]+x**2*y**2*c[8]
 
 
 def fftnfreq(n, d=1):
