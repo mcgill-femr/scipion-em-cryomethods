@@ -6,7 +6,7 @@ from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
-from pwem.objects import CTFModel
+from pwem.objects import CTFModel, Float
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
@@ -52,6 +52,9 @@ class Protdctf(ProtocolBase):
         group.addParam('weightsfile', params.PathParam,
                        label='Weigths file:',
                        help='Select the weights file of the neuronal network model.')
+        group.addParam('error_estimation', params.BooleanParam, default=True, condition="predictEnable",
+                       label='Estimate error',
+                       help='If true estimate the error in the predicted parameters.')
 
         group = form.addGroup('Train', condition="not predictEnable")
         group.addParam('trainSet', params.PointerParam, allowsNull=True,
@@ -77,6 +80,7 @@ class Protdctf(ProtocolBase):
         group.addParam('epochs', params.IntParam, default=100,
                        label='Number of epochs',
                        help='The number of epochs for the training.')
+
         group.addParam('weightEveryEpoch', params.BooleanParam, default=True,
                        label='Save weight per epoch',
                        help='Enable if you want to save the weights per epoch, otherwise it will only save the weight of the las epoch.')
@@ -157,6 +161,13 @@ class Protdctf(ProtocolBase):
                 ctf.setMicrograph(img)
                 ctf.setPsdFile(self.psd_list[i])
                 ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
+
+                if self.error_estimation.get():
+                    ctf._error_defocusU = Float(self.results[i][4])
+                    ctf._error_defocusV = Float(self.results[i][5])
+                    ctf._error_defocusAngle = Float(self.results[i][6])
+                    ctf._error_resolution = Float(self.results[i][7])
+
                 self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
 
@@ -320,26 +331,10 @@ class Protdctf(ProtocolBase):
         # Create the model and load weights
         model = Regresion(size_in=(1, window_size, window_size), size_out=4)
 
-        # Crear una instancia del modelo
-        # model = Net()
-
-        # Configurar el modelo en modo de evaluación
-        # model.eval()
-
-        # Realizar múltiples pasadas hacia adelante con Dropout activado
-        # num_samples = 100
-        # predictions = []
-        # for _ in range(num_samples):
-        #    output = model(input)
-        #    predictions.append(output)
-
-        # Calcular la predicción final promediando las salidas
-        # prediction_mean = torch.mean(torch.stack(predictions), dim=0)
-
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
         model = model.to(device)
-        return predict(model, device, data_loader, trainset, self.batch_size.get(), self._getExtraPath())
+        return predict(model, device, data_loader, trainset, self.error_estimation.get(), self._getExtraPath())
 
     def calcLoss(self, model, data_loader, device, loss_function):
         """
@@ -361,7 +356,7 @@ class Protdctf(ProtocolBase):
         return test_loss / num_batches
 
 
-def predict(model, device, data_loader, trainset, batch_size, extraPath):
+def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     """
     Method to predict using the neuronal network
     """
@@ -380,15 +375,37 @@ def predict(model, device, data_loader, trainset, batch_size, extraPath):
 
             # Move tensors to the configured device
             image = image.to(device)
-            # Forward pass
-            output = model(image)
-            output = trainset.normalization.inv_transform(output.cpu().numpy())
-            # Save results
 
-            for batch_id in range(0, size):
-                results.append(output[batch_id])
-                filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
-                psd_list.append(filename)
+            if not estimate_error:
+                # Forward pass
+                output = model(image)
+                output = trainset.normalization.inv_transform(output.cpu().numpy())
+                # Save results
+                for batch_id in range(0, size):
+                    results.append(output[batch_id])
+                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                    psd_list.append(filename)
+            else:
+                model.train()
+                num_samples = 100
+                predictions = []
+
+                for _ in range(num_samples):
+                    output = model(image)
+                    predictions.append(output.unsqueeze(0))
+
+                # Calcular la predicción final promediando las salidas
+                predictions = torch.cat(predictions, dim=0)
+                predictions = trainset.normalization.inv_transform(predictions.cpu().numpy())
+
+                mean_prediction = np.mean(predictions, axis=0)
+                uncertainty = np.std(predictions, axis=0)
+                output = np.concatenate((mean_prediction, uncertainty), axis=1)
+
+                for batch_id in range(0, size):
+                    results.append(output[batch_id])
+                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                    psd_list.append(filename)
 
     return psd_list, results
 
@@ -454,15 +471,18 @@ class Regresion(nn.Module):
     def __init__(self, size_in=(1, 256, 256), size_out=4):
         super(Regresion, self).__init__()
 
-        self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
+        #self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
+        self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=5, stride=2)
         self.bn_1a_3x3 = nn.BatchNorm2d(32)
 
-        self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        #self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=5)
         self.bn_2a_3x3 = nn.BatchNorm2d(32)
 
         self.Conv2d_2b_3x3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.bn_2b_3x3 = nn.BatchNorm2d(64)
 
+        #self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
         self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
         self.bn_3b_1x1 = nn.BatchNorm2d(80)
 
