@@ -167,7 +167,8 @@ class Protdctf(ProtocolBase):
                     ctf._error_defocusV = Float(self.results[i][5])
                     ctf._error_defocusAngle = Float(self.results[i][6])
                     ctf._error_resolution = Float(self.results[i][7])
-
+                    fitQuality = np.max((self.results[i][4]/self.results[i][0],self.results[i][5]/self.results[i][1]))
+                    ctf.setFitQuality(fitQuality)
                 self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
 
