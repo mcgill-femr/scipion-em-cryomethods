@@ -3,34 +3,28 @@ import multiprocessing as mp
 from functools import partial
 
 from cryomethods import Plugin
-from cryomethods.functions import NumpyImgHandler, polyfit2d
+from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
-from cryomethods.functions import num_flat_features, calcAvgPsd, calcAvgPsd_parallel
-from pwem.objects import CTFModel
-
+from cryomethods.functions import num_flat_features, calcAvgPsd
+from pwem.objects import CTFModel, Float
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torch import optim
-import torch.multiprocessing as mp
-
-import torch.nn.functional as F
-from torchvision.transforms.functional import to_pil_image, to_tensor
-
 from PIL import Image
+
+from torch import optim
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import json
 
 
-class Protdctf2(ProtocolBase):
+class Protdctf_particle(ProtocolBase):
     """
-    Calculate the CTF with deep learning.
+    Calculate the CTF per particle with deep learning.
     """
-    _label = 'dctf2'
+    _label = 'dctf_particle'
 
     def __init__(self, **args):
         ProtocolBase.__init__(self, **args)
@@ -52,18 +46,21 @@ class Protdctf2(ProtocolBase):
                        help='Number of images per iteration.')
         group = form.addGroup('Predict', condition="predictEnable")
         group.addParam('inputImgs', params.PointerParam, allowsNull=True,
-                       pointerClass='SetOfMicrographs',
-                       label="Input micrographs",
-                       help='Select the input images.')
+                       pointerClass='SetOfParticles',
+                       label="Input particles",
+                       help='Select the input particles.')
         group.addParam('weightsfile', params.PathParam,
                        label='Weigths file:',
                        help='Select the weights file of the neuronal network model.')
+        group.addParam('error_estimation', params.BooleanParam, default=True, condition="predictEnable",
+                       label='Estimate error',
+                       help='If true estimate the error in the predicted parameters.')
 
         group = form.addGroup('Train', condition="not predictEnable")
         group.addParam('trainSet', params.PointerParam, allowsNull=True,
-                       pointerClass='SetOfCTF',
+                       pointerClass='SetOfParticles',
                        label="Train set",
-                       help='Select the train images.')
+                       help='Select the train particle images with CTF.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -73,6 +70,13 @@ class Protdctf2(ProtocolBase):
         group.addParam('lr', params.FloatParam, default=0.0001,
                        label='Learning rate',
                        help='Learning rate.')
+        group.addParam('validation_ratio', params.FloatParam, default=0.20, expertLevel=params.LEVEL_ADVANCED,
+                       label='Validation ratio',
+                       help='Percentage of the validation set.')
+        group.addParam('validation_split', params.BooleanParam, default=True, expertLevel=params.LEVEL_ADVANCED,
+                       label='Validation splitting',
+                       help='If True the splitting is done randomply if False the last images are assigned to validation.')
+
         group.addParam('epochs', params.IntParam, default=20,
                        label='Number of epochs',
                        help='The number of epochs for the training.')
@@ -83,10 +87,10 @@ class Protdctf2(ProtocolBase):
         form.addParallelSection(threads=1, mpi=1)
         form.addSection('PSD')
         group = form.addGroup('PSD estimation')
-        group.addParam('window_size', params.IntParam, default=256,
+        group.addParam('window_size', params.IntParam, default=128,
                        label='Window size:',
                        help='Window size of the estimated PSD.')
-        group.addParam('step_size', params.IntParam, default=128,
+        group.addParam('step_size', params.IntParam, default=1,
                        label='Step size:',
                        help='Size of the step in the periodogram averaging to estimate the PSD.')
         group.addParam('sampling', params.FloatParam, default=2.0,
@@ -118,15 +122,17 @@ class Protdctf2(ProtocolBase):
             path_psd = self._getExtraPath()
             sampling = self.sampling.get()
 
-            ctfs  = []
+            ctfs = []
             for i, ctf in enumerate(self.ctfs):
                 extended_ctf = CTFModel()
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
-                filename_img = dic_ctf['_objValue._micObj._filename']
-                sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
-                defocus = np.asarray(ctf.getDefocus())
-                resolution = np.asarray(ctf.getResolution())
+                filename_img = dic_ctf['_objValue._filename']
+                sampling_rate = dic_ctf['_objValue._samplingRate']
+                defocus = np.asarray(
+                    [dic_ctf['_objValue._ctfModel._defocusU'], dic_ctf['_objValue._ctfModel._defocusV'],
+                     dic_ctf['_objValue._ctfModel._defocusAngle']])
+                resolution = np.asarray(dic_ctf['_objValue._ctfModel._rlnCtfFigureOfMerit'])
                 ctfs.append([defocus, resolution, filename_img, sampling_rate])
 
             nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
@@ -135,9 +141,7 @@ class Protdctf2(ProtocolBase):
             args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
                            step_size=self.step_size.get())
             results = pool.map(args, ctfs)
-            #results = pool.map(process_ctf, ctfs)
 
-            # Agrega los resultados al atributo 'data'
             self.data.extend(results)
             pool.close()
             pool.join()
@@ -158,6 +162,14 @@ class Protdctf2(ProtocolBase):
                 ctf.setMicrograph(img)
                 ctf.setPsdFile(self.psd_list[i])
                 ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
+
+                if self.error_estimation.get():
+                    ctf._error_defocusU = Float(self.results[i][4])
+                    ctf._error_defocusV = Float(self.results[i][5])
+                    ctf._error_defocusAngle = Float(self.results[i][6])
+                    ctf._error_resolution = Float(self.results[i][7])
+                    fitQuality = np.max((self.results[i][4]/self.results[i][0],self.results[i][5]/self.results[i][1]))
+                    ctf.setFitQuality(fitQuality)
                 self.ctfResults.append(ctf)
             self._defineOutputs(ctfResults=self.ctfResults)
 
@@ -199,13 +211,27 @@ class Protdctf2(ProtocolBase):
         Method to create the model and train it
         """
         # Especifica el porcentaje del conjunto de validación
-        validation_ratio = 0.2  # 20% para validación
+        validation_ratio = self.validation_ratio.get()
         # Calcula el tamaño del conjunto de validación
         validation_size = int(validation_ratio * len(data))
         # Calcula el tamaño del conjunto de entrenamiento
         train_size = len(data) - validation_size
+
         # Divide el dataset en conjuntos de entrenamiento y validación
-        train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+
+        if (self.validation_split.get):
+            train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+        else:
+            # Obtener los índices del conjunto de datos
+            indices = list(range(len(data)))
+
+            # Dividir los índices en subconjuntos de acuerdo con las proporciones
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
+
+            # Utilizar los índices para obtener los subconjuntos correspondientes
+            train_dataset = Subset(data, train_indices)
+            val_dataset = Subset(data, val_indices)
 
         # Crea los DataLoaders para entrenamiento y validación
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
@@ -217,15 +243,12 @@ class Protdctf2(ProtocolBase):
         data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
                                      pin_memory=False)
 
-        # trainset = LoaderTrain(data, self.images_path, self.window_size.get(), self.step_size.get()) #JV
-        # data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=True, num_workers=10, pin_memory=True)
         print('Total data training... {}'.format(len(data_loader_training.dataset)))
         print('Total data validation... {}'.format(len(data_loader_val.dataset)))
 
         # Set device
         use_cuda = self.useGPU and torch.cuda.is_available()
         device = torch.device("cuda" if use_cuda else "cpu")
-
         print('Device:', device)
 
         # Create the model
@@ -261,7 +284,7 @@ class Protdctf2(ProtocolBase):
             if (epoch % 10 == 0):
                 loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
                 self.loss_list_val.append(loss_val)
-                print('Loss epoch validation: {:.6f}'.format(loss))
+                print('Loss epoch validation: {:.6f}'.format(loss_val))
                 self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
             else:
                 self.loss_list_val.append(np.nan)
@@ -293,18 +316,12 @@ class Protdctf2(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        mp.set_start_method('spawn')
-
         trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
                                  self.sampling_rate, self.sampling.get())
 
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
-
-        data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=False, num_workers=0,
-                                 pin_memory=True)
-
-        #data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
-        #                         pin_memory=False)
+        data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
+                                 pin_memory=False)
 
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -319,7 +336,7 @@ class Protdctf2(ProtocolBase):
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
         model = model.to(device)
-        return predict(model, device, data_loader, trainset, self.batch_size.get(), self._getExtraPath())
+        return predict(model, device, data_loader, trainset, self.error_estimation.get(), self._getExtraPath())
 
     def calcLoss(self, model, data_loader, device, loss_function):
         """
@@ -341,7 +358,7 @@ class Protdctf2(ProtocolBase):
         return test_loss / num_batches
 
 
-def predict(model, device, data_loader, trainset, batch_size, extraPath):
+def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     """
     Method to predict using the neuronal network
     """
@@ -355,20 +372,42 @@ def predict(model, device, data_loader, trainset, batch_size, extraPath):
             size = data['image'].shape[0]
             for batch_id in range(0, size):
                 filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
-                image = data['image'].cpu()
-                NumpyImgHandler.saveMrc(np.float32(image[batch_id, :, :, :]), filename)
+                image = data['image']
+                NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
 
             # Move tensors to the configured device
             image = image.to(device)
-            # Forward pass
-            output = model(image)
-            output = trainset.normalization.inv_transform(output.cpu().numpy())
-            # Save results
 
-            for batch_id in range(0, size):
-                results.append(output[batch_id])
-                filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
-                psd_list.append(filename)
+            if not estimate_error:
+                # Forward pass
+                output = model(image)
+                output = trainset.normalization.inv_transform(output.cpu().numpy())
+                # Save results
+                for batch_id in range(0, size):
+                    results.append(output[batch_id])
+                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                    psd_list.append(filename)
+            else:
+                model.train()
+                num_samples = 100
+                predictions = []
+
+                for _ in range(num_samples):
+                    output = model(image)
+                    predictions.append(output.unsqueeze(0))
+
+                # Calcular la predicción final promediando las salidas
+                predictions = torch.cat(predictions, dim=0)
+                predictions = trainset.normalization.inv_transform(predictions.cpu().numpy())
+
+                mean_prediction = np.mean(predictions, axis=0)
+                uncertainty = np.std(predictions, axis=0)
+                output = np.concatenate((mean_prediction, uncertainty), axis=1)
+
+                for batch_id in range(0, size):
+                    results.append(output[batch_id])
+                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                    psd_list.append(filename)
 
     return psd_list, results
 
@@ -431,15 +470,26 @@ class Regresion(nn.Module):
     """
     Neuronal Network model
     """
-
-    def __init__(self, size_in=(1, 419, 419), size_out=3):
+    def __init__(self, size_in=(1, 256, 256), size_out=4):
         super(Regresion, self).__init__()
 
-        self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
-        self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        #self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
+        self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=5, stride=2)
+        self.bn_1a_3x3 = nn.BatchNorm2d(32)
+
+        #self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=3)
+        self.Conv2d_2a_3x3 = nn.Conv2d(32, 32, kernel_size=5)
+        self.bn_2a_3x3 = nn.BatchNorm2d(32)
+
         self.Conv2d_2b_3x3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn_2b_3x3 = nn.BatchNorm2d(64)
+
+        #self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
         self.Conv2d_3b_1x1 = nn.Conv2d(64, 80, kernel_size=1)
+        self.bn_3b_1x1 = nn.BatchNorm2d(80)
+
         self.Conv2d_4a_3x3 = nn.Conv2d(80, 192, kernel_size=3)
+        self.bn_4a_3x3 = nn.BatchNorm2d(192)
 
         self.flat_size = num_flat_features(self._get_conv_ouput(size_in))
 
@@ -453,26 +503,31 @@ class Regresion(nn.Module):
 
     def _forward_conv(self, x):
         x = self.Conv2d_1a_3x3(x)
+        x = self.bn_1a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_2a_3x3(x)
+        x = self.bn_2a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_2b_3x3(x)
+        x = self.bn_2b_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = F.max_pool2d(x, kernel_size=3, stride=2)
 
         x = self.Conv2d_3b_1x1(x)
+        x = self.bn_3b_1x1(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = self.Conv2d_4a_3x3(x)
+        x = self.bn_4a_3x3(x)
         x = F.dropout2d(x)
-        x = F.relu(x)
+        x = F.gelu(x)
 
         x = F.max_pool2d(x, kernel_size=3, stride=2)
 
@@ -489,30 +544,21 @@ class Regresion(nn.Module):
 
 class LoaderPredict(Dataset):
     """
-    Class to load the dataset for predict and do some preprocessing.
+    Class to load the dataset for predict
     """
-    def __init__(self, datafiles, normalization_path, window_size, step_size, sampling_rate, sampling):
+    def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
-        normalization_path = os.path.dirname(normalization_path) + '/training_normalization.json'
+        normalization_path = os.path.dirname(weight_path) + '/training_normalization.json'
         self.normalization = Normalization(None, None)
         self.normalization.load(normalization_path)
 
-        # self.normalization.load('/mnt/DATOS2/jvargas/training_normalization.json')
-        # self.normalization.load_hardcoded()
-
         self._data = [i for i in datafiles]
         self._window_size = window_size
-        self.step_size = step_size
-        self.sampling_rate = sampling_rate
-        self.sampling = sampling
-
-        # Transformaciones adicionales, como convertir las imágenes a tensores y normalizar
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            custom_transform
-        ])
+        self._step_size = step_size
+        self._sampling_rate = sampling_rate
+        self._sampling = sampling
 
     def __len__(self):
         return len(self._data)
@@ -520,46 +566,33 @@ class LoaderPredict(Dataset):
     def __getitem__(self, index):
         img_path = self._data[index]
         img = self.open_image(img_path)
-        for tensor in img:
-            return {'image': tensor, 'name': img_path}
+        img.unsqueeze_(0)
+        return {'image': img, 'name': img_path}
 
     def open_image(self, filename):
         img = NumpyImgHandler.loadMrc(filename)
         img = img[0, :, :]
 
         # Resize image if necesary to adjust downsampling
-        new_size = (int(img.shape[1] * self.sampling_rate / self.sampling), int(img.shape[0] * self.sampling_rate / self.sampling))
+        new_size = (
+        int(img.shape[1] * self._sampling_rate / self._sampling), int(img.shape[0] * self._sampling_rate / self._sampling))
         PIL_image = Image.fromarray(img)
         resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
         img = np.asarray(resized_image)
 
-        #tensor_img = to_tensor(img)
-        #resized_tensor_img = F.interpolate(tensor_img.unsqueeze(0), size=new_size, mode='bicubic', align_corners=False)
-        #resized_img = to_pil_image(resized_tensor_img.squeeze())
-
-        #img = np.asarray(resized_img)
-        img_transformed = self.transform(img)
-
-        x = np.linspace(-1, 1, 256)
-        y = np.linspace(-1, 1, 256)
-        img_transformed = img_transformed.numpy() - polyfit2d(x, y, img_transformed.numpy(), kx=2, ky=2, order=2)
-        #psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self.step_size)
-        #return torch.from_numpy(np.float32(psd))
-        #return torch.from_numpy(np.float32(img))
-        return torch.from_numpy(np.float32(img_transformed))
+        psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self._step_size)
+        return torch.from_numpy(np.float32(psd))
 
 
 class LoaderTrain(Dataset):
     """
     Class to load the dataset for train
     """
-
     def __init__(self, data, extra_path, window_size, step_size):
         super(LoaderTrain, self).__init__()
         Plugin.setEnviron()
 
         self.normalization = Normalization(data, extra_path)
-        # self.normalization.load(norm_file)
 
         dataMatrix = np.array([d['target'] for d in data])
         dataMatrix = self.normalization.transform(dataMatrix)
@@ -585,7 +618,7 @@ class LoaderTrain(Dataset):
         return torch.from_numpy(img)
 
 
-class Normalization():
+class Normalization:
 
     def __init__(self, data, extra_path):
 
@@ -677,14 +710,6 @@ def weighted_mse_loss(input, target):
 
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
-    #path_psd = '/mnt/DATOS2/jvargas/ScipionUserData/projects/RNP_Vargas/Runs/003369_Protdctf/extra/'
-    #extended_ctf = CTFModel()
-    #extended_ctf.set(ctf)
-    #dic_ctf = extended_ctf.getObjDict()
-    #filename_img = dic_ctf['_objValue._micObj._filename']
-    #sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
-
-    #print(filename_img)
     defocus, resolution, filename_img, sampling_rate = ctf
     defocus = np.asarray(defocus)
     resolution = np.asarray(resolution)
@@ -707,55 +732,9 @@ def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, windo
     resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
     img = np.asarray(resized_image)
 
-    # Calculate psd:
-    psd = calcAvgPsd(img, window_size, step_size)
+    # Calculate psd with some extra noise for data augmentation
+    psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
     filename_psd = path_psd + '/' + os.path.splitext(os.path.basename(filename_img))[0] + '_psd.mrc'
     NumpyImgHandler.saveMrc(psd, filename_psd)
 
     return filename_psd
-
-def custom_transform(batch):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    transformed_batch = []
-
-    for image in batch:
-        subimages = []
-        image = image.to(device)
-
-        # Dividir la imagen en subimágenes de tamaño 256x256 con un paso de 128
-        for i in range(0, image.shape[0] - 256, 128):
-            for j in range(0, image.shape[1] - 256, 128):
-                subimage = image[i:i + 256, j:j + 256]
-                # Realizar la transformada de Fourier y obtener el valor absoluto
-                subimage_fft = torch.fft.fftn(subimage)
-                subimage_fft = torch.fft.fftshift(subimage_fft)
-                subimage_fft = torch.abs(subimage_fft)
-
-                # Aplicar el logaritmo
-                subimage_fft = torch.log(subimage_fft)
-                q_80 = torch.quantile(subimage_fft, 0.98)
-                q_20 = torch.quantile(subimage_fft, 0.1)
-                subimage_fft[subimage_fft >= q_80] = q_80
-                subimage_fft[subimage_fft < q_20] = q_20
-                subimages.append(subimage_fft)
-
-        # Calcular el promedio de las subimágenes en GPU
-        if len(subimages) > 0:
-            avg_subimage = torch.mean(torch.stack(subimages, dim=0), dim=0)
-            x = np.linspace(-1, 1, 256)
-            y = np.linspace(-1, 1, 256)
-            avg_subimage = avg_subimage.cpu().numpy() - polyfit2d(x, y, avg_subimage.cpu().numpy(), kx=2, ky=2, order=2)
-            avg_subimage = torch.from_numpy(avg_subimage).float()
-            q_80 = torch.quantile(avg_subimage, 0.98)
-            q_20 = torch.quantile(avg_subimage, 0.02)
-            avg_subimage[avg_subimage >= q_80] = q_80
-            avg_subimage[avg_subimage < q_20] = q_20
-        else:
-            avg_subimage = torch.zeros_like(image)
-
-        transformed_batch.append(avg_subimage)
-
-    transformed_batch = torch.stack(transformed_batch, dim=0)
-    transformed_batch = transformed_batch.unsqueeze(0)
-
-    return transformed_batch
