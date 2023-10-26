@@ -212,7 +212,11 @@ class Protdctf_particle(ProtocolBase):
 
         # Calculate psd:
         psd = calcAvgPsd(img, windows_size=self.window_size.get(), step_size=self.step_size.get())
-        filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
+
+        fn_splited = filename_img.split('@')
+        filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
+
+        filename_psd = self._getExtraPath() + '/' + filename_img + '_psd.mrc'
         NumpyImgHandler.saveMrc(psd, filename_psd)
         return filename_psd
 
@@ -381,7 +385,9 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
             # batch size in size
             size = data['image'].shape[0]
             for batch_id in range(0, size):
-                filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                fn_splited = data['name'][batch_id].split('@')
+                filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
+                filename = extraPath + '/' + filename_img + '_psd.mrc'
                 image = data['image']
                 NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
 
@@ -744,7 +750,11 @@ def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, windo
 
     # Calculate psd with some extra noise for data augmentation
     psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
-    filename_psd = path_psd + '/' + os.path.splitext(os.path.basename(filename_img))[0] + '_psd.mrc'
+
+    fn_splited = filename_img.split('@')
+    filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
+
+    filename_psd = path_psd + '/' + filename_img + '_psd.mrc'
     NumpyImgHandler.saveMrc(psd, filename_psd)
 
     return filename_psd
