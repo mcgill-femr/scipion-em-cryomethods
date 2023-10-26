@@ -66,6 +66,26 @@ class NumpyImgHandler(object):
         return a.data_withMrc(fn)
 
     @classmethod
+    def loadMrcSlice(cls, fn, writable=True):
+        """ MRC2 class is for NON-memmapped access of Mrc files
+        sections can be read and written on a by-need basis
+        the Mrc2 object itself only handles the file-object and
+        the header and extended header data
+        BUT NOT ANY image data mode indicates how the file is to be opened:
+        'r' for reading, 'w' for writing (truncating an existing file),
+        ['a' does not really make sense here]. Modes 'r+', 'w+' [and 'a+'] open the file for updating (note that 'w+' truncates
+        the file). ('b' for binary mode, is implicitely appended)
+
+        fn is the string pointing to the mrc file following the format: index@filename.mrc
+        """
+
+        import mrc
+        index_fn = fn.split('@')
+        a = mrc.Mrc2(index_fn[1])
+        slice = a.readSec(int(index_fn[0])-1)
+        return slice
+
+    @classmethod
     def load(cls, fn):
         """Return a NumPy array memory mapped from an existing MRC file.
 

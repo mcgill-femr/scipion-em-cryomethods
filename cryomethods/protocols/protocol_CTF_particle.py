@@ -7,6 +7,8 @@ from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel, Float
+from pwem.objects import SetOfParticles
+
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
@@ -113,7 +115,7 @@ class Protdctf_particle(ProtocolBase):
             self.images_path = []
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
-                self.images_path.append(loc[1])
+                self.images_path.append(str(loc[0]) + '@' + loc[1])
 
         else:
             self.ctfs = self.trainSet.get()
@@ -124,10 +126,11 @@ class Protdctf_particle(ProtocolBase):
 
             ctfs = []
             for i, ctf in enumerate(self.ctfs):
+                loc = ctf.getLocation()
+                filename_img = (str(loc[0]) + '@' + loc[1])
                 extended_ctf = CTFModel()
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
-                filename_img = dic_ctf['_objValue._filename']
                 sampling_rate = dic_ctf['_objValue._samplingRate']
                 defocus = np.asarray(
                     [dic_ctf['_objValue._ctfModel._defocusU'], dic_ctf['_objValue._ctfModel._defocusV'],
@@ -155,23 +158,30 @@ class Protdctf_particle(ProtocolBase):
 
     def createOutputStep(self):
         if self.predictEnable:
-            self.ctfResults = self._createSetOfCTF()
-            for i, img in enumerate(self.imgSet):
-                ctf = CTFModel()
-                ctf.setResolution(self.results[i][3])
-                ctf.setMicrograph(img)
-                ctf.setPsdFile(self.psd_list[i])
-                ctf.setStandardDefocus(self.results[i][0], self.results[i][1], self.results[i][2])
+            outputSet = self._createSetOfParticles()
+            outputSet.copyInfo(self.imgSet)
+
+            i = 0
+            for part in self.imgSet.iterItems():
+                newPart = part.clone()
+                newPart._ctfModel._defocusU.set(self.results[i][0])
+                newPart._ctfModel._defocusV.set(self.results[i][1])
+                newPart._ctfModel._defocusAngle.set(self.results[i][2])
+
+                fitQuality = (np.max((self.results[i][4] / self.results[i][0], self.results[i][5] / self.results[i][1])))
+                newPart._ctfModel._fitQuality.set(fitQuality)
 
                 if self.error_estimation.get():
-                    ctf._error_defocusU = Float(self.results[i][4])
-                    ctf._error_defocusV = Float(self.results[i][5])
-                    ctf._error_defocusAngle = Float(self.results[i][6])
-                    ctf._error_resolution = Float(self.results[i][7])
-                    fitQuality = np.max((self.results[i][4]/self.results[i][0],self.results[i][5]/self.results[i][1]))
-                    ctf.setFitQuality(fitQuality)
-                self.ctfResults.append(ctf)
-            self._defineOutputs(ctfResults=self.ctfResults)
+                    newPart._error_defocusU = Float(self.results[i][4])
+                    newPart._error_defocusV = Float(self.results[i][5])
+                    newPart._error_defocusAngle = Float(self.results[i][6])
+                    newPart._error_resolution = Float(self.results[i][7])
+
+                outputSet.append(newPart)
+                i = i+1
+
+            self._defineOutputs(outputParticles=outputSet)
+            self._defineSourceRelation(self.imgSet, outputSet)
 
     # --------------- INFO functions -------------------------
 
@@ -190,8 +200,8 @@ class Protdctf_particle(ProtocolBase):
     # --------------- UTILS functions ------------------------
 
     def calc_psd_per_mic(self, filename_img):
-        img = NumpyImgHandler.loadMrc(filename_img)
-        img = img[0, :, :]
+        img = NumpyImgHandler.loadMrcSlice(filename_img)
+        #img = img[0, :, :]
 
         # Resize image if necesary to adjust downsampling
         new_size = (int(img.shape[1] * self.sampling_rate / self.sampling.get()),
@@ -570,8 +580,8 @@ class LoaderPredict(Dataset):
         return {'image': img, 'name': img_path}
 
     def open_image(self, filename):
-        img = NumpyImgHandler.loadMrc(filename)
-        img = img[0, :, :]
+        img = NumpyImgHandler.loadMrcSlice(filename)
+        #img = img[0, :, :]
 
         # Resize image if necesary to adjust downsampling
         new_size = (
@@ -725,8 +735,8 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
 
 
 def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
-    img = NumpyImgHandler.loadMrc(filename_img)
-    img = img[0, :, :]
+    img = NumpyImgHandler.loadMrcSlice(filename_img)
+    #img = img[0, :, :]
     new_size = (int(img.shape[1] * sampling_rate / sampling), int(img.shape[0] * sampling_rate / sampling))
     PIL_image = Image.fromarray(img)
     resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
