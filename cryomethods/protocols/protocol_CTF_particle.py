@@ -107,7 +107,6 @@ class Protdctf_particle(ProtocolBase):
         self._insertFunctionStep('createOutputStep')
 
     # --------------- STEPS functions -----------------------
-
     def convertInputStep(self):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
@@ -115,7 +114,8 @@ class Protdctf_particle(ProtocolBase):
             self.images_path = []
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
-                self.images_path.append(str(loc[0]) + '@' + loc[1])
+                defocus = 0.5*(img._ctfModel._defocusU.get() + img._ctfModel._defocusV.get())
+                self.images_path.append([str(loc[0]) + '@' + loc[1], defocus])
 
         else:
             self.ctfs = self.trainSet.get()
@@ -132,11 +132,8 @@ class Protdctf_particle(ProtocolBase):
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
                 sampling_rate = dic_ctf['_objValue._samplingRate']
-                defocus = np.asarray(
-                    [dic_ctf['_objValue._ctfModel._defocusU'], dic_ctf['_objValue._ctfModel._defocusV'],
-                     dic_ctf['_objValue._ctfModel._defocusAngle']])
-                resolution = np.asarray(dic_ctf['_objValue._ctfModel._rlnCtfFigureOfMerit'])
-                ctfs.append([defocus, resolution, filename_img, sampling_rate])
+                defocus = 0.5*(dic_ctf['_objValue._ctfModel._defocusU'] + dic_ctf['_objValue._ctfModel._defocusV'])
+                ctfs.append([defocus, filename_img, sampling_rate])
 
             nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
             pool = mp.Pool(processes=nthreads)
@@ -164,18 +161,18 @@ class Protdctf_particle(ProtocolBase):
             i = 0
             for part in self.imgSet.iterItems():
                 newPart = part.clone()
-                newPart._ctfModel._defocusU.set(self.results[i][0])
-                newPart._ctfModel._defocusV.set(self.results[i][1])
-                newPart._ctfModel._defocusAngle.set(self.results[i][2])
-
-                fitQuality = (np.max((self.results[i][4] / self.results[i][0], self.results[i][5] / self.results[i][1])))
-                newPart._ctfModel._fitQuality.set(fitQuality)
+                dU = newPart._ctfModel._defocusU.get()
+                dV = newPart._ctfModel._defocusV.get()
 
                 if self.error_estimation.get():
-                    newPart._error_defocusU = Float(self.results[i][4])
-                    newPart._error_defocusV = Float(self.results[i][5])
-                    newPart._error_defocusAngle = Float(self.results[i][6])
-                    newPart._error_resolution = Float(self.results[i][7])
+                    newPart._ctfModel._defocusU.set(self.results[i][0] + 0.5 * (dU - dV))
+                    newPart._ctfModel._defocusV.set(self.results[i][0] - 0.5 * (dU - dV))
+                    newPart._error_defocusU = Float(self.results[i][1]+0.5*(dU-dV))
+                    newPart._error_defocusV = Float(self.results[i][1]-0.5*(dU-dV))
+
+                else:
+                    newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
+                    newPart._ctfModel._defocusV.set(self.results[i] - 0.5 * (dU - dV))
 
                 outputSet.append(newPart)
                 i = i+1
@@ -198,10 +195,8 @@ class Protdctf_particle(ProtocolBase):
         return []
 
     # --------------- UTILS functions ------------------------
-
     def calc_psd_per_mic(self, filename_img):
         img = NumpyImgHandler.loadMrcSlice(filename_img)
-        #img = img[0, :, :]
 
         # Resize image if necesary to adjust downsampling
         new_size = (int(img.shape[1] * self.sampling_rate / self.sampling.get()),
@@ -266,7 +261,7 @@ class Protdctf_particle(ProtocolBase):
         print('Device:', device)
 
         # Create the model
-        model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=4)
+        model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
 
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
@@ -345,7 +340,7 @@ class Protdctf_particle(ProtocolBase):
         print('Device:', device)
 
         # Create the model and load weights
-        model = Regresion(size_in=(1, window_size, window_size), size_out=4)
+        model = Regresion(size_in=(1, window_size, window_size), size_out=1)
 
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
@@ -363,14 +358,12 @@ class Protdctf_particle(ProtocolBase):
                 # Move tensors to the configured device
                 data, target = data['image'].to(device), data['target'].to(device)
                 # Forward pass
-                output = model(data)
-
+                output = torch.transpose(model(data), 0, 1)
                 # Sum up batch loss
                 test_loss += loss_function(output, target).item()
 
         num_batches = len(data_loader.dataset) / data_loader.batch_size
         return test_loss / num_batches
-
 
 def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     """
@@ -384,6 +377,7 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
         for data in data_loader:
             # batch size in size
             size = data['image'].shape[0]
+
             for batch_id in range(0, size):
                 fn_splited = data['name'][batch_id].split('@')
                 filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
@@ -396,37 +390,45 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
 
             if not estimate_error:
                 # Forward pass
-                output = model(image)
-                output = trainset.normalization.inv_transform(output.cpu().numpy())
+                output = torch.transpose(model(image), 0, 1)
+                output = trainset.normalization.transform(data['defocus'])+output.cpu().numpy()
+                output = trainset.normalization.inv_transform(output)
+
                 # Save results
                 for batch_id in range(0, size):
-                    results.append(output[batch_id])
+                    results.append(output[0][batch_id])
                     filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
                     psd_list.append(filename)
+
             else:
                 model.train()
                 num_samples = 100
                 predictions = []
 
                 for _ in range(num_samples):
-                    output = model(image)
-                    predictions.append(output.unsqueeze(0))
+                    output = torch.transpose(model(image), 0, 1)
+                    predictions.append(output.unsqueeze(0)[0,:])
 
                 # Calcular la predicción final promediando las salidas
                 predictions = torch.cat(predictions, dim=0)
-                predictions = trainset.normalization.inv_transform(predictions.cpu().numpy())
-
-                mean_prediction = np.mean(predictions, axis=0)
-                uncertainty = np.std(predictions, axis=0)
-                output = np.concatenate((mean_prediction, uncertainty), axis=1)
+                predictions = predictions.cpu().numpy()
 
                 for batch_id in range(0, size):
-                    results.append(output[batch_id])
+                    predictions[:,batch_id] = trainset.normalization.transform(data['defocus'])[batch_id]+predictions[:,batch_id]
+
+                predictions = trainset.normalization.inv_transform(predictions)
+                mean_prediction = np.mean(predictions, axis=0)
+                uncertainty = np.std(predictions, axis=0)
+
+                output = np.vstack((mean_prediction, uncertainty))
+                #output = np.concatenate((mean_prediction, uncertainty), axis=0)
+
+                for batch_id in range(0, size):
+                    results.append(output[:,batch_id])
                     filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
                     psd_list.append(filename)
 
     return psd_list, results
-
 
 def train(model, device, train_loader, optimizer, loss_function):
     """
@@ -451,36 +453,6 @@ def train(model, device, train_loader, optimizer, loss_function):
             print('Train: [{}/{} ({:.0f}%)]    \tLoss: {:.6f}'.format(
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
-
-
-'''
-import torch
-import torch.nn as nn
-import torchvision.models as models
-
-# Definir una subclase personalizada de ResNet-50
-class ResNetRegression(nn.Module):
-    def __init__(self, num_classes=4):
-        super(ResNetRegression, self).__init__()
-        resnet = models.resnet50(pretrained=True)
-        self.features = nn.Sequential(*list(resnet.children())[:-1])  # Eliminar la última capa lineal
-
-        # Agregar una capa lineal personalizada para la regresión
-        self.regression_layer = nn.Linear(resnet.fc.in_features, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = torch.flatten(x, 1)
-        x = self.regression_layer(x)
-        return x
-
-# Crear una instancia del modelo personalizado
-model = ResNetRegression()
-
-# Imprimir la estructura del modelo
-print(model)
-'''
-
 
 class Regresion(nn.Module):
     """
@@ -557,7 +529,6 @@ class Regresion(nn.Module):
         x = self.fc2(x)
         return x
 
-
 class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
@@ -580,25 +551,22 @@ class LoaderPredict(Dataset):
         return len(self._data)
 
     def __getitem__(self, index):
-        img_path = self._data[index]
+        img_path = self._data[index][0]
+        defocus = self._data[index][1]
         img = self.open_image(img_path)
         img.unsqueeze_(0)
-        return {'image': img, 'name': img_path}
+        return {'image': img, 'name': img_path, 'defocus': defocus}
 
     def open_image(self, filename):
         img = NumpyImgHandler.loadMrcSlice(filename)
-        #img = img[0, :, :]
-
         # Resize image if necesary to adjust downsampling
         new_size = (
         int(img.shape[1] * self._sampling_rate / self._sampling), int(img.shape[0] * self._sampling_rate / self._sampling))
         PIL_image = Image.fromarray(img)
         resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
         img = np.asarray(resized_image)
-
         psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self._step_size)
         return torch.from_numpy(np.float32(psd))
-
 
 class LoaderTrain(Dataset):
     """
@@ -632,7 +600,6 @@ class LoaderTrain(Dataset):
     def open_image(self, filename):
         img = NumpyImgHandler.load(filename)
         return torch.from_numpy(img)
-
 
 class Normalization:
 
@@ -714,31 +681,34 @@ class Normalization:
         print('Mean:', self._mean)
         print('Std:', self._std)
 
-
 def weighted_mse_loss(input, target):
     # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
     # weight = 10 * torch.square(target[:, 0] - target[:, 1])
-    weight = 1 - torch.exp(
-        -1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
-    loss = (input - target) ** 2
-    loss[:, 2] = weight * loss[:, 2]
+    #weight = 1 - torch.exp(
+    #    #-1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
+    #    -500 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
+
+    #input_v = target+input
+
+    input_v = input + target
+    loss = (input_v - target) ** 2
+    #loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss) / len(loss)
 
-
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
-    defocus, resolution, filename_img, sampling_rate = ctf
-    defocus = np.asarray(defocus)
-    resolution = np.asarray(resolution)
-    target = list(defocus)
-    target.append(resolution)
+    #defocus, resolution, filename_img, sampling_rate = ctf
+    defocus, filename_img, sampling_rate = ctf
+    #defocus = np.asarray(defocus)
+    #resolution = np.asarray(resolution)
+    #target = list(defocus)
+    #target.append(resolution)
 
     print(filename_img)
     filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
     print(filename_psd)
     print("--------------------------------------------------------")
 
-    return {'img': filename_psd, 'target': np.array(target, dtype=np.float32)}
-
+    return {'img': filename_psd, 'target': np.array(defocus, dtype=np.float32)}
 
 def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
     img = NumpyImgHandler.loadMrcSlice(filename_img)
