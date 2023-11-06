@@ -59,10 +59,14 @@ class Protdctf_particle(ProtocolBase):
                        help='If true estimate the error in the predicted parameters.')
 
         group = form.addGroup('Train', condition="not predictEnable")
-        group.addParam('trainSet', params.PointerParam, allowsNull=True,
+        group.addParam('targetSet', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfParticles',
-                       label="Train set",
-                       help='Select the train particle images with CTF.')
+                       label="Target set",
+                       help='Select the train particle images with refined CTF.')
+        group.addParam('inputSet', params.PointerParam, allowsNull=True,
+                       pointerClass='SetOfParticles',
+                       label="Input set",
+                       help='Select the input particle images with CTFs obtained from mics.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -118,22 +122,33 @@ class Protdctf_particle(ProtocolBase):
                 self.data.append([str(loc[0]) + '@' + loc[1], defocus])
 
         else:
-            self.ctfs = self.trainSet.get()
+            self.ctfs_target = self.targetSet.get()
+            self.ctfs_prior = self.inputSet.get()
+
             self.data = []
             self.images_path = []
             path_psd = self._getExtraPath()
             sampling = self.sampling.get()
 
             ctfs = []
-            for i, ctf in enumerate(self.ctfs):
+            for i, ctf in enumerate(self.ctfs_target):
+
+                id = ctf.getObjId()
+                ctf_target = ctf.getCTF()
+                ctf_prior = self.ctfs_prior[id].getCTF()
+                sampling_rate = ctf.getSamplingRate()
+                defocus_target = 0.5*(ctf_target.getDefocusU()+ctf_target.getDefocusV())
+                defocus_prior = 0.5*(ctf_prior.getDefocusU() + ctf_prior.getDefocusV())
+
                 loc = ctf.getLocation()
                 filename_img = (str(loc[0]) + '@' + loc[1])
-                extended_ctf = CTFModel()
-                extended_ctf.set(ctf)
-                dic_ctf = extended_ctf.getObjDict()
-                sampling_rate = dic_ctf['_objValue._samplingRate']
-                defocus = 0.5*(dic_ctf['_objValue._ctfModel._defocusU'] + dic_ctf['_objValue._ctfModel._defocusV'])
-                ctfs.append([defocus, filename_img, sampling_rate])
+
+                #extended_ctf = CTFModel()
+                #extended_ctf.set(ctf)
+                #dic_ctf = extended_ctf.getObjDict()
+                #sampling_rate = dic_ctf['_objValue._samplingRate']
+                #defocus = 0.5*(dic_ctf['_objValue._ctfModel._defocusU'] + dic_ctf['_objValue._ctfModel._defocusV'])
+                ctfs.append([defocus_target, filename_img, sampling_rate, defocus_prior])
 
             nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
             pool = mp.Pool(processes=nthreads)
@@ -356,11 +371,11 @@ class Protdctf_particle(ProtocolBase):
         with torch.no_grad():
             for data in data_loader:
                 # Move tensors to the configured device
-                data, target = data['image'].to(device), data['target'].to(device)
+                data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
                 # Forward pass
                 output = torch.transpose(model(data), 0, 1)
                 # Sum up batch loss
-                test_loss += loss_function(output, target).item()
+                test_loss += loss_function(output, target, prior).item()
 
         num_batches = len(data_loader.dataset) / data_loader.batch_size
         return test_loss / num_batches
@@ -437,11 +452,11 @@ def train(model, device, train_loader, optimizer, loss_function):
     model.train()
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
-        data, target = data['image'].to(device), data['target'].to(device)
+        data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
 
         # Forward pass
         output = model(data)
-        loss = loss_function(output, target)
+        loss = loss_function(output, target, prior)
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -580,9 +595,13 @@ class LoaderTrain(Dataset):
 
         dataMatrix = np.array([d['target'] for d in data])
         dataMatrix = self.normalization.transform(dataMatrix)
-
         for i in range(len(data)):
             data[i]['target'] = dataMatrix[i]
+
+        dataMatrix = np.array([d['prior'] for d in data])
+        dataMatrix = self.normalization.transform(dataMatrix)
+        for i in range(len(data)):
+            data[i]['prior'] = dataMatrix[i]
 
         self._data = data
         self._window_size = window_size
@@ -594,8 +613,9 @@ class LoaderTrain(Dataset):
     def __getitem__(self, index):
         img_path = self._data[index]['img']
         target = self._data[index]['target']
+        prior = self._data[index]['prior']
         img = self.open_image(img_path)
-        return {'image': img, 'target': target, 'name': img_path}
+        return {'image': img, 'target': target, 'prior': prior,'name': img_path}
 
     def open_image(self, filename):
         img = NumpyImgHandler.load(filename)
@@ -681,7 +701,7 @@ class Normalization:
         print('Mean:', self._mean)
         print('Std:', self._std)
 
-def weighted_mse_loss(input, target):
+def weighted_mse_loss(input, target, prior):
     # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
     # weight = 10 * torch.square(target[:, 0] - target[:, 1])
     #weight = 1 - torch.exp(
@@ -690,15 +710,14 @@ def weighted_mse_loss(input, target):
 
     #input_v = target+input
 
-    input_v = input + target
+    input_v = input + prior
     loss = (input_v - target) ** 2
     #loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss) / len(loss)
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     #defocus, resolution, filename_img, sampling_rate = ctf
-    defocus, filename_img, sampling_rate = ctf
-    #defocus = np.asarray(defocus)
+    defocus_target, filename_img, sampling_rate, defocus_prior = ctf
     #resolution = np.asarray(resolution)
     #target = list(defocus)
     #target.append(resolution)
@@ -708,7 +727,7 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     print(filename_psd)
     print("--------------------------------------------------------")
 
-    return {'img': filename_psd, 'target': np.array(defocus, dtype=np.float32)}
+    return {'img': filename_psd, 'target': np.array(defocus_target, dtype=np.float32), 'prior': np.array(defocus_prior, dtype=np.float32)}
 
 def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
     img = NumpyImgHandler.loadMrcSlice(filename_img)
