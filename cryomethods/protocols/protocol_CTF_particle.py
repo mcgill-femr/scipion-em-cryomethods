@@ -111,11 +111,11 @@ class Protdctf_particle(ProtocolBase):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
             self.sampling_rate = self.imgSet.getSamplingRate()
-            self.images_path = []
+            self.data = []
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
                 defocus = 0.5*(img._ctfModel._defocusU.get() + img._ctfModel._defocusV.get())
-                self.images_path.append([str(loc[0]) + '@' + loc[1], defocus])
+                self.data.append([str(loc[0]) + '@' + loc[1], defocus])
 
         else:
             self.ctfs = self.trainSet.get()
@@ -149,7 +149,7 @@ class Protdctf_particle(ProtocolBase):
     def runCTFStep(self):
 
         if self.predictEnable:
-            self.psd_list, self.results = self.predict_CTF(self.images_path, self.window_size.get())
+            self.psd_list, self.results = self.predict_CTF(self.data, self.window_size.get())
         else:
             self.train_nn(self.data)
 
@@ -167,8 +167,8 @@ class Protdctf_particle(ProtocolBase):
                 if self.error_estimation.get():
                     newPart._ctfModel._defocusU.set(self.results[i][0] + 0.5 * (dU - dV))
                     newPart._ctfModel._defocusV.set(self.results[i][0] - 0.5 * (dU - dV))
-                    newPart._error_defocusU = Float(self.results[i][1]+0.5*(dU-dV))
-                    newPart._error_defocusV = Float(self.results[i][1]-0.5*(dU-dV))
+                    newPart._error_defocusU = Float(self.results[i][1])
+                    newPart._error_defocusV = Float(self.results[i][1])
 
                 else:
                     newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
