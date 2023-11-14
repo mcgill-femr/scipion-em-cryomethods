@@ -131,16 +131,18 @@ class Protdctf_particle(ProtocolBase):
             sampling = self.sampling.get()
 
             ctfs = []
-            for i, ctf in enumerate(self.ctfs_target):
-
-                id = ctf.getObjId()
-                ctf_target = ctf.getCTF()
-                ctf_prior = self.ctfs_prior[id].getCTF()
-                sampling_rate = ctf.getSamplingRate()
+            #for i, ctf in enumerate(self.ctfs_target):
+            for par1, par2 in zip(self.ctfs_target, self.ctfs_prior):
+                #id = ctf.getObjId()
+                #ctf_target = ctf.getCTF()
+                #ctf_prior = self.ctfs_prior[id].getCTF()
+                ctf_target = par1.getCTF()
+                ctf_prior = par2.getCTF()
+                sampling_rate = par1.getSamplingRate()
                 defocus_target = 0.5*(ctf_target.getDefocusU()+ctf_target.getDefocusV())
                 defocus_prior = 0.5*(ctf_prior.getDefocusU() + ctf_prior.getDefocusV())
 
-                loc = ctf.getLocation()
+                loc = par1.getLocation()
                 filename_img = (str(loc[0]) + '@' + loc[1])
 
                 #extended_ctf = CTFModel()
