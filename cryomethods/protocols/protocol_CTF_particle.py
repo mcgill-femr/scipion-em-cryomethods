@@ -336,11 +336,11 @@ class Protdctf_particle(ProtocolBase):
         plt.tight_layout()
         plt.savefig(self._getPath() + '/' + 'loss.png')
 
-    def predict_CTF(self, images_path, window_size):
+    def predict_CTF(self, data, window_size):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
+        trainset = LoaderPredict(data, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
                                  self.sampling_rate, self.sampling.get())
 
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
@@ -555,6 +555,11 @@ class LoaderPredict(Dataset):
         normalization_path = os.path.dirname(weight_path) + '/training_normalization.json'
         self.normalization = Normalization(None, None)
         self.normalization.load(normalization_path)
+
+        #dataMatrix = np.array([d['prior'] for d in data])
+        #dataMatrix = self.normalization.transform(dataMatrix)
+        #for i in range(len(data)):
+        #    data[i]['prior'] = dataMatrix[i]
 
         self._data = [i for i in datafiles]
         self._window_size = window_size
