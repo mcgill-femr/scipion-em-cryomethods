@@ -397,7 +397,6 @@ class Protdctf_particle(ProtocolBase):
                 # Move tensors to the configured device
                 data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
                 # Forward pass
-                #output = torch.transpose(model(data), 0, 1)
                 output = model(data)
                 # Sum up batch loss
                 test_loss += loss_function(output, target, prior).item()
@@ -422,7 +421,7 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
                 fn_splited = data['name'][idx].split('@')
                 filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
                 filename = extraPath + '/' + filename_img + '_psd.mrc'
-                #NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
+                NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
 
             if data['prior'].dim() == 1:
                 data['prior'] = data['prior'].view(batch_size,1)
@@ -770,14 +769,13 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
 
 def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
     img = NumpyImgHandler.loadMrcSlice(filename_img)
-    #img = img[0, :, :]
     new_size = (int(img.shape[1] * sampling_rate / sampling), int(img.shape[0] * sampling_rate / sampling))
     PIL_image = Image.fromarray(img)
     resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
     img = np.asarray(resized_image)
 
     # Calculate psd with some extra noise for data augmentation
-    psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
+    psd = calcAvgPsd(img, window_size, step_size, add_noise=False)
 
     fn_splited = filename_img.split('@')
     filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
