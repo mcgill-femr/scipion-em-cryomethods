@@ -693,35 +693,52 @@
 #     refsMd.write(starFile)
 #
 #
-# def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
-#     """ Add a new colunm in the image star to separate the particles into ctf groups """
-#     mdAll = md.MetaData(imgStar)
-#     mdAll.sort(md.RLN_CTF_DEFOCUSU)
+# region Description
+def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
+    from emtable import Table
+    """ Add a new colunm in the image star to separate the particles into ctf groups """
+    partsTable = Table(fileName=imgStar, tableName='particles')
+    opticsTable = Table(fileName=imgStar, tableName='optics')
+
+    partsTable.sort('rlnDefocusU')
+
+    defocusAll = partsTable.getColumnValues('rlnDefocusU')
+    oldDefocusU = defocusAll[0]
+
+    focusGroup = 1
+    counter = 0
+
+    groupName = '%s_%03d' % ('ctfgroup', focusGroup)
+
+    for indx in range(0,len(defocusAll)):
+        counter = counter + 1
+        defocusU = defocusAll[indx]
+        if counter < numParticles:
+            pass
+        else:
+            if (defocusU - oldDefocusU) > defocusRange:
+                focusGroup = focusGroup + 1
+                oldDefocusU = defocusU
+                groupName = '%s_%03d' % ('ctfgroup', focusGroup)
+                counter = 0
+        row = partsTable.__getitem__(indx)
+        replaceDict = {'rlnGroupName': groupName}
+        partsTable[indx] = row._replace(**replaceDict)
+
+    with open(imgStar, 'w') as f:
+        f.write("# Star file generated with Scipion\n")
+        f.write("# version 30001\n")
+        if opticsTable is not None:
+            opticsTable.writeStar(f, tableName='optics')
+            f.write("# version 30001\n")
+        partsTable.writeStar(f, tableName='particles')
+
+    #mdCount = md.MetaData()
+    #mdCount.aggregate(mdAll, md.AGGR_COUNT, md.RLN_MLMODEL_GROUP_NAME,
+    #                  md.RLN_MLMODEL_GROUP_NAME, md.MDL_COUNT)
+    #print("number of particles per group: ", mdCount)
 #
-#     focusGroup = 1
-#     counter = 0
-#     oldDefocusU = mdAll.getValue(md.RLN_CTF_DEFOCUSU, mdAll.firstObject())
-#     groupName = '%s_%06d_%05d' % ('ctfgroup', oldDefocusU, focusGroup)
-#     for objId in mdAll:
-#         counter = counter + 1
-#         defocusU = mdAll.getValue(md.RLN_CTF_DEFOCUSU, objId)
-#         if counter < numParticles:
-#             pass
-#         else:
-#             if (defocusU - oldDefocusU) > defocusRange:
-#                 focusGroup = focusGroup + 1
-#                 oldDefocusU = defocusU
-#                 groupName = '%s_%06d_%05d' % (
-#                 'ctfgroup', oldDefocusU, focusGroup)
-#                 counter = 0
-#         mdAll.setValue(md.RLN_MLMODEL_GROUP_NAME, groupName, objId)
-#
-#     mdAll.write(imgStar)
-#     mdCount = md.MetaData()
-#     mdCount.aggregate(mdAll, md.AGGR_COUNT, md.RLN_MLMODEL_GROUP_NAME,
-#                       md.RLN_MLMODEL_GROUP_NAME, md.MDL_COUNT)
-#     print("number of particles per group: ", mdCount)
-#
+# endregion
 #
 # def prependToFileName(imgRow, prefixPath):
 #     """ Prepend some root name to imageRow filename. """
