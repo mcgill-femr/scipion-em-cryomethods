@@ -26,12 +26,12 @@
 # # **************************************************************************
 #
 # import os
-# from os.path import join, basename
+from os.path import join, basename
 # import numpy
 # from collections import OrderedDict
 #
 # from pwem import NO_INDEX, ALIGN_2D, ALIGN_3D, ALIGN_PROJ, ALIGN_NONE
-# from pwem.emlib.image import ImageHandler
+from pwem.emlib.image import ImageHandler
 # from pwem.objects import Acquisition, CTFModel, Transform, Coordinate, Particle, \
 #     SetOfVolumes, SetOfClasses3D, SetOfClasses2D, SetOfAverages
 # from pyworkflow.utils import getExt, commonPath
@@ -41,7 +41,7 @@
 # except ImportError:
 #     izip = zip
 #
-# import pyworkflow as pw
+import pyworkflow as pw
 # from pyworkflow.object import ObjectWrap, String, Integer
 #
 # import pwem.emlib.metadata as md
@@ -193,8 +193,9 @@
 #     return filename
 #
 #
-# def getImageLocation(location):
-#     return ImageHandler.locationToXmipp(location)
+#
+def getImageLocation(location):
+     return ImageHandler.locationToXmipp(location)
 #
 #
 # def relionToLocation(filename):
@@ -910,8 +911,8 @@ def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
 #     return fn
 #
 #
-# def convertMask(img, outputDir):
-#     """ Convert binary mask to a format read by Relion and truncate the
+def convertMask(img, outputDir):
+# Convert binary mask to a format read by Relion and truncate the
 #     values between 0-1 values, due to Relion only support masks with this
 #     values (0-1).
 #     Params:
@@ -919,15 +920,12 @@ def splitInCTFGroups(imgStar, defocusRange=1000, numParticles=10):
 #         outputDir: where to put the converted file(s)
 #     Return:
 #         new file name of the mask.
-#     """
-#
-#     ih = ImageHandler()
-#     imgFn = getImageLocation(img.getLocation())
-#     newFn = join(outputDir, pw.utils.replaceBaseExt(imgFn, 'mrc'))
-#
-#     ih.truncateMask(imgFn, newFn)
-#
-#     return newFn
+
+    ih = ImageHandler()
+    imgFn = getImageLocation(img.getLocation())
+    newFn = join(outputDir, pw.utils.replaceBaseExt(imgFn, 'mrc'))
+    ih.truncateMask(imgFn, newFn)
+    return newFn
 #
 #
 # def createItemMatrix(item, row, align):

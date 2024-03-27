@@ -855,14 +855,14 @@ class ProtocolBase(EMProtocol):
     def _setMaskArgs(self, args):
         if self.IS_3D:
             if self.referenceMask.hasValue():
-                mask = conv.convertMask(self.referenceMask.get(),
-                                        self._getTmpPath())
-                args['--solvent_mask'] = mask
+                #mask = conv.convertMask(self.referenceMask.get(),
+                #                        self._getTmpPath())
+                args['--solvent_mask'] = self.referenceMask.get().getLocation()[1]
 
             if self.solventMask.hasValue():
-                solventMask = conv.convertMask(self.solventMask.get(),
-                                               self._getTmpPath())
-                args['--solvent_mask2'] = solventMask
+                #solventMask = conv.convertMask(self.solventMask.get(),
+                #                               self._getTmpPath())
+                args['--solvent_mask2'] = self.solventMask.get().getLocation()[1]
 
             if (self.referenceMask.hasValue() and self.solventFscMask):
                 args['--solvent_correct_fsc'] = ''
