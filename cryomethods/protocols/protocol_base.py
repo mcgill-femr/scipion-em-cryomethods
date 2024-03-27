@@ -899,7 +899,12 @@ class ProtocolBase(EMProtocol):
                                                    iter=continueIter)
 
     def _getParams(self, args):
-        return ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
+        line = ' '.join(['%s %s' % (k, str(v)) for k, v in args.items()])
+        if (self.extraParams) == '':
+            return line
+        else:
+            return line + '\t' + str(self.extraParams)
+
 
     def _getScratchDir(self):
         """ Returns the scratch dir value without spaces.
