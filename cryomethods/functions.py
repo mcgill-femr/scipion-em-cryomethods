@@ -82,7 +82,7 @@ class NumpyImgHandler(object):
         import mrc
         index_fn = fn.split('@')
         a = mrc.Mrc2(index_fn[1])
-        slice = a.readSec(int(index_fn[0])-1)
+        slice = a.readSec(int(index_fn[0]) - 1)
         return slice
 
     @classmethod
@@ -108,7 +108,6 @@ class NumpyImgHandler(object):
         """
         import mrc
         return mrc.load(fn)
-
 
     @classmethod
     def saveMrc(cls, npVol, fn):
@@ -170,7 +169,7 @@ class NumpyImgHandler(object):
                 npAvgVol = np.zeros(npVol.shape)
             npMask = cls.getMaskBelowThreshold(npVol, mult)
             npAvgVol += npMask
-        npAvgMask = 1 * (npAvgVol > 0.3*len(mapFnList))
+        npAvgMask = 1 * (npAvgVol > 0.3 * len(mapFnList))
         return npAvgMask, dType
 
     @classmethod
@@ -199,7 +198,7 @@ class NumpyImgHandler(object):
     @classmethod
     def volToList(cls, volNp, avgVol=None, mode='avg'):
         dim = volNp.shape[0]
-        lenght = dim**3
+        lenght = dim ** 3
         if avgVol is not None:
             if mode == 'avg':
                 volNp -= avgVol
@@ -223,6 +222,7 @@ class NumpyImgHandler(object):
 
 class MlMethods(object):
     """ Class to provides several matching learning methods used in SPA. """
+
     def __init__(self):
         pass
 
@@ -234,7 +234,7 @@ class MlMethods(object):
         return covMatrix, listNpVol
 
     @classmethod
-    def getCovMatrixManual(cls, listVol,  mult):
+    def getCovMatrixManual(cls, listVol, mult):
         npIh = NumpyImgHandler()
         npAvgVol, _ = npIh.getAverageMap(listVol)
         covMatrix = []
@@ -310,7 +310,7 @@ class MlMethods(object):
     @classmethod
     def doSklearnSpectralClustering(cls, matProj):
         from sklearn.cluster import SpectralClustering
-        op = SpectralClustering(n_clusters=matProj.shape[1]-1).fit(matProj)
+        op = SpectralClustering(n_clusters=matProj.shape[1] - 1).fit(matProj)
         return op.labels_
 
     @classmethod
@@ -344,12 +344,12 @@ def normalize(mat):
     """
     Set a numpy array as standard score and after that scale the data between 0 and 1.
     """
-    #mean = mat.mean()
-    #sigma = mat.std()
-    #mat = (mat - mean) / sigma
+    # mean = mat.mean()
+    # sigma = mat.std()
+    # mat = (mat - mean) / sigma
     a = mat.min()
     b = mat.max()
-    mat = (mat-a)/(b-a)
+    mat = (mat - a) / (b - a)
     return mat
 
 
@@ -357,28 +357,28 @@ def normalize(mat, max_value, min_value):
     """
     Set a numpy array as standard score and after that scale the data between -1 and 1.
     """
-    mat = (mat-min_value)/(max_value-min_value)
-    #mat = 2*(mat - 0.5)
+    mat = (mat - min_value) / (max_value - min_value)
+    # mat = 2*(mat - 0.5)
     return mat
 
-def calcPsd(img):
+
+def calcPsd(img, do_fitting=False, tmax = 0.95, tmin = 0.05):
     """
     Calculate PSD using periodogram averaging
     """
     img_f = np.fft.fft2(img)
     img_f = np.fft.fftshift(img_f)
     img_f = abs(img_f)
-    # img_f = img_f * img_f
     rows, cols = img_f.shape
     img_f = np.log(img_f / (rows * cols))
 
-    q_80 = np.quantile(img_f, 0.98)
-    q_20 = np.quantile(img_f, 0.02)
-    img_f[img_f >= q_80] = q_80
-    img_f[img_f < q_20] = q_20
-    img_f = normalize(img_f, q_80, q_20)
+    q_max = np.quantile(img_f, tmax)
+    q_min = np.quantile(img_f, tmin)
+    img_f[img_f >= q_max] = q_max
+    img_f[img_f < q_min] = q_min
+    img_f = normalize(img_f, q_max, q_min)
 
-    if False:
+    if do_fitting:
         x = np.linspace(-1, 1, img_f.shape[0])
         y = np.linspace(-1, 1, img_f.shape[0])
         img_f = img_f - polyfit2d(x, y, img_f, kx=2, ky=2, order=2)
@@ -386,7 +386,7 @@ def calcPsd(img):
     return img_f
 
 
-def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False):
+def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False, tmax = 0.98, tmin = 0.02):
     """
     Calculate PSD using average periodogram
     """
@@ -396,7 +396,7 @@ def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False):
     for i in range(0, rows - windows_size, step_size):
         for j in range(0, cols - windows_size, step_size):
             count += 1
-            avg_psd += calcPsd(img[i:i + windows_size, j:j + windows_size])
+            avg_psd += calcPsd(img[i:i + windows_size, j:j + windows_size], False, tmax, tmin)
     avg_psd /= count
 
     if add_noise:
@@ -406,8 +406,8 @@ def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False):
     y = np.linspace(-1, 1, windows_size)
     avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
 
-    q_plus = np.quantile(avg_psd, 0.99)
-    q_minus = np.quantile(avg_psd, 0.01)
+    q_plus = np.quantile(avg_psd, tmax)
+    q_minus = np.quantile(avg_psd, tmin)
     avg_psd[avg_psd >= q_plus] = q_plus
     avg_psd[avg_psd < q_minus] = q_minus
     avg_psd = normalize(avg_psd, q_plus, q_minus)
@@ -451,11 +451,12 @@ def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
     avg_psd = normalize(avg_psd, q_plus, q_minus)
     return avg_psd
 
+
 def polyfit2d(x, y, z, kx=3, ky=3, order=None):
     x, y = np.meshgrid(x, y)
 
     # coefficient array, up to x^kx, y^ky
-    coeffs = np.ones((kx+1, ky+1))
+    coeffs = np.ones((kx + 1, ky + 1))
 
     # solve array
     a = np.zeros((coeffs.size, x.size))
@@ -466,7 +467,7 @@ def polyfit2d(x, y, z, kx=3, ky=3, order=None):
         if order is not None and i + j > order:
             arr = np.zeros_like(x)
         else:
-            arr = coeffs[i, j] * x**i * y**j
+            arr = coeffs[i, j] * x ** i * y ** j
 
         a[index] = arr.ravel()
 
@@ -474,9 +475,9 @@ def polyfit2d(x, y, z, kx=3, ky=3, order=None):
 
     c = np.linalg.lstsq(a.T, np.ravel(z), rcond=None)[0]
 
-    z = x*0
+    z = x * 0
     for index, (j, i) in enumerate(np.ndindex(coeffs.shape)):
-        z += c[index] * x**i * y**j
+        z += c[index] * x ** i * y ** j
     return z
 
 
@@ -489,14 +490,14 @@ def fftnfreq(n, d=1):
 def shell(f):
     "Return a normalized shell of spatial frequencies, around frequency f"
     global f_norm, f_width
-    S = exp(- (f_norm - f)**2 / (2 * f_width**2))
+    S = exp(- (f_norm - f) ** 2 / (2 * f_width ** 2))
     return S / np.sum(S)
 
 
 def spiral_filter(voxel_n, voxel_size):
     "Return the freq-domain spiral filter for the three dimensions (x, y, z)"
     fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
-    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+    f_norm = sqrt(fx ** 2 + fy ** 2 + fz ** 2)
 
     def H(fi):
         return -1j * np.nan_to_num(fi / f_norm)
@@ -507,10 +508,10 @@ def spiral_filter(voxel_n, voxel_size):
 
 def mask_in_sphere(n):
     "Return a mask selecting voxels of the biggest sphere inside a n*n*n grid"
-    coords = np.r_[:n] - n/2
+    coords = np.r_[:n] - n / 2
     x, y, z = np.meshgrid(coords, coords, coords)
-    r = sqrt(x**2 + y**2 + z**2)
-    return r < n/2
+    r = sqrt(x ** 2 + y ** 2 + z ** 2)
+    return r < n / 2
 
 
 def linear_fit_params(x, y):
@@ -532,7 +533,7 @@ def amplitude_map(f):
     vy = ifftn(Hy * SFV)
     vz = ifftn(Hz * SFV)
 
-    m = sqrt(abs(v0)**2 + abs(vx)**2 + abs(vy)**2 + abs(vz)**2)  # amplitude
+    m = sqrt(abs(v0) ** 2 + abs(vx) ** 2 + abs(vy) ** 2 + abs(vz) ** 2)  # amplitude
 
     q = np.quantile(m[mask_background], threshold)  # noise level
 
@@ -558,7 +559,7 @@ def bfactor(vol, mask_in_molecule, voxel_size, min_res=15, max_res=2.96,
     # Set some global variables.
     FV = fftn(vol)  # precompute the volume's Fourier transform
     threshold = noise_threshold  # to use in amplitude_map()
-    power_norm = sqrt(voxel_n*voxel_n*voxel_n)  # normalization
+    power_norm = sqrt(voxel_n * voxel_n * voxel_n)  # normalization
 
     # To select voxels with background data (used in the quantile evaluation).
     mask_background = np.logical_and(~mask_in_molecule.astype(bool),
@@ -566,14 +567,14 @@ def bfactor(vol, mask_in_molecule, voxel_size, min_res=15, max_res=2.96,
 
     # Get ready to select frequencies (using a shell in frequency space).
     fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
-    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+    f_norm = sqrt(fx ** 2 + fy ** 2 + fz ** 2)
     f_width = f_voxel_width / (voxel_n * voxel_size)  # frequency width
 
     # Define the spiral filter in frequency space.
     Hx, Hy, Hz = spiral_filter(voxel_n, voxel_size)
 
     # Compute amplitude maps at frequencies between min and max resolution.
-    freqs = np.linspace(1/min_res, 1/max_res, num_points)
+    freqs = np.linspace(1 / min_res, 1 / max_res, num_points)
 
     with Pool() as pool:
         mods, noises = zip(*pool.map(amplitude_map, freqs))
@@ -581,10 +582,10 @@ def bfactor(vol, mask_in_molecule, voxel_size, min_res=15, max_res=2.96,
         noise = np.array(noises)
 
     # Compute the local b-factor map.
-    f2 = freqs**2
+    f2 = freqs ** 2
     a_b = linear_fit_params(f2, Mod)  # contains the fit parameters per voxel
 
-    return a_b[1,:,:,:]  # the second parameter of the fit is the "b" map!
+    return a_b[1, :, :, :]  # the second parameter of the fit is the "b" map!
 
 
 def occupancy(vol, mask_in_molecule, voxel_size, min_res=20, max_res=3,
@@ -597,14 +598,14 @@ def occupancy(vol, mask_in_molecule, voxel_size, min_res=20, max_res=3,
 
     # Get ready to select frequencies (using a shell in frequency space).
     fx, fy, fz = fftnfreq(voxel_n, d=voxel_size)
-    f_norm = sqrt(fx**2 + fy**2 + fz**2)
+    f_norm = sqrt(fx ** 2 + fy ** 2 + fz ** 2)
     f_width = f_voxel_width / (voxel_n * voxel_size)  # frequency width
 
     # Define the spiral filter in frequency space.
     Hx, Hy, Hz = spiral_filter(voxel_n, voxel_size)
 
     # Compute occupancy maps at frequencies between min and max resolution.
-    freqs = linspace(1/min_res, 1/max_res, num_points)
+    freqs = linspace(1 / min_res, 1 / max_res, num_points)
 
     omap = np.zeros_like(vol)
     for f in freqs:
@@ -616,7 +617,7 @@ def occupancy(vol, mask_in_molecule, voxel_size, min_res=20, max_res=3,
         vy = ifftn(Hy * SFV)
         vz = ifftn(Hz * SFV)
 
-        m = sqrt(abs(v0)**2 + abs(vx)**2 + abs(vy)**2 + abs(vz)**2)  # amplitude
+        m = sqrt(abs(v0) ** 2 + abs(vx) ** 2 + abs(vy) ** 2 + abs(vz) ** 2)  # amplitude
 
         q = np.quantile(m[mask_in_molecule], protein_threshold)  # signal level
 

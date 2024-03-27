@@ -46,6 +46,10 @@ class Protdctf_particle(ProtocolBase):
         group.addParam('batch_size', params.IntParam, default=100,
                        label='Batch size',
                        help='Number of images per iteration.')
+        group.addParam('model', params.EnumParam, default=1,
+                      choices=['Refine defocus only',
+                               'Refine defocus and astigmatism'],
+                      label='Refine CTF model')
         group = form.addGroup('Predict', condition="predictEnable")
         group.addParam('inputImgs', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfParticles',
@@ -59,10 +63,14 @@ class Protdctf_particle(ProtocolBase):
                        help='If true estimate the error in the predicted parameters.')
 
         group = form.addGroup('Train', condition="not predictEnable")
-        group.addParam('trainSet', params.PointerParam, allowsNull=True,
+        group.addParam('targetSet', params.PointerParam, allowsNull=True,
                        pointerClass='SetOfParticles',
-                       label="Train set",
-                       help='Select the train particle images with CTF.')
+                       label="Target set",
+                       help='Select the train particle images with refined CTF.')
+        group.addParam('inputSet', params.PointerParam, allowsNull=True,
+                       pointerClass='SetOfParticles',
+                       label="Input set",
+                       help='Select the input particle images with CTFs obtained from mics.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -111,29 +119,42 @@ class Protdctf_particle(ProtocolBase):
         if self.predictEnable:
             self.imgSet = self.inputImgs.get()
             self.sampling_rate = self.imgSet.getSamplingRate()
-            self.images_path = []
+            self.data = []
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
-                defocus = 0.5*(img._ctfModel._defocusU.get() + img._ctfModel._defocusV.get())
-                self.images_path.append([str(loc[0]) + '@' + loc[1], defocus])
+                if self.model.get() == 0:
+                    defocus = 0.5*(img._ctfModel._defocusU.get() + img._ctfModel._defocusV.get())
+                else:
+                    ctf = img.getCTF()
+                    defocus = np.array([ctf.getDefocusU(), ctf.getDefocusV(), ctf.getDefocusAngle()])
+
+                self.data.append({'img': str(loc[0]) + '@' + loc[1], 'prior': defocus})
 
         else:
-            self.ctfs = self.trainSet.get()
+            self.ctfs_target = self.targetSet.get()
+            self.ctfs_prior = self.inputSet.get()
+
             self.data = []
             self.images_path = []
             path_psd = self._getExtraPath()
             sampling = self.sampling.get()
 
             ctfs = []
-            for i, ctf in enumerate(self.ctfs):
-                loc = ctf.getLocation()
+            for par1, par2 in zip(self.ctfs_target, self.ctfs_prior):
+                ctf_target = par1.getCTF()
+                ctf_prior = par2.getCTF()
+                sampling_rate = par1.getSamplingRate()
+
+                if self.model.get() == 0:
+                    defocus_target = 0.5*(ctf_target.getDefocusU() + ctf_target.getDefocusV())
+                    defocus_prior = 0.5*(ctf_prior.getDefocusU() + ctf_prior.getDefocusV())
+                else:
+                    defocus_target = [ctf_target.getDefocusU(), ctf_target.getDefocusV(), ctf_target.getDefocusAngle()]
+                    defocus_prior = [ctf_prior.getDefocusU(), ctf_prior.getDefocusV(), ctf_prior.getDefocusAngle()]
+
+                loc = par1.getLocation()
                 filename_img = (str(loc[0]) + '@' + loc[1])
-                extended_ctf = CTFModel()
-                extended_ctf.set(ctf)
-                dic_ctf = extended_ctf.getObjDict()
-                sampling_rate = dic_ctf['_objValue._samplingRate']
-                defocus = 0.5*(dic_ctf['_objValue._ctfModel._defocusU'] + dic_ctf['_objValue._ctfModel._defocusV'])
-                ctfs.append([defocus, filename_img, sampling_rate])
+                ctfs.append([defocus_target, filename_img, sampling_rate, defocus_prior])
 
             nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
             pool = mp.Pool(processes=nthreads)
@@ -149,7 +170,7 @@ class Protdctf_particle(ProtocolBase):
     def runCTFStep(self):
 
         if self.predictEnable:
-            self.psd_list, self.results = self.predict_CTF(self.images_path, self.window_size.get())
+            self.psd_list, self.results, self.uncertainities = self.predict_CTF(self.data, self.window_size.get())
         else:
             self.train_nn(self.data)
 
@@ -157,7 +178,6 @@ class Protdctf_particle(ProtocolBase):
         if self.predictEnable:
             outputSet = self._createSetOfParticles()
             outputSet.copyInfo(self.imgSet)
-
             i = 0
             for part in self.imgSet.iterItems():
                 newPart = part.clone()
@@ -165,14 +185,27 @@ class Protdctf_particle(ProtocolBase):
                 dV = newPart._ctfModel._defocusV.get()
 
                 if self.error_estimation.get():
-                    newPart._ctfModel._defocusU.set(self.results[i][0] + 0.5 * (dU - dV))
-                    newPart._ctfModel._defocusV.set(self.results[i][0] - 0.5 * (dU - dV))
-                    newPart._error_defocusU = Float(self.results[i][1]+0.5*(dU-dV))
-                    newPart._error_defocusV = Float(self.results[i][1]-0.5*(dU-dV))
-
+                    if self.model.get() == 0:
+                        newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
+                        newPart._ctfModel._defocusV.set(self.results[i] - 0.5 * (dU - dV))
+                        newPart._error_defocusU = Float(self.uncertainities[i])
+                        newPart._error_defocusV = Float(self.uncertainities[i])
+                    else:
+                        newPart._ctfModel._defocusU.set(self.results[i, 0])
+                        newPart._ctfModel._defocusV.set(self.results[i, 1])
+                        newPart._ctfModel._defocusAngle.set(self.results[i, 2])
+                        newPart._error_defocusU = Float(self.uncertainities[i,0])
+                        newPart._error_defocusV = Float(self.uncertainities[i,1])
+                        newPart._error_defocusAngle = Float(self.uncertainities[i,2])
                 else:
-                    newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
-                    newPart._ctfModel._defocusV.set(self.results[i] - 0.5 * (dU - dV))
+                    if self.model.get() == 0:
+                        newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
+                        newPart._ctfModel._defocusV.set(self.results[i] - 0.5 * (dU - dV))
+                    else:
+                        print(self.results[i])
+                        newPart._ctfModel._defocusU.set(self.results[i,0])
+                        newPart._ctfModel._defocusV.set(self.results[i,1])
+                        newPart._ctfModel._defocusAngle.set(self.results[i,2])
 
                 outputSet.append(newPart)
                 i = i+1
@@ -227,7 +260,6 @@ class Protdctf_particle(ProtocolBase):
         train_size = len(data) - validation_size
 
         # Divide el dataset en conjuntos de entrenamiento y validación
-
         if (self.validation_split.get):
             train_dataset, val_dataset = random_split(data, [train_size, validation_size])
         else:
@@ -261,7 +293,10 @@ class Protdctf_particle(ProtocolBase):
         print('Device:', device)
 
         # Create the model
-        model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
+        if self.model.get() == 0:
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
+        else:
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3)
 
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
@@ -279,14 +314,15 @@ class Protdctf_particle(ProtocolBase):
 
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
-            train(model, device, data_loader_training, optimizer, loss_function)
+            loss = train(model, device, data_loader_training, optimizer, loss_function)
 
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(),
                            os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt'))  # JV
                 model = model.to(device)
 
-            loss = self.calcLoss(model, data_loader_training, device, loss_function)
+            #Unused for faster processing. The loss is calculated during training
+            #loss = self.calcLoss(model, data_loader_training, device, loss_function)
             self.loss_list_training.append(loss)
             print('Loss epoch training: {:.6f}'.format(loss))
 
@@ -321,15 +357,15 @@ class Protdctf_particle(ProtocolBase):
         plt.tight_layout()
         plt.savefig(self._getPath() + '/' + 'loss.png')
 
-    def predict_CTF(self, images_path, window_size):
+    def predict_CTF(self, data, window_size):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
-        trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
+        predictset = LoaderPredict(data, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
                                  self.sampling_rate, self.sampling.get())
 
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
-        data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
+        data_loader = DataLoader(predictset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
                                  pin_memory=False)
 
         print('Total data... {}'.format(len(data_loader.dataset)))
@@ -340,12 +376,15 @@ class Protdctf_particle(ProtocolBase):
         print('Device:', device)
 
         # Create the model and load weights
-        model = Regresion(size_in=(1, window_size, window_size), size_out=1)
+        if self.model.get() == 0:
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
+        else:
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3)
 
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
         model = model.to(device)
-        return predict(model, device, data_loader, trainset, self.error_estimation.get(), self._getExtraPath())
+        return predict(model, device, data_loader, predictset, self.error_estimation.get(), self._getExtraPath())
 
     def calcLoss(self, model, data_loader, device, loss_function):
         """
@@ -356,11 +395,11 @@ class Protdctf_particle(ProtocolBase):
         with torch.no_grad():
             for data in data_loader:
                 # Move tensors to the configured device
-                data, target = data['image'].to(device), data['target'].to(device)
+                data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
                 # Forward pass
-                output = torch.transpose(model(data), 0, 1)
+                output = model(data)
                 # Sum up batch loss
-                test_loss += loss_function(output, target).item()
+                test_loss += loss_function(output, target, prior).item()
 
         num_batches = len(data_loader.dataset) / data_loader.batch_size
         return test_loss / num_batches
@@ -371,33 +410,37 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     """
     model.eval()
     results = []
+    uncertainty = []
     psd_list = []
 
     with torch.no_grad():
         for data in data_loader:
             # batch size in size
-            size = data['image'].shape[0]
-
-            for batch_id in range(0, size):
-                fn_splited = data['name'][batch_id].split('@')
+            batch_size = data['image'].shape[0]
+            for idx in range(0, batch_size):
+                fn_splited = data['name'][idx].split('@')
                 filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
                 filename = extraPath + '/' + filename_img + '_psd.mrc'
-                image = data['image']
                 NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
 
+            if data['prior'].dim() == 1:
+                data['prior'] = data['prior'].view(batch_size,1)
+
             # Move tensors to the configured device
+            image = data['image']
             image = image.to(device)
 
             if not estimate_error:
                 # Forward pass
-                output = torch.transpose(model(image), 0, 1)
-                output = trainset.normalization.transform(data['defocus'])+output.cpu().numpy()
+                output = model(image)
+                output = data['prior'] + output.cpu().numpy()
                 output = trainset.normalization.inv_transform(output)
 
+                results.append(output)
+
                 # Save results
-                for batch_id in range(0, size):
-                    results.append(output[0][batch_id])
-                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                for idx in range(0, batch_size):
+                    filename = extraPath + '/' + os.path.basename(data['name'][idx]) + '_psd.mrc'
                     psd_list.append(filename)
 
             else:
@@ -406,42 +449,48 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
                 predictions = []
 
                 for _ in range(num_samples):
-                    output = torch.transpose(model(image), 0, 1)
-                    predictions.append(output.unsqueeze(0)[0,:])
+                    output = model(image)
+                    output = data['prior'] + output.cpu().numpy()
+                    output = trainset.normalization.inv_transform(output)
+                    predictions.append(output)
 
-                # Calcular la predicción final promediando las salidas
-                predictions = torch.cat(predictions, dim=0)
-                predictions = predictions.cpu().numpy()
+                predictions = np.stack(predictions)
 
-                for batch_id in range(0, size):
-                    predictions[:,batch_id] = trainset.normalization.transform(data['defocus'])[batch_id]+predictions[:,batch_id]
-
-                predictions = trainset.normalization.inv_transform(predictions)
                 mean_prediction = np.mean(predictions, axis=0)
-                uncertainty = np.std(predictions, axis=0)
+                uncertainty_prediction = np.std(predictions, axis=0)
 
-                output = np.vstack((mean_prediction, uncertainty))
-                #output = np.concatenate((mean_prediction, uncertainty), axis=0)
+                results.append(mean_prediction)
+                uncertainty.append(uncertainty_prediction)
 
-                for batch_id in range(0, size):
-                    results.append(output[:,batch_id])
-                    filename = extraPath + '/' + os.path.basename(data['name'][batch_id]) + '_psd.mrc'
+                for idx in range(0, batch_size):
+                    filename = extraPath + '/' + os.path.basename(data['name'][idx]) + '_psd.mrc'
                     psd_list.append(filename)
 
-    return psd_list, results
+    results = np.concatenate(results, axis=0)
+    if np.size(uncertainty) != 0:
+        uncertainty = np.concatenate(uncertainty, axis=0)
+
+    return psd_list, results, uncertainty
 
 def train(model, device, train_loader, optimizer, loss_function):
     """
     Method to train the neuronal network
     """
     model.train()
+    loss_epoch = 0
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
-        data, target = data['image'].to(device), data['target'].to(device)
+        if data['target'].dim() == 1:
+            size = torch.numel(data['target'])
+            data['target'] = data['target'].view(size, 1)
+            data['prior'] = data['prior'].view(size, 1)
+
+        data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
 
         # Forward pass
         output = model(data)
-        loss = loss_function(output, target)
+
+        loss = loss_function(output, target, prior)
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -453,6 +502,10 @@ def train(model, device, train_loader, optimizer, loss_function):
             print('Train: [{}/{} ({:.0f}%)]    \tLoss: {:.6f}'.format(
                 batch_idx * train_loader.batch_size, len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
+
+        loss_epoch += loss.item()
+
+    return loss_epoch/batch_idx
 
 class Regresion(nn.Module):
     """
@@ -533,7 +586,7 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-    def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling):
+    def __init__(self, data, weight_path, window_size, step_size, sampling_rate, sampling):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
@@ -541,7 +594,12 @@ class LoaderPredict(Dataset):
         self.normalization = Normalization(None, None)
         self.normalization.load(normalization_path)
 
-        self._data = [i for i in datafiles]
+        dataMatrix = np.array([d['prior'] for d in data])
+        dataMatrix = self.normalization.transform(dataMatrix)
+        for i in range(len(data)):
+            data[i]['prior'] = dataMatrix[i]
+
+        self._data = data
         self._window_size = window_size
         self._step_size = step_size
         self._sampling_rate = sampling_rate
@@ -551,11 +609,11 @@ class LoaderPredict(Dataset):
         return len(self._data)
 
     def __getitem__(self, index):
-        img_path = self._data[index][0]
-        defocus = self._data[index][1]
+        img_path = self._data[index]['img']
+        prior = self._data[index]['prior']
         img = self.open_image(img_path)
         img.unsqueeze_(0)
-        return {'image': img, 'name': img_path, 'defocus': defocus}
+        return {'image': img, 'name': img_path, 'prior': prior}
 
     def open_image(self, filename):
         img = NumpyImgHandler.loadMrcSlice(filename)
@@ -580,9 +638,13 @@ class LoaderTrain(Dataset):
 
         dataMatrix = np.array([d['target'] for d in data])
         dataMatrix = self.normalization.transform(dataMatrix)
-
         for i in range(len(data)):
             data[i]['target'] = dataMatrix[i]
+
+        dataMatrix = np.array([d['prior'] for d in data])
+        dataMatrix = self.normalization.transform(dataMatrix)
+        for i in range(len(data)):
+            data[i]['prior'] = dataMatrix[i]
 
         self._data = data
         self._window_size = window_size
@@ -594,8 +656,9 @@ class LoaderTrain(Dataset):
     def __getitem__(self, index):
         img_path = self._data[index]['img']
         target = self._data[index]['target']
+        prior = self._data[index]['prior']
         img = self.open_image(img_path)
-        return {'image': img, 'target': target, 'name': img_path}
+        return {'image': img, 'target': target, 'prior': prior,'name': img_path}
 
     def open_image(self, filename):
         img = NumpyImgHandler.load(filename)
@@ -681,45 +744,38 @@ class Normalization:
         print('Mean:', self._mean)
         print('Std:', self._std)
 
-def weighted_mse_loss(input, target):
+def weighted_mse_loss(input, target, prior):
     # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
     # weight = 10 * torch.square(target[:, 0] - target[:, 1])
     #weight = 1 - torch.exp(
     #    #-1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
     #    -500 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
 
-    #input_v = target+input
-
-    input_v = input + target
+    input_v = input + prior
     loss = (input_v - target) ** 2
     #loss[:, 2] = weight * loss[:, 2]
+
     return torch.sum(loss) / len(loss)
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
-    #defocus, resolution, filename_img, sampling_rate = ctf
-    defocus, filename_img, sampling_rate = ctf
-    #defocus = np.asarray(defocus)
-    #resolution = np.asarray(resolution)
-    #target = list(defocus)
-    #target.append(resolution)
+    defocus_target, filename_img, sampling_rate, defocus_prior = ctf
 
     print(filename_img)
     filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
     print(filename_psd)
     print("--------------------------------------------------------")
 
-    return {'img': filename_psd, 'target': np.array(defocus, dtype=np.float32)}
+    return {'img': filename_psd, 'target': np.array(defocus_target, dtype=np.float32), 'prior': np.array(defocus_prior, dtype=np.float32)}
 
 def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
     img = NumpyImgHandler.loadMrcSlice(filename_img)
-    #img = img[0, :, :]
     new_size = (int(img.shape[1] * sampling_rate / sampling), int(img.shape[0] * sampling_rate / sampling))
     PIL_image = Image.fromarray(img)
     resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
     img = np.asarray(resized_image)
 
     # Calculate psd with some extra noise for data augmentation
-    psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
+    psd = calcAvgPsd(img, window_size, step_size, add_noise=False)
 
     fn_splited = filename_img.split('@')
     filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
