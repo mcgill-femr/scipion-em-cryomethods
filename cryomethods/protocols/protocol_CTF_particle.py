@@ -318,7 +318,7 @@ class Protdctf_particle(ProtocolBase):
 
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(),
-                           os.path.join(self._getExtraPath(), 'model_weights' + str(epoch) + '.pt'))  # JV
+                           os.path.join(self._getPath(), 'model_weights' + str(epoch) + '.pt'))  # JV
                 model = model.to(device)
 
             #Unused for faster processing. The loss is calculated during training
@@ -336,7 +336,7 @@ class Protdctf_particle(ProtocolBase):
 
         if not self.weightEveryEpoch:
             model.train()
-            torch.save(model.state_dict(), os.path.join(self._getExtraPath(), 'model_weights.pt'))  # JV
+            torch.save(model.state_dict(), os.path.join(self._getPath(), 'model_weights.pt'))  # JV
 
         print("Training loss")
         print(self.loss_list_training)
@@ -590,7 +590,7 @@ class LoaderPredict(Dataset):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
-        normalization_path = os.path.dirname(weight_path) + '/training_normalization.json'
+        normalization_path = os.path.dirname(weight_path) + '/extra/training_normalization.json'
         self.normalization = Normalization(None, None)
         self.normalization.load(normalization_path)
 
