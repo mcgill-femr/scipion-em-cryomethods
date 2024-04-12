@@ -32,10 +32,11 @@ from pyworkflow.utils import copyFile
 from pyworkflow.tests import *
 import pwem.emlib.metadata as md
 from cryomethods import Plugin
-from cryomethods.protocols import Prot3DAutoClassifier
+from cryomethods.protocols import Prot3DAutoClassifier,ProtVolClustering
 from cryomethods.functions import NumpyImgHandler
 from cryomethods.functions import correctAnisotropy
-
+from cryomethods.functions import compute_ctf_np, compute_ctf_torch
+from cryomethods.functions import MlMethods
 
 class TestBase(BaseTest):
     @classmethod
@@ -44,6 +45,8 @@ class TestBase(BaseTest):
         cls.volume1 = cls.dataset.getFile('import/case2/relion_it015_class003.mrc')
         cls.volumes = cls.dataset.getFile('import/case2/*class00?.mrc')
         cls.clsVols = cls.dataset.getFile('classVols/map_rLev-0??.mrc')
+        cls.particles = cls.dataset.getFile('import/case2/relion_it015_data.star')
+
 
 
 class TestAlignVolumes(TestBase):
@@ -57,6 +60,7 @@ class TestAlignVolumes(TestBase):
     def testAlignVolumes(self):
         Plugin.setEnviron()
         volList = sorted(glob(self.volumes))
+        print(volList)
         volRef = volList.pop(0)
         maxScore = 0
         npIh = NumpyImgHandler()
@@ -79,26 +83,32 @@ class TestAlignVolumes(TestBase):
                 npVol = npIh.applyTransforms(volNp, shifts, angles, axis)
                 print('original map is better ', vol)
 
-            npIh.saveMrc(npVol, '/home/josuegbl/'+ basename(vol))
+            #npIh.saveMrc(npVol, '/home/josuegbl/'+ basename(vol))
 
     def testPCA(self):
         Plugin.setEnviron()
         prot = Prot3DAutoClassifier(classMethod=1)
         volList = sorted(glob(self.volumes))
-        matProj, _ = prot._doPCA(volList)
+        covMatrix, listNpVol = MlMethods.getCovMatrixAuto(volList,1)
+        matProj, _ = MlMethods.doPCA(covMatrix)
         print(matProj)
 
     def testClustering(self):
         Plugin.setEnviron()
-        volList = self._getVolList()
-        self._getAverageVol(volList)
+
+        volList = sorted(glob(self.volumes))
+        #volList = self._getVolList()
+        #self._getAverageVol(volList)
+        npIh = NumpyImgHandler()
+        npIh.getAverageMap(volList)
 
         dictNames = {}
         groupDict = {}
-        prot = Prot3DAutoClassifier(classMethod=1)
+        #prot = Prot3DAutoClassifier(classMethod=1)
+        prot = ProtVolClustering(classMethod=1)
         print("Mehod: ", prot.classMethod.get())
         # matrix = self._estimatePCA(volList)
-        matrix, _ = self._mrcToNp(volList)
+        matrix, _ = prot._mrcToNp(volList)
         labels = prot._clusteringData(matrix)
         if labels is not None:
             f = open('method_%s.txt' % 1, 'w')
@@ -117,7 +127,9 @@ class TestAlignVolumes(TestBase):
     def testAffinityProp(self):
         from cryomethods.functions import MlMethods, NumpyImgHandler
         Plugin.setEnviron()
-        volList = self._getVolList()
+
+        volList = sorted(glob(self.volumes))
+        #volList = self._getVolList()
         ml = MlMethods()
         npIh = NumpyImgHandler()
 
@@ -138,7 +150,9 @@ class TestAlignVolumes(TestBase):
             f = open('volumes_clustered.txt', 'w')
             for vol, label in zip(volList, labels):
                 dictNames[vol] = label
-                destFn = '/home/josuegbl/PROCESSING/TESLA/projects/RNC_HTLnd2/MAPS' + basename(vol)
+
+                #destFn = '/home/josuegbl/PROCESSING/TESLA/projects/RNC_HTLnd2/MAPS' + basename(vol)
+                destFn = basename(vol)
                 copyFile(vol, destFn)
             for key, value in sorted(dictNames.items()):
                 groupDict.setdefault(value, []).append(key)
@@ -170,9 +184,12 @@ class TestAlignVolumes(TestBase):
         #     plt.show()
 
     def testHandlingMd(self):
-        starFn = '/home/josuegbl/raw_final_data.star'
-        fn = '/home/josuegbl/random_data.star'
+        #starFn = '/home/josuegbl/raw_final_data.star'
+        starFn =  self.particles
+        #fn = '/home/josuegbl/random_data.star'
+        fn = ''
         # labels = np.array([0, 0, 0, 0, 0, 0, 0, 1, 0])
+
         mdData = md.MetaData(starFn)
         mdAux = md.MetaData()
         mdFinal = md.MetaData()
@@ -279,3 +296,69 @@ class TestCorrection(TestBase):
         print ("shape: ", vol.shape)
         npIh.saveMrc(vol.astype(volNp.dtype), "corrected.mrc")
         npIh.saveMrc(volFt.astype(volNp.dtype), "corrected_ft.mrc")
+
+class TestCTF(TestBase):
+
+    @classmethod
+    def setUpClass(cls):
+        projName = cls.__name__
+        Manager().deleteProject(projName)
+        setupTestProject(cls)
+        TestBase.setData()
+
+    def testCTF_NP_Generate(self):
+        import torch
+        Plugin.setEnviron()
+        sampling_rate = 2  # A/px
+        #Nyquist frequency
+        nyquist_freq = 1 / (2 * sampling_rate)
+        N = 100  # Matrix size
+        freqs = np.linspace(-nyquist_freq, nyquist_freq, N)
+        freqX, freqY = np.meshgrid(freqs, freqs)
+
+        freqs = np.column_stack((freqX.flatten(), freqY.flatten()))
+        dfu = float(10000)
+        dfv = float(10000)
+        angle = float(10000)
+        volt = float(300)
+        cs = float(2.6)
+        w = float(0.1)
+        phase_shift = float(0)
+        bfactor = float(250)
+
+        ctf = compute_ctf_np(freqs,dfu,dfv,angle,volt,cs,w,phase_shift,bfactor)
+        ctf_2d = ctf.reshape(N,N)
+        npIh = NumpyImgHandler()
+        print('ctf_calculated numpy:',ctf)
+        npIh.saveMrc(ctf_2d,'CTF.mrc')
+
+
+    def testCTF_TORCH_Generate(self):
+        import torch
+        Plugin.setEnviron()
+        sampling_rate = 2  # A/px
+        #Nyquist frequency
+        nyquist_freq = 1 / (2 * sampling_rate)
+        N = 100  # Matrix size
+        freqs = np.linspace(-nyquist_freq, nyquist_freq, N)
+        freqX, freqY = np.meshgrid(freqs, freqs)
+
+        freqs = torch.from_numpy(np.column_stack((freqX.flatten(), freqY.flatten())))
+        freqs.to(torch.float64)
+        dfu = torch.tensor(10000)
+        dfv = torch.tensor(10000)
+        angle = torch.tensor(10000)
+        volt = torch.tensor(300)
+        cs = torch.tensor(2.6)
+        w = torch.tensor(0.1)
+        phase_shift = torch.tensor(0)
+        bfactor = torch.tensor(250)
+
+        ctf = compute_ctf_torch(freqs,dfu,dfv,angle,volt,cs,w,phase_shift,bfactor)
+
+        ctf_2d = ctf.numpy().reshape(N,N)
+        npIh = NumpyImgHandler()
+        print('ctf_calculated torch:',ctf)
+        npIh.saveMrc(ctf_2d,'CTF2.mrc')
+
+
