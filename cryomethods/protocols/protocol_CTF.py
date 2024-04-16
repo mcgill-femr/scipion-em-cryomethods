@@ -3,7 +3,7 @@ import multiprocessing as mp
 from functools import partial
 
 from cryomethods import Plugin
-from cryomethods.functions import NumpyImgHandler
+from cryomethods.functions import NumpyImgHandler, compute_ctf_torch
 from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel, Float
@@ -263,7 +263,8 @@ class Protdctf(ProtocolBase):
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
 
-        loss_function = weighted_mse_loss
+        #loss_function = weighted_mse_loss
+        loss_function = ctf_generated_mse_loss
         # criterion_test = nn.MSELoss(reduction = 'sum')
 
         self.loss_list_training = []
@@ -710,6 +711,37 @@ def weighted_mse_loss(input, target):
     loss[:, 2] = weight * loss[:, 2]
     return torch.sum(loss) / len(loss)
 
+def ctf_generated_mse_loss(input, target):
+    sampling_rate = 2  # A/px
+    nyquist_freq = 1 / (2 * sampling_rate)
+    N = 100  # Matrix size
+    freqs = np.linspace(-nyquist_freq, nyquist_freq, N)
+    freqX, freqY = np.meshgrid(freqs, freqs)
+    freqs = torch.from_numpy(np.column_stack((freqX.flatten(), freqY.flatten()))).to('cuda')
+    #freqs.to(torch.float32)
+    volt = torch.tensor(300).to('cuda')
+    cs = torch.tensor(2.6).to('cuda')
+    w = torch.tensor(0.1).to('cuda')
+    #cs = torch.tensor(0).to('cuda')
+    #w = torch.tensor(0).to('cuda')
+
+    phase_shift = torch.tensor(1).to('cuda')
+
+    #bfactor_input = (-(4 * torch.log(torch.tensor(0.5)))*(input[:,3].unsqueeze(1)) ** 2).to('cuda')
+    #bfactor_target = (-(4 * torch.log(torch.tensor(0.5)))*(target[:,3].unsqueeze(1)) ** 2).to('cuda')
+    #print(bfactor_target)
+    #print(target[:,1])
+    #print(target[:,2])
+    #print(target[:,3])
+    #print("-----")
+
+    bfactor = torch.tensor(1).to('cuda')
+
+    ctf_input = compute_ctf_torch(freqs, 1*input[:,0].unsqueeze(1), 1*input[:,1].unsqueeze(1), 1*input[:,2].unsqueeze(1), volt, cs, w, phase_shift, bfactor)
+    ctf_target = compute_ctf_torch(freqs, 1*target[:,0].unsqueeze(1), 1*target[:,1].unsqueeze(1), 11*target[:,2].unsqueeze(1), volt, cs, w, phase_shift, bfactor)
+
+    loss = (ctf_input - ctf_target) ** 2
+    return torch.sum(loss) / len(loss)
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     defocus, resolution, filename_img, sampling_rate = ctf

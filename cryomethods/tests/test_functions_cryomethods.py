@@ -345,12 +345,12 @@ class TestCTF(TestBase):
 
         freqs = torch.from_numpy(np.column_stack((freqX.flatten(), freqY.flatten())))
         freqs.to(torch.float64)
-        dfu = torch.tensor(10000)
-        dfv = torch.tensor(10000)
-        angle = torch.tensor(10000)
+        dfu = torch.tensor(0.2)
+        dfv = torch.tensor(0.8)
+        angle = torch.tensor(-0.5)
         volt = torch.tensor(300)
-        cs = torch.tensor(2.6)
-        w = torch.tensor(0.1)
+        cs = torch.tensor(0)
+        w = torch.tensor(0)
         phase_shift = torch.tensor(0)
         bfactor = torch.tensor(250)
 
@@ -361,4 +361,33 @@ class TestCTF(TestBase):
         print('ctf_calculated torch:',ctf)
         npIh.saveMrc(ctf_2d,'CTF2.mrc')
 
+    def testCTF_TORCH_Generate_Stack(self):
+        import torch
+        Plugin.setEnviron()
+        sampling_rate = 2  # A/px
+        #Nyquist frequency
+        nyquist_freq = 1 / (2 * sampling_rate)
+        N = 100  # Matrix size
+        freqs = np.linspace(-nyquist_freq, nyquist_freq, N)
+        freqX, freqY = np.meshgrid(freqs, freqs)
+
+        freqs = torch.from_numpy(np.column_stack((freqX.flatten(), freqY.flatten())))
+        freqs.to(torch.float64)
+
+        numCTFs = 50
+        dfu = torch.randint(1000, 30000, (numCTFs, 1))
+        dfv = torch.randint(1000, 30000, (numCTFs, 1))
+        angle = torch.randint(0, 360, (numCTFs, 1))
+        volt = torch.tensor(300)
+        cs = torch.tensor(2.6)
+        w = torch.tensor(0.1)
+        phase_shift = torch.tensor(0)
+        bfactor = torch.tensor(250)
+
+        ctf = compute_ctf_torch(freqs,dfu,dfv,angle,volt,cs,w,phase_shift,bfactor)
+
+        ctf_2d = ctf.numpy().reshape(numCTFs,N,N)
+        npIh = NumpyImgHandler()
+        print('ctf_calculated torch:',ctf)
+        npIh.saveMrc(ctf_2d,'CTF3.mrcs')
 

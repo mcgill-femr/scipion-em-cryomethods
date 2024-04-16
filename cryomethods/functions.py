@@ -533,6 +533,7 @@ def compute_ctf_torch(freqs, dfu, dfv, dfang, volt, cs, w, phase_shift=0, bfacto
         w (float): amplitude contrast ratio
         phase_shift (float): degrees
         bfactor (float or None): envelope function B-factor (Angstrom^2)
+        res = sqrt(-bfactor/(4*log(0.5))
     """
     # convert units
     volt = volt * 1000
@@ -545,8 +546,10 @@ def compute_ctf_torch(freqs, dfu, dfv, dfang, volt, cs, w, phase_shift=0, bfacto
     x = freqs[:, 0]
     y = freqs[:, 1]
     ang = torch.atan2(y, x)
-    s2 = x**2 + y**2
+
+    s2 = (x ** 2 + y ** 2)
     df = 0.5 * (dfu + dfv + (dfu - dfv) * torch.cos(2 * (ang - dfang)))
+
     gamma = (
         2 * torch.pi * (-0.5 * df * lam * s2 + 0.25 * cs * lam**3 * s2**2)
         - phase_shift
