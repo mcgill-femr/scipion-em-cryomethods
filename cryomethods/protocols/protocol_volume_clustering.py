@@ -32,18 +32,16 @@ try:
     from itertools import izip
 except ImportError:
     izip = zip
+
 import numpy as np
 from glob import glob
 
 import pyworkflow.protocol.params as params
 import pyworkflow.protocol.constants as cons
 from pyworkflow.utils import makePath
-
 from pwem.protocols import EMProtocol
-
 from cryomethods import Plugin
 from cryomethods.constants import METHOD
-
 from cryomethods.functions import NumpyImgHandler
 
 
@@ -117,7 +115,7 @@ class ProtVolClustering(EMProtocol):
         print("Saving average volume")
         self._saveAverageVol()
         if self.alignVolumes:
-            self._alignVolumes()
+            self._alignVolumes(mode=2)
             
     def createOutputStep(self, method):
         """do the clustering and generates different classes"""
@@ -145,6 +143,7 @@ class ProtVolClustering(EMProtocol):
             result = {'outputVolumes' + subset: volSet}
             self._defineOutputs(**result)
             self._defineSourceRelation(inputVol, volSet)
+
 
     # -------------------------- UTILS functions -------------------------------
     def _getResetDeps(self):
@@ -224,16 +223,26 @@ class ProtVolClustering(EMProtocol):
         mapNp = volNp * npMask
         return mapNp
 
-    def _alignVolumes(self):
+    def _alignVolumes(self, mode=1):
         # Align all volumes
         Plugin.setEnviron()
         npIh = NumpyImgHandler()
         listVol = self._getPathMaps('volume_????_filtered.mrc')
-        avgVol = self._getAvgMapFn()
-        npAvgVol = npIh.loadMrc(avgVol, writable=False)
-        dType = npAvgVol.dtype
+
+        if mode == 1:
+            avgVol = self._getAvgMapFn()
+            npAvgVol = npIh.loadMrc(avgVol, writable=False)
+            dType = npAvgVol.dtype
+        else:
+            vol = listVol[0]
+            print(listVol[0])
+            print(vol)
+            npAvgVol = self._getVolNp(vol)
+            #npAvgVol = npIh.loadMrc(avgVol, writable=False)
+            dType = npAvgVol.dtype
 
         for vol in listVol:
+            print(vol)
             npVolAlign = self._getVolNp(vol)
             npVolFlipAlign = np.fliplr(npVolAlign)
 
