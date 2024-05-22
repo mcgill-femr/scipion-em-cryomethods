@@ -133,7 +133,6 @@ class Protdctf(ProtocolBase):
                 extended_ctf = CTFModel()
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
-
                 filename_img = dic_ctf['_objValue._micObj._filename']
                 sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
                 #sampling_rate = self.sampling_rate.get()
@@ -228,9 +227,9 @@ class Protdctf(ProtocolBase):
         train_size = len(data) - validation_size
 
         # Divide el dataset en conjuntos de entrenamiento y validación
-
         if (self.validation_split.get):
-            train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+            generator1 = torch.Generator().manual_seed(42)
+            train_dataset, val_dataset = random_split(data, [train_size, validation_size], generator1)
         else:
             # Obtener los índices del conjunto de datos
             indices = list(range(len(data)))
