@@ -8,7 +8,6 @@ from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel, Float
 
-
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
@@ -20,7 +19,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import json
-
 
 class Protdctf(ProtocolBase):
     """
@@ -63,6 +61,12 @@ class Protdctf(ProtocolBase):
                        pointerClass='SetOfCTF',
                        label="Train set",
                        help='Select the train images.')
+        group.addParam('psdPath', params.PathParam,
+                       label='PSDs path:',
+                       help='Select the path to calculated PSDs.')
+        group.addParam('sampling_rate', params.FloatParam,
+                       label='Sampling rate',
+                       help='Sampling rate of the original mics.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -117,12 +121,11 @@ class Protdctf(ProtocolBase):
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
                 self.images_path.append(loc[1])
-
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
             self.images_path = []
-            path_psd = self._getExtraPath()
+            path_psd = self.psdPath.get()
             sampling = self.sampling.get()
 
             ctfs  = []
@@ -130,22 +133,28 @@ class Protdctf(ProtocolBase):
                 extended_ctf = CTFModel()
                 extended_ctf.set(ctf)
                 dic_ctf = extended_ctf.getObjDict()
+
                 filename_img = dic_ctf['_objValue._micObj._filename']
                 sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
+                #sampling_rate = self.sampling_rate.get()
                 defocus = np.asarray(ctf.getDefocus())
                 resolution = np.asarray(ctf.getResolution())
                 ctfs.append([defocus, resolution, filename_img, sampling_rate])
 
-            nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
-            pool = mp.Pool(processes=nthreads)
-
-            args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
+            if not os.path.exists(path_psd+'data.npy'):
+                nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
+                pool = mp.Pool(processes=nthreads)
+                args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
                            step_size=self.step_size.get())
-            results = pool.map(args, ctfs)
+                results = pool.map(args, ctfs)
+                self.data.extend(results)
+                pool.close()
+                pool.join()
+                np.save(path_psd+'data.npy',results)
 
-            self.data.extend(results)
-            pool.close()
-            pool.join()
+            else:
+                self.data = np.load(path_psd+'data.npy',allow_pickle=True)
+                print(self.data)
 
     def runCTFStep(self):
 
@@ -263,8 +272,8 @@ class Protdctf(ProtocolBase):
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
 
-        #loss_function = weighted_mse_loss
-        loss_function = ctf_generated_mse_loss
+        loss_function = weighted_mse_loss
+        #loss_function = ctf_generated_mse_loss
         # criterion_test = nn.MSELoss(reduction = 'sum')
 
         self.loss_list_training = []
@@ -751,6 +760,8 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     target.append(resolution)
 
     print(filename_img)
+    print("data: ",(sampling_rate, sampling))
+
     filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
     print(filename_psd)
     print("--------------------------------------------------------")
