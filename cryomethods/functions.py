@@ -387,7 +387,7 @@ def calcPsd(img, do_fitting=False, tmax = 0.95, tmin = 0.05):
     return img_f
 
 
-def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False, tmax = 0.95, tmin = 0.05):
+def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False, tmax = 0.99, tmin = 0.01):
     """
     Calculate PSD using average periodogram
     """
