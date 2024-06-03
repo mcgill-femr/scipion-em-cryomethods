@@ -12,8 +12,9 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+import torchvision.transforms.functional as TF
 
+from PIL import Image
 from torch import optim
 import numpy as np
 import matplotlib.pyplot as plt
@@ -625,7 +626,23 @@ class LoaderTrain(Dataset):
         img_path = self._data[index]['img']
         target = self._data[index]['target']
         img = self.open_image(img_path)
-        return {'image': img, 'target': target, 'name': img_path}
+        #return {'image': img, 'target': target, 'name': img_path}
+
+        rotation = np.random.randint(0, 180)
+        rotated_img = TF.rotate(img, rotation)  # Rotar la imagen
+
+        #print("----------------")
+        #print("rotation:", rotation)
+        #print("target_norm:", target)
+        target_inorm = self.normalization.inv_transform(target)
+        #print("target_ori:",target_inorm)
+        target_inorm[2] = (target_inorm[2] + rotation) % 180
+        #print("target_ori_mod:",target_inorm)
+        target = self.normalization.transform((target_inorm))
+        #print("target_norm_mod:", target)
+        #print("----------------")
+
+        return {'image': rotated_img, 'target': target, 'name': img_path}
 
     def open_image(self, filename):
         img = NumpyImgHandler.load(filename)
