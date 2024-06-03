@@ -741,7 +741,7 @@ class ProtAutoBase(ProtocolBase):
         clsSet.classifyItems(updateItemCallback=self._updateParticle,
                              updateClassCallback=self._updateClass,
                              itemDataIterator=mdIter,
-                             doClone=False) #JV
+                             doClone=True) #JV before was False
 
     def _updateParticle(self, item, row):
         item.setClassId(row.rlnClassNumber)
