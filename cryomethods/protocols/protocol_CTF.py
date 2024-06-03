@@ -8,7 +8,6 @@ from .protocol_base import ProtocolBase
 from cryomethods.functions import num_flat_features, calcAvgPsd
 from pwem.objects import CTFModel, Float
 
-
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split, Subset
 import torch.nn as nn
@@ -20,7 +19,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import json
-
 
 class Protdctf(ProtocolBase):
     """
@@ -63,6 +61,12 @@ class Protdctf(ProtocolBase):
                        pointerClass='SetOfCTF',
                        label="Train set",
                        help='Select the train images.')
+        group.addParam('psdPath', params.PathParam,
+                       label='PSDs path:',
+                       help='Select the path to calculated PSDs.')
+        group.addParam('sampling_rate', params.FloatParam,
+                       label='Sampling rate',
+                       help='Sampling rate of the original mics.')
         group.addParam('transferLearning', params.BooleanParam, default=True,
                        label='Transfer Learning',
                        help='Enable if you want to train using a pretrained model.')
@@ -117,12 +121,11 @@ class Protdctf(ProtocolBase):
             for i, img in enumerate(self.imgSet):
                 loc = img.getLocation()
                 self.images_path.append(loc[1])
-
         else:
             self.ctfs = self.trainSet.get()
             self.data = []
             self.images_path = []
-            path_psd = self._getExtraPath()
+            path_psd = self.psdPath.get()
             sampling = self.sampling.get()
 
             ctfs  = []
@@ -132,20 +135,25 @@ class Protdctf(ProtocolBase):
                 dic_ctf = extended_ctf.getObjDict()
                 filename_img = dic_ctf['_objValue._micObj._filename']
                 sampling_rate = dic_ctf['_objValue._micObj._samplingRate']
+                #sampling_rate = self.sampling_rate.get()
                 defocus = np.asarray(ctf.getDefocus())
                 resolution = np.asarray(ctf.getResolution())
                 ctfs.append([defocus, resolution, filename_img, sampling_rate])
 
-            nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
-            pool = mp.Pool(processes=nthreads)
-
-            args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
+            if not os.path.exists(path_psd+'data.npy'):
+                nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
+                pool = mp.Pool(processes=nthreads)
+                args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
                            step_size=self.step_size.get())
-            results = pool.map(args, ctfs)
+                results = pool.map(args, ctfs)
+                self.data.extend(results)
+                pool.close()
+                pool.join()
+                np.save(path_psd+'data.npy',results)
 
-            self.data.extend(results)
-            pool.close()
-            pool.join()
+            else:
+                self.data = np.load(path_psd+'data.npy',allow_pickle=True)
+                print(self.data)
 
     def runCTFStep(self):
 
@@ -219,9 +227,9 @@ class Protdctf(ProtocolBase):
         train_size = len(data) - validation_size
 
         # Divide el dataset en conjuntos de entrenamiento y validación
-
         if (self.validation_split.get):
-            train_dataset, val_dataset = random_split(data, [train_size, validation_size])
+            generator1 = torch.Generator().manual_seed(42)
+            train_dataset, val_dataset = random_split(data, [train_size, validation_size], generator1)
         else:
             # Obtener los índices del conjunto de datos
             indices = list(range(len(data)))
@@ -244,6 +252,11 @@ class Protdctf(ProtocolBase):
         data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
                                      pin_memory=False)
 
+        normalizationValues = trainset.getNormalizaionValues()
+        print("JV_________________JV")
+        print(normalizationValues)
+        print("JV_________________JV")
+
         print('Total data training... {}'.format(len(data_loader_training.dataset)))
         print('Total data validation... {}'.format(len(data_loader_val.dataset)))
 
@@ -263,8 +276,8 @@ class Protdctf(ProtocolBase):
 
         optimizer = optim.Adam(model.parameters(), lr=self.lr.get())
 
-        #loss_function = weighted_mse_loss
-        loss_function = ctf_generated_mse_loss
+        loss_function = weighted_mse_loss
+        #loss_function = ctf_generated_mse_loss
         # criterion_test = nn.MSELoss(reduction = 'sum')
 
         self.loss_list_training = []
@@ -272,19 +285,19 @@ class Protdctf(ProtocolBase):
 
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
-            train(model, device, data_loader_training, optimizer, loss_function)
+            train(model, device, data_loader_training, optimizer, loss_function, normalizationValues)
 
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(),
                            os.path.join(self._getPath(), 'model_weights' + str(epoch) + '.pt'))  # JV
                 model = model.to(device)
 
-            loss = self.calcLoss(model, data_loader_training, device, loss_function)
+            loss = self.calcLoss(model, data_loader_training, device, loss_function,normalizationValues)
             self.loss_list_training.append(loss)
             print('Loss epoch training: {:.6f}'.format(loss))
 
             if (epoch % 10 == 0):
-                loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
+                loss_val = self.calcLoss(model, data_loader_val, device, loss_function, normalizationValues)
                 self.loss_list_val.append(loss_val)
                 print('Loss epoch validation: {:.6f}'.format(loss_val))
                 self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
@@ -340,7 +353,7 @@ class Protdctf(ProtocolBase):
         model = model.to(device)
         return predict(model, device, data_loader, trainset, self.error_estimation.get(), self._getExtraPath())
 
-    def calcLoss(self, model, data_loader, device, loss_function):
+    def calcLoss(self, model, data_loader, device, loss_function,normalizationValues):
         """
         Calculate the value of the loss function
         """
@@ -354,7 +367,7 @@ class Protdctf(ProtocolBase):
                 output = model(data)
 
                 # Sum up batch loss
-                test_loss += loss_function(output, target).item()
+                test_loss += loss_function(output, target, normalizationValues).item()
 
         num_batches = len(data_loader.dataset) / data_loader.batch_size
         return test_loss / num_batches
@@ -414,7 +427,7 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     return psd_list, results
 
 
-def train(model, device, train_loader, optimizer, loss_function):
+def train(model, device, train_loader, optimizer, loss_function, normalizationValues):
     """
     Method to train the neuronal network
     """
@@ -425,7 +438,7 @@ def train(model, device, train_loader, optimizer, loss_function):
 
         # Forward pass
         output = model(data)
-        loss = loss_function(output, target)
+        loss = loss_function(output, target, normalizationValues)
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -595,7 +608,6 @@ class LoaderTrain(Dataset):
         Plugin.setEnviron()
 
         self.normalization = Normalization(data, extra_path)
-
         dataMatrix = np.array([d['target'] for d in data])
         dataMatrix = self.normalization.transform(dataMatrix)
 
@@ -618,6 +630,9 @@ class LoaderTrain(Dataset):
     def open_image(self, filename):
         img = NumpyImgHandler.load(filename)
         return torch.from_numpy(img)
+
+    def getNormalizaionValues(self):
+        return self.normalization.getNormalizationValues()
 
 
 class Normalization:
@@ -649,7 +664,8 @@ class Normalization:
         self._min_value = dataMatrix.min(axis=0)
         self._max_value = dataMatrix.max(axis=0)
 
-        print(self._min_value)
+    def getNormalizationValues(self):
+        return self._max_value,self._min_value,self._mean,self._std
 
     def set_mean_std(self, dataMatrix):
         self._mean = dataMatrix.mean(axis=0)
@@ -702,13 +718,29 @@ class Normalization:
         print('Std:', self._std)
 
 
-def weighted_mse_loss(input, target):
+def weighted_mse_loss(input, target, norm):
     # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
     # weight = 10 * torch.square(target[:, 0] - target[:, 1])
     weight = 1 - torch.exp(
-        -1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
+        -100 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
     loss = (input - target) ** 2
-    loss[:, 2] = weight * loss[:, 2]
+
+    # norm[0] max
+    # norm[1] min
+    # norm[2] mean
+    # norm[3] std
+    #We converte normalized values of angles to original without normalization
+    angle_target = (target[:,2]*norm[3][2]+norm[2][2])*(norm[0][2]-norm[1][2])+norm[1][2]
+    angle_input = (input[:,2]*norm[3][2]+norm[2][2])*(norm[0][2]-norm[1][2])+norm[1][2]
+    loss[:, 2] = weight * torch.abs(torch.sin(torch.deg2rad(torch.abs(angle_input-angle_target))))
+    #print("-----")
+    #print("angle_target:",angle_target)
+    #print("angle_input:",angle_input)
+    #print("-----")
+
+    #loss[:, 2] = weight * loss[:, 2]
+    loss[:, 3] = 0.25 * loss[:, 3] # The resolution is not so important
+
     return torch.sum(loss) / len(loss)
 
 def ctf_generated_mse_loss(input, target):
@@ -751,6 +783,8 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     target.append(resolution)
 
     print(filename_img)
+    print("data: ",(sampling_rate, sampling))
+
     filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
     print(filename_psd)
     print("--------------------------------------------------------")

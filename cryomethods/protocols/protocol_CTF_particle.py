@@ -2,6 +2,8 @@ import pyworkflow.protocol.params as params
 import multiprocessing as mp
 from functools import partial
 
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler
 from .protocol_base import ProtocolBase
@@ -202,7 +204,6 @@ class Protdctf_particle(ProtocolBase):
                         newPart._ctfModel._defocusU.set(self.results[i] + 0.5 * (dU - dV))
                         newPart._ctfModel._defocusV.set(self.results[i] - 0.5 * (dU - dV))
                     else:
-                        print(self.results[i])
                         newPart._ctfModel._defocusU.set(self.results[i,0])
                         newPart._ctfModel._defocusV.set(self.results[i,1])
                         newPart._ctfModel._defocusAngle.set(self.results[i,2])
@@ -282,7 +283,7 @@ class Protdctf_particle(ProtocolBase):
 
         valset = LoaderTrain(val_dataset, self._getExtraPath(), self.window_size.get(), self.step_size.get())
         data_loader_val = DataLoader(valset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
-                                     pin_memory=False)
+                                     pin_memory=True)
 
         print('Total data training... {}'.format(len(data_loader_training.dataset)))
         print('Total data validation... {}'.format(len(data_loader_val.dataset)))
@@ -294,9 +295,9 @@ class Protdctf_particle(ProtocolBase):
 
         # Create the model
         if self.model.get() == 0:
-            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1, num_priors=1)
         else:
-            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3)
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3, num_priors=3)
 
         if self.transferLearning.get():
             model.load_state_dict(torch.load(self.pretrainedModel.get()))
@@ -312,9 +313,16 @@ class Protdctf_particle(ProtocolBase):
         self.loss_list_training = []
         self.loss_list_val = []
 
+        self.loss_reg_list_training = []
+        self.loss_reg_list_val = []
+
+        self.loss_error_list_training = []
+        self.loss_error_list_val = []
+
+        scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=10, verbose=True)
         for epoch in range(1, self.epochs.get() + 1):
             print('\nEpoch:', epoch, '/', self.epochs.get())
-            loss = train(model, device, data_loader_training, optimizer, loss_function)
+            loss, regularization, error = train(model, device, data_loader_training, optimizer, loss_function)
 
             if self.weightEveryEpoch:
                 torch.save(model.state_dict(),
@@ -324,15 +332,29 @@ class Protdctf_particle(ProtocolBase):
             #Unused for faster processing. The loss is calculated during training
             #loss = self.calcLoss(model, data_loader_training, device, loss_function)
             self.loss_list_training.append(loss)
+            self.loss_reg_list_training.append(regularization)
+            self.loss_error_list_training.append(error)
+
             print('Loss epoch training: {:.6f}'.format(loss))
 
             if (epoch % 10 == 0):
-                loss_val = self.calcLoss(model, data_loader_val, device, loss_function)
+                loss_val, loss_val_reg, loss_val_error = self.calcLoss(model, data_loader_val, device, loss_function)
                 self.loss_list_val.append(loss_val)
+                self.loss_reg_list_val.append(loss_val_reg)
+                self.loss_error_list_val.append(loss_val_error)
+
                 print('Loss epoch validation: {:.6f}'.format(loss_val))
-                self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
+                self.plot_loss_screening(self.loss_list_training, self.loss_list_val, "loss")
+                self.plot_loss_screening(self.loss_reg_list_training, self.loss_reg_list_val, "loss_regularization")
+                self.plot_loss_screening(self.loss_error_list_training, self.loss_error_list_val, "loss_error")
+
             else:
                 self.loss_list_val.append(np.nan)
+                self.loss_reg_list_val.append(np.nan)
+                self.loss_error_list_val.append(np.nan)
+
+            #better use loss_val
+            scheduler.step(loss)
 
         if not self.weightEveryEpoch:
             model.train()
@@ -344,18 +366,20 @@ class Protdctf_particle(ProtocolBase):
         print("Validation loss")
         print(self.loss_list_val)
 
-        self.plot_loss_screening(self.loss_list_training, self.loss_list_val)
+        self.plot_loss_screening(self.loss_list_training, self.loss_list_val, "loss")
+        self.plot_loss_screening(self.loss_reg_list_training, self.loss_reg_list_val, "loss_regularization")
+        self.plot_loss_screening(self.loss_error_list_training, self.loss_error_list_val, "loss_error")
 
-    def plot_loss_screening(self, loss_list_traning, loss_list_val):
+    def plot_loss_screening(self, loss_list_traning, loss_list_val, loss_type="loss"):
         plt.figure(figsize=(11, 8))
-        plt.plot(loss_list_traning, marker='o', linestyle='-', color='blue', label='Loss training')
-        plt.plot(loss_list_val, marker='o', color='red', label='Loss validation')
+        plt.plot(loss_list_traning, marker='o', linestyle='-', color='blue', label=f'{loss_type}')
+        plt.plot(loss_list_val, marker='o', color='red', label=f'{loss_type}_validation')
         plt.title('Loss function')
         plt.ylabel('Loss function')
         plt.xlabel('Epoch')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(self._getPath() + '/' + 'loss.png')
+        plt.savefig(self._getPath() + '/' + f'{loss_type}.png')
 
     def predict_CTF(self, data, window_size):
         """
@@ -366,7 +390,7 @@ class Protdctf_particle(ProtocolBase):
 
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
         data_loader = DataLoader(predictset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
-                                 pin_memory=False)
+                                 pin_memory=True)
 
         print('Total data... {}'.format(len(data_loader.dataset)))
 
@@ -377,9 +401,9 @@ class Protdctf_particle(ProtocolBase):
 
         # Create the model and load weights
         if self.model.get() == 0:
-            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1)
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=1, num_priors=1)
         else:
-            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3)
+            model = Regresion(size_in=(1, self.window_size.get(), self.window_size.get()), size_out=3, num_priors=3)
 
         model.load_state_dict(torch.load(self.weightsfile.get()))
 
@@ -391,18 +415,24 @@ class Protdctf_particle(ProtocolBase):
         Calculate the value of the loss function
         """
         test_loss = 0
+        test_regulariation = 0
+        test_error = 0
         model.eval()
         with torch.no_grad():
             for data in data_loader:
                 # Move tensors to the configured device
                 data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
                 # Forward pass
-                output = model(data)
+                output = model(data, prior)
                 # Sum up batch loss
-                test_loss += loss_function(output, target, prior).item()
+                _test_loss, _test_regulariation, _test_error = loss_function(output, target, prior)
+
+                test_loss += _test_loss.item()
+                test_regulariation += _test_regulariation.item()
+                test_error += _test_error.item()
 
         num_batches = len(data_loader.dataset) / data_loader.batch_size
-        return test_loss / num_batches
+        return test_loss / num_batches, test_regulariation / num_batches, test_error / num_batches
 
 def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     """
@@ -413,7 +443,7 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
     uncertainty = []
     psd_list = []
 
-    with torch.no_grad():
+    with (torch.no_grad()):
         for data in data_loader:
             # batch size in size
             batch_size = data['image'].shape[0]
@@ -421,21 +451,18 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
                 fn_splited = data['name'][idx].split('@')
                 filename_img = fn_splited[0] + '_' + os.path.splitext(os.path.basename(fn_splited[1]))[0]
                 filename = extraPath + '/' + filename_img + '_psd.mrc'
-                NumpyImgHandler.saveMrc(np.float32(data['image'][batch_id, :, :, :]), filename)
+                NumpyImgHandler.saveMrc(np.float32(data['image'][idx, :, :, :]), filename)
 
             if data['prior'].dim() == 1:
                 data['prior'] = data['prior'].view(batch_size,1)
 
             # Move tensors to the configured device
-            image = data['image']
-            image = image.to(device)
+            image, prior = data['image'].to(device), data['prior'].to(device)
 
             if not estimate_error:
                 # Forward pass
-                output = model(image)
-                output = data['prior'] + output.cpu().numpy()
-                output = trainset.normalization.inv_transform(output)
-
+                output = model(image, prior)
+                output = trainset.normalization.inv_transform(output.cpu().numpy())
                 results.append(output)
 
                 # Save results
@@ -449,9 +476,8 @@ def predict(model, device, data_loader, trainset, estimate_error, extraPath):
                 predictions = []
 
                 for _ in range(num_samples):
-                    output = model(image)
-                    output = data['prior'] + output.cpu().numpy()
-                    output = trainset.normalization.inv_transform(output)
+                    output = model(image, prior)
+                    output = trainset.normalization.inv_transform(output.cpu().numpy())
                     predictions.append(output)
 
                 predictions = np.stack(predictions)
@@ -478,6 +504,9 @@ def train(model, device, train_loader, optimizer, loss_function):
     """
     model.train()
     loss_epoch = 0
+    loss_regularization = 0
+    loss_error = 0
+
     for batch_idx, data in enumerate(train_loader):
         # Move tensors to the configured device
         if data['target'].dim() == 1:
@@ -488,9 +517,9 @@ def train(model, device, train_loader, optimizer, loss_function):
         data, target, prior = data['image'].to(device), data['target'].to(device), data['prior'].to(device)
 
         # Forward pass
-        output = model(data)
+        output = model(data, prior)
 
-        loss = loss_function(output, target, prior)
+        loss, regularization, error = loss_function(output, target, prior)
 
         # Backward and optimize
         optimizer.zero_grad()
@@ -504,14 +533,16 @@ def train(model, device, train_loader, optimizer, loss_function):
                 100. * batch_idx / len(train_loader), loss.item()))
 
         loss_epoch += loss.item()
+        loss_regularization += regularization.item()
+        loss_error += error.item()
 
-    return loss_epoch/batch_idx
+    return loss_epoch/batch_idx, loss_regularization/batch_idx, loss_error/batch_idx
 
 class Regresion(nn.Module):
     """
     Neuronal Network model
     """
-    def __init__(self, size_in=(1, 256, 256), size_out=4):
+    def __init__(self, size_in=(1, 256, 256), size_out=3, num_priors=3):
         super(Regresion, self).__init__()
 
         #self.Conv2d_1a_3x3 = nn.Conv2d(size_in[0], 32, kernel_size=3, stride=2)
@@ -537,6 +568,8 @@ class Regresion(nn.Module):
         self.fc1 = nn.Linear(self.flat_size, 400)
         self.fc2 = nn.Linear(400, size_out)
 
+        self.priors_layer = nn.Linear(num_priors, self.flat_size)
+
     def _get_conv_ouput(self, shape):
         f = torch.rand(1, *shape)
         g = self._forward_conv(f)
@@ -559,6 +592,7 @@ class Regresion(nn.Module):
         x = F.gelu(x)
 
         x = F.max_pool2d(x, kernel_size=3, stride=2)
+        #x = self.fc2(x) + priors_influence
 
         x = self.Conv2d_3b_1x1(x)
         x = self.bn_3b_1x1(x)
@@ -574,11 +608,29 @@ class Regresion(nn.Module):
 
         return x
 
-    def forward(self, x):
+    # def forward(self, x, priors):
+    #     x = self._forward_conv(x)
+    #     x = x.view(-1, self.flat_size)
+    #     x = self.fc1(x)
+    #     x = F.relu(x)
+    #
+    #     # Utilizes the priors layer to influence in the prediction
+    #     priors_influence = self.priors_layer(priors.float())
+    #     x = self.fc2(x) + priors_influence
+    #     return x
+
+    def forward(self, x, priors):
         x = self._forward_conv(x)
         x = x.view(-1, self.flat_size)
-        x = self.fc1(x)
+
+        # y = torch.cat([x, self.priors_layer(priors.float())], dim=-1)
+        y = x + self.priors_layer(priors.float())
+        x = self.fc1(y)
         x = F.relu(x)
+
+        # Utilizes the priors layer to influence in the prediction
+        #priors_influence = self.priors_layer(priors.float())
+        #x = self.fc2(x) + priors_influence
         x = self.fc2(x)
         return x
 
@@ -692,8 +744,6 @@ class Normalization:
         self._min_value = dataMatrix.min(axis=0)
         self._max_value = dataMatrix.max(axis=0)
 
-        print(self._min_value)
-
     def set_mean_std(self, dataMatrix):
         self._mean = dataMatrix.mean(axis=0)
         self._std = dataMatrix.std(axis=0)
@@ -745,17 +795,22 @@ class Normalization:
         print('Std:', self._std)
 
 def weighted_mse_loss(input, target, prior):
-    # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
-    # weight = 10 * torch.square(target[:, 0] - target[:, 1])
+    #weight = 10 * torch.square(target[:, 0] - target[:, 1])
     #weight = 1 - torch.exp(
     #    #-1000 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
     #    -500 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
 
-    input_v = input + prior
-    loss = (input_v - target) ** 2
-    #loss[:, 2] = weight * loss[:, 2]
+    #w = 0.5
+    w = 0.1 #improves
+    regularizator = w*torch.abs(input - prior)
+    #regularizator = w*(input - prior)**2
 
-    return torch.sum(loss) / len(loss)
+    error = torch.abs(input - target)
+    weight = 10 * torch.abs(target[:, 0] - target[:, 1])
+    error[:, 2] = weight * error[:, 2]
+
+    loss = error + regularizator
+    return torch.mean(loss), torch.mean(regularizator), error.mean()
 
 def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     defocus_target, filename_img, sampling_rate, defocus_prior = ctf
