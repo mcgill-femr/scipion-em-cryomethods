@@ -6,3 +6,4 @@ scipy
 matplotlib
 cython
 scikit-learn
+starfile
