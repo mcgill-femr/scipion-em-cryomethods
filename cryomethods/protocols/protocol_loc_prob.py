@@ -54,6 +54,8 @@ class ProtLocProb(ProtAnalysis3D):
 
         num_mom = self.numMom.get()
 
+        self.mom_orden = []
+
         for m in range(1, num_mom+1):
             self._insertFunctionStep('_processParticles',m)
             self._insertFunctionStep('reconstructStep',m)
@@ -74,8 +76,43 @@ class ProtLocProb(ProtAnalysis3D):
                                     alignType=ALIGN_PROJ)
 
     def createOutputStep(self):
+        mom_orden = self.mom_orden
+        print('LISTA DE LOS MOMENTOS DE ORDEN', mom_orden)
+        print('JV')
 
-        pass
+        media = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(),mom_orden[0]))
+
+        print('--------------------------------------------------')
+        print(f'El valor de la media es de {media}')
+        print('--------------------------------------------------')
+        print(os.path.join(self._getExtraPath(),mom_orden[0]))
+        NumpyImgHandler.saveMrc(media, os.path.join(self._getPath(),mom_orden[0]))
+
+        m2 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(),mom_orden[1]))
+        varianza = m2 - media ** 2
+        #print('cantidad de nan', np.sum(np.isnan(varianza)))
+        print('--------------------------------------------------')
+        print(f'El valor de la varianza es de {varianza}')
+        print('--------------------------------------------------')
+        NumpyImgHandler.saveMrc(varianza, os.path.join(self._getPath(), mom_orden[1]))
+
+        m3 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(),mom_orden[2]))
+        skewness = (m3 - 3 * media * varianza - media ** 3) / (varianza ** (3 / 2))
+        print('--------------------------------------------------')
+        print(f'El valor de skewness es de {skewness}')
+        print('--------------------------------------------------')
+        NumpyImgHandler.saveMrc(skewness, os.path.join(self._getPath(), mom_orden[2]))
+
+
+        del(skewness)
+        m4 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(),mom_orden[3]))
+        curtosis = (m4 - 4 * media * m3 + 6 * media ** 2 * m2 - 3 * media ** 4) / (varianza ** 2)
+        print('--------------------------------------------------')
+        print(f'El valor de la curtosis es de {curtosis}')
+        print('--------------------------------------------------')
+        NumpyImgHandler.saveMrc(curtosis, os.path.join(self._getPath(), mom_orden[3]))
+
+        #pass
 
     def reconstructStep(self, m_index=1):
 
@@ -94,6 +131,11 @@ class ProtLocProb(ProtAnalysis3D):
 
         # 3D reconstruction with all the defined parameters
         self.runJob('relion_reconstruct', params)
+
+        print(f'Nombre del volumen {volume_name}')
+        self.mom_orden.append(volume_name)
+        print('----------------------------------------')
+        print(f'LISTA DE MOMENTOS: ´{self.mom_orden}')
 
         #self._processParticles()
 
