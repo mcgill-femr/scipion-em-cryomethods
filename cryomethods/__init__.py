@@ -117,6 +117,24 @@ class Plugin(pwem.Plugin):
         """ Setup the environment variables needed to launch Relion. """
 
         environ = pwutils.Environ(os.environ)
+
+        conda_env_path = os.environ.get('CONDA_PREFIX')
+        if conda_env_path:
+            lib_path = os.path.join(conda_env_path, 'lib')
+            ld_library_path = os.environ.get('LD_LIBRARY_PATH', '')
+
+            # Actualizar LD_LIBRARY_PATH añadiendo lib_path si no está ya presente
+            if lib_path not in ld_library_path:
+                if ld_library_path:
+                    # Si ya existe un valor en LD_LIBRARY_PATH, agregar lib_path al inicio
+                    new_ld_library_path = f"{lib_path}:{ld_library_path}"
+                else:
+                    # Si LD_LIBRARY_PATH está vacío, solo asignar lib_path
+                    new_ld_library_path = lib_path
+
+                environ.update({'LD_LIBRARY_PATH': new_ld_library_path,
+                                }, position=pwutils.Environ.BEGIN)
+
         binPath = cls.__getRelionHome('bin')
         libPath = cls.__getRelionHome('lib') + ":" + cls.__getRelionHome('lib64')
 
