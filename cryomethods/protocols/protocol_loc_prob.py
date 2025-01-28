@@ -18,7 +18,7 @@ class ProtLocProb(ProtAnalysis3D):
     """
     Given a map and the number of moments, the protocol estimates the local probability map.
     """
-    _label = 'local probability map'
+    _label = 'locMoments'
 
     # --------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
@@ -198,7 +198,12 @@ class ProtLocProb(ProtAnalysis3D):
 
             # Addition of the Sampling rate, the maximum resolution and extra parameters (if needed)
             params += ' --sampling %0.5f' % imgSet.getSamplingRate()
-            params += ' --max_resolution %0.3f' % self.maxRes.get()
+
+            if self.maxRes.get() == -1.0:
+                params += ' --max_resolution %0.3f' % 0.5
+            else:
+                params += ' --max_resolution %0.3f' % (imgSet.getSamplingRate()/self.maxRes.get())
+
             params += ' %s' % self.extraParameters.get()
 
             self.runJob('xmipp_reconstruct_fourier_accel', params, env=env)
@@ -224,6 +229,7 @@ class ProtLocProb(ProtAnalysis3D):
 
         for i, img in enumerate(imgSet):
             loc = img.getLocation()
+
             nombre_part = os.path.basename(loc[1])
 
             part = NumpyImgHandler.loadMrcSlice(str(loc[0])+'@'+loc[1], writable=True)
