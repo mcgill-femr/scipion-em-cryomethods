@@ -1153,6 +1153,14 @@ class CalculateHistogram(ProtocolViewer):
                        '2. ACC_MOMENTS calculates the pdf of the 4 moments from a selected voxel.'
                       )
 
+        group.addParam('inputVolume', params.PathParam,
+                     condition='methodApplied==%d' % PROB_DENSITY_FUNCT,
+                     pointerClass='Volume',  #SetOfParticles
+                     label="Reconstructed input volume\n"
+                           "(resolution Nyquist)",
+                     help='Select the reconstructed input volume with resolution Nyquist\n'
+                          'by default.')
+
         groupVoxel = form.addGroup('Voxel')
         groupVoxel.addParam('x_value', params.IntParam, default=191,
                        label="X value",
@@ -1185,12 +1193,24 @@ class CalculateHistogram(ProtocolViewer):
                 #range_volumes.append(np.load(volume))
                 range_volumes.append(NumpyImgHandler.loadMrc(volume))
 
-
             voxel_values = []
             for i in range(len(range_volumes)):
                 voxel_values.append(range_volumes[i][self.x_value.get(), self.y_value.get(), self.z_value.get()])
 
+
             print("Voxel values:", voxel_values)
+
+            valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get())[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+            print(f'Real value of the voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {valueVox_inputVol}')
+
+            mean_x = np.average(self.rango[:-1], weights=voxel_values)  # Media ponderada
+            variance_x = np.average((self.rango[:-1] - mean_x) ** 2, weights=voxel_values)  # Varianza ponderada
+            std_dev_x = np.sqrt(variance_x)  # Desviación estándar
+
+            print("Mean in axis X (voxel intensity):", mean_x)
+            print("Standard deviation in axis X:", std_dev_x)
+            print('-----------------------------------------------')
+            print('-----------------------------------------------')
 
             # hist, bin_edges = np.histogram(voxel_values, bins=self.rango)
             plt.figure(figsize=(8, 6))
@@ -1198,6 +1218,13 @@ class CalculateHistogram(ProtocolViewer):
                     alpha=0.7)
             plt.plot(self.rango[:-1], voxel_values, 'o')
             plt.plot(self.rango[:-1], voxel_values)
+
+            # Marcar la media y la desviación estándar en la gráfica
+            plt.axvline(mean_x, color='red', linestyle='--', label=f"Media: {mean_x:.4f}")
+            plt.axvline(mean_x - std_dev_x, color='green', linestyle='--', label=f"-1σ: {mean_x - std_dev_x:.4f}")
+            plt.axvline(mean_x + std_dev_x, color='green', linestyle='--', label=f"+1σ: {mean_x + std_dev_x:.4f}")
+            plt.axvline(valueVox_inputVol, color='blueviolet', linestyle='--', label=f"Voxel real_value: {valueVox_inputVol:.4f}")
+
             plt.xlabel("Voxel intensity", fontsize=12)
             plt.ylabel("Frequency", fontsize=12)
             plt.title(f"Histogram of voxel intensities {self.x_value.get(), self.y_value.get(), self.z_value.get()}", fontsize=14)
@@ -1232,9 +1259,9 @@ class CalculateHistogram(ProtocolViewer):
 
             ax.plot(x, y_johnson, label="Johnson SU")
             ax.legend()
-            ax.set_title("Distribuciones")
+            ax.set_title(f"Histogram of voxel intensities {self.x_value.get(), self.y_value.get(), self.z_value.get()}", fontsize=14)
             ax.set_xlabel("x")
-            ax.set_ylabel("Densidad")
+            ax.set_ylabel("Density")
             plt.show()
 
 
