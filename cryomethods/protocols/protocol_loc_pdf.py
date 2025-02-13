@@ -4,6 +4,8 @@ from pyworkflow.protocol.params import (PointerParam, FloatParam,
 
 from pwem.protocols import ProtAnalysis3D
 from pwem import ALIGN_PROJ
+from scipy.ndimage import maximum
+
 from cryomethods.convert import writeSetOfParticles
 from xmipp3.convert import writeSetOfParticles as writeSetOfParticlesXmipp
 from cryomethods.functions import NumpyImgHandler
@@ -11,7 +13,9 @@ import numpy as np
 import os
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
-import matplotlib.pyplot as plt
+import scipy.stats as stats
+import mrcfile
+
 
 PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
@@ -39,47 +43,50 @@ class ProtLocPDF(ProtAnalysis3D):
                   label='Method to apply', display=EnumParam.DISPLAY_COMBO,
                   help='Decide which method you want to apply to your particles.\n'
                        '1. Probability density function, calculates it based on the range.\n'
-                       '2. Accumulative moments. Apply the method of moments.\n'
+                       '2. Accumulative moments. Apply the method of moments, where 4 moments '
+                       'will be calculated (mean, variance, skewness and kurtosis).\n'
                       )
 
         # -------------------------------- Pdf ----------------------------------------
         form.addParam('numBins', IntParam, default=10,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Number of bins",
-                      help='Number of bins')
+                      help='Number of bins.')
 
         form.addParam('minRange', FloatParam, default=-1.0,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Minimum value of the range",
-                      help='Minimum value of the range')
+                      help='Minimum value of the range.')
 
         form.addParam('maxRange', FloatParam, default=1.0,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Maximum value of the range",
-                      help='Maximum value of the range')
+                      help='Maximum value of the range.')
+
+        #form.addParam('inputVolume', PointerParam,
+        #              condition='methodApply==%d' % PROB_DENSITY_FUNCT,
+        #              pointerClass='Volume',  #SetOfParticles
+        #              label="Input volume to reconstruct\n"
+        #                    "(resolution Nyquist)",
+        #              help='Select the input volume to reconstruct with resolution Nyquist\n'
+        #                   'by default.')
 
         # -------------------------------- Moments ----------------------------------------
-        #form.addParam('numMom', IntParam, default=4,
+        #form.addParam('numMom', BooleanParam, default=True,
         #              condition='methodApply==%d' % ACC_MOMENTS,
-        #               label="Number of moments to estimate\n "
-        #                     "(only 4)",
-        #               help='Number of moments to estimate. Only 4')
+        #              label="4 moments will be estimated",
+        #              help='If selected, 4 moments will be calculated')
 
-        form.addParam('numMom', BooleanParam, default=True,
-                      condition='methodApply==%d' % ACC_MOMENTS,
-                      label="4 moments will be estimated",
-                      help='If selected, 4 moments will be calculated')
-
-        # ----------------------------------Bootstrao---------------------------------
+        # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
         group.addParam('numBatches', IntParam, default=10,
                              label="Number of batches",
-                             help='Number of batches to apply bootstrap to')
+                             help='Number of batches to apply bootstrap to.')
 
 
         group.addParam('numSamples', IntParam, default=50,
                              label="Number of samples/particles per batch",
-                             help='Number of samples/particles each batch will contain')
+                             help='Number of samples/particles each batch will contain.')
 
         group.addParam('reconstruction', EnumParam,
                       choices=['Relion reconstruction', 'Xmipp reconstruction'],
@@ -125,7 +132,7 @@ class ProtLocPDF(ProtAnalysis3D):
         groupXmipp.addParam('paddingFactorXmipp', BooleanParam, default=True,
                      label="Padding Factor",
                      help='If selected, you can adjust projection and volume for Xmipp \n'
-                          'reconstruction')
+                          'reconstruction.')
 
         groupXmipp.addParam('projection', FloatParam, default=2.0,
                        label="Number of Projections",
@@ -139,7 +146,7 @@ class ProtLocPDF(ProtAnalysis3D):
 
         groupXmipp.addParam('extraParameters', StringParam, default='',
                  label="Extra parameters", help='Extra parameters for \n'
-                                                'Xmipp reconstruction')
+                                                'Xmipp reconstruction.')
 
         form.addParallelSection(threads=1, mpi=1)
 
@@ -150,13 +157,10 @@ class ProtLocPDF(ProtAnalysis3D):
 
     def _insertAllSteps(self):
         #XmippProtPreprocessParticles()
-        #self.vol_moments = []    #JV
-        #self.one_volume = []   #JV
 
         self._insertFunctionStep('convertInputStep')
 
         num_batches = self.numBatches.get()
-
         #self.num_volumes = []
 
         if self.methodApply == PROB_DENSITY_FUNCT:
@@ -164,57 +168,31 @@ class ProtLocPDF(ProtAnalysis3D):
                 self._insertFunctionStep('_processParticles', m)
                 self._insertFunctionStep('reconstructStep', m)
                 self._insertFunctionStep('_calculatePDF', m)
-                #self._insertFunctionStep('calculateStatistics')
+
+            self._insertFunctionStep('statistic_volumes')
+
 
         elif self.methodApply == ACC_MOMENTS:
-            m = 1
-            self._insertFunctionStep('_processParticles', m)
-            self._insertFunctionStep('reconstructStep', m)
-            self._insertFunctionStep('_calculateMoments', m)
-            #self._calculateMoments(m, mean, m2, m3, m4)
-            #self._insertFunctionStep('_calculateMoments', m)
-            #for m in range(1, num_batches + 1):
-            #    print("entro")
-            #    self._insertFunctionStep('_processParticles', m)
-            #    self._insertFunctionStep('reconstructStep', m)
-            #    self.one_volume = self._insertFunctionStep('reconstructStep', m)
-            #    print('self.one_volume', self.one_volume)
-            #    if m == 1:
-            #        print("ENTRO 0")
-            #        mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float) #np.zeros_like(self.one_volume, dtype=float)
-            #        self._calculateMoments(m, mean, m2, m3, m4)
-            #        #self._insertFunctionStep('_calculateMoments', m, mean, m2, m3, m4)
-            #        print("ENTRO 1")
-
-            #    else:
-            #        #n = m - 1
-            #        print("ENTRO 2")
-
-            #        #self._insertFunctionStep('_calculateMoments', m, self.vol_moments[0],
-            #        #                         self.vol_moments[1], self.vol_moments[2], self.vol_moments[3])
-            #        self._calculateMoments(m, self.vol_moments[0],
-            #                                 self.vol_moments[1], self.vol_moments[2], self.vol_moments[3])
-
-            #        print("ENTRO 3")
+            for m in range(1, num_batches + 1):
+                self._insertFunctionStep('_processParticles', m)
+                self._insertFunctionStep('reconstructStep', m)
+                self._insertFunctionStep('_calculateMoments', m)
 
 
+    def _calculateMoments(self, m_index):
 
-
-
-
-    def _calculateMoments(self, m_index): #, mean, m2, m3, m4):
-
-        #if self.numMom.get() == True:
         num_mom = 4
 
-        print(num_mom)
-        #n = np.ones_like(self.one_volume, dtype=float)*m_index - 1
-        #n = m_index - 1
+        if m_index == 1:
+            self.vol_moments = [np.zeros_like(self.one_volume, dtype=float) for _ in range(1, num_mom + 1)]
+            n = mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float)
 
-        #if m_index == 1:
-        self.vol_moments = [np.zeros_like(self.one_volume, dtype=float) for _ in range(1, num_mom + 1)]
-        n = mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float)  # np.zeros_like(self.one_volume, dtype=float)
-
+        else:
+            mean = np.load(os.path.join(self._getExtraPath(), "1_mean.npy"))
+            m2 = np.load(os.path.join(self._getPath(), "m2.npy"))
+            m3 = np.load(os.path.join(self._getPath(), "m3.npy"))
+            m4 = np.load(os.path.join(self._getPath(), "m4.npy"))
+            n = np.ones_like(self.one_volume, dtype=float) * m_index - 1
 
         n, mean, m2, m3, m4 = np.array(n), np.array(mean), np.array(m2), np.array(m3), np.array(m4)
         print(mean)
@@ -231,6 +209,7 @@ class ProtLocPDF(ProtAnalysis3D):
         print('======================n1======================', n1)
         n += np.ones_like(n, dtype=float)
 
+        print('======================N======================', n)
         # delta = np.subtract(x, mean)
         delta = x - mean
         #delta = np.array(delta)
@@ -265,19 +244,21 @@ class ProtLocPDF(ProtAnalysis3D):
         print('======================m2=================================', m2)
 
         #print('----------------------------')
-        if np.all(m2 > 0):
-            variance = m2 / n
-            skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
-            kurtosis = ((n * m4) / (m2 ** 2)) - 3
+        np.save(os.path.join(self._getPath(), "m2.npy"), m2)
+        np.save(os.path.join(self._getPath(), "m3.npy"), m3)
+        np.save(os.path.join(self._getPath(), "m4.npy"), m4)
 
-            self.vol_moments[0] = mean
-            self.vol_moments[1] = variance
-            self.vol_moments[2] = skewness
-            self.vol_moments[3] = kurtosis
+        if np.any(m2 > 0):
+           variance = m2 / n
+           skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
+           kurtosis = ((n * m4) / (m2 ** 2)) - 3
+
+           self.vol_moments[0] = mean
+           self.vol_moments[1] = variance
+           self.vol_moments[2] = skewness
+           self.vol_moments[3] = kurtosis
 
         else:
-            ##### añadir otro if donde especifico qie si m=1 y M2 es 0 es por ser la primera iteracion
-            # si ya lleva varias, entonces poner el mensaje que aparece debajo
             print('M2 is 0, so skewness and kurtosis cannot be calculated as they would be divided by 0')
             self.vol_moments[0] = mean
             self.vol_moments[1] = np.zeros_like(self.one_volume, dtype=float)
@@ -290,18 +271,29 @@ class ProtLocPDF(ProtAnalysis3D):
         print('kurtosis', self.vol_moments[3])
 
         np.save(os.path.join(self._getExtraPath(), "1_mean.npy"), self.vol_moments[0])
-        np.save(os.path.join(self._getExtraPath(), "2_variance.npy"), self.vol_moments[1])
-        np.save(os.path.join(self._getExtraPath(), "3_skewness.npy"), self.vol_moments[2])
-        np.save(os.path.join(self._getExtraPath(), "4_kurtosis.npy"), self.vol_moments[3])
-        #NumpyImgHandler.saveMrc(self.vol_moments[0], os.path.join(self._getExtraPath(), "1_mean.mrc"))
-        #NumpyImgHandler.saveMrc(self.vol_moments[1], os.path.join(self._getExtraPath(), "2_variance.mrc"))
-        #NumpyImgHandler.saveMrc(self.vol_moments[2], os.path.join(self._getExtraPath(), "3_skewness.mrc"))
-        #NumpyImgHandler.saveMrc(self.vol_moments[3], os.path.join(self._getExtraPath(), "4_kurtosis.mrc"))
 
+        print('VALOR NUM_BATCHES', self.numBatches.get())
+        print('VALOR M_INDEX', m_index)
 
-        #return mean
-        #else:
-        #    print('This protocol cannot be executed')
+        print('TAMAÑO DEL VOLUMEN:', self.one_volume.shape)
+        print('TAMAÑO DEL VOXEL:', self.voxel_size)
+
+        if m_index == self.numBatches.get():
+
+            mrcfile.write(os.path.join(self._getExtraPath(), "1_mean.mrc"), self.vol_moments[0].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "2_variance.mrc"), self.vol_moments[1].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness.mrc"), self.vol_moments[2].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis.mrc"), self.vol_moments[3].astype(np.float32),
+                          voxel_size=self.voxel_size)
+
+            #NumpyImgHandler.saveMrc(self.vol_moments[0], os.path.join(self._getExtraPath(), "1_mean.mrc"))
+            #NumpyImgHandler.saveMrc(self.vol_moments[1], os.path.join(self._getExtraPath(), "2_variance.mrc"))
+            #NumpyImgHandler.saveMrc(self.vol_moments[2], os.path.join(self._getExtraPath(), "3_skewness.mrc"))
+            #NumpyImgHandler.saveMrc(self.vol_moments[3], os.path.join(self._getExtraPath(), "4_kurtosis.mrc"))
+
 
 
     def convertInputStep(self):
@@ -353,6 +345,8 @@ class ProtLocPDF(ProtAnalysis3D):
         #volume_name = 'vol_' + str(m_index) + '.mrc'
         volume_name = 'vol_1.mrc'
         imgSet = self.inputParticles.get()
+
+        self.voxel_size = imgSet.getSamplingRate()
         print(f'VOLUME NAME =========================== {volume_name}')
 
         if self.reconstruction == RELION_RECONSTRUCTION:
@@ -364,7 +358,7 @@ class ProtLocPDF(ProtAnalysis3D):
             params_relion += ' --subset -1 --class -1'
 
             # Addition of the Sampling rate and the maximum resolution
-            params_relion += ' --angpix %0.5f' % imgSet.getSamplingRate()
+            params_relion += ' --angpix %0.5f' % self.voxel_size
             params_relion += ' --maxres %0.3f' % self.maxResRelion.get()
             params_relion += ' %s' % self.extraParametersRelion.get()
 
@@ -380,24 +374,22 @@ class ProtLocPDF(ProtAnalysis3D):
 
 
             # Addition of the Sampling rate, the maximum resolution and extra parameters (if needed)
-            params += ' --sampling %0.5f' % imgSet.getSamplingRate()
+            params += ' --sampling %0.5f' % self.voxel_size
 
             if self.maxRes.get() == -1.0:
                 params += ' --max_resolution %0.3f' % 0.5
             else:
-                params += ' --max_resolution %0.3f' % (imgSet.getSamplingRate()/self.maxRes.get())
+                params += ' --max_resolution %0.3f' % (self.voxel_size/self.maxRes.get())
 
             params += ' %s' % self.extraParameters.get()
 
             #print(params)
             self.runJob('xmipp_reconstruct_fourier_accel', params, env=env)
 
+        print('TAMAÑO DEL VOXEL', self.voxel_size)
         self.one_volume = NumpyImgHandler.loadMrc(os.path.join(self._getPath(), volume_name))
 
-        print(os.path.join(self._getPath(), volume_name))
         print(self.one_volume)
-
-        #return self.one_volume
 
 
     def _calculatePDF(self, m_index):
@@ -427,38 +419,77 @@ class ProtLocPDF(ProtAnalysis3D):
 
             self.range_volumes[i][mask] += 1
 
-            NumpyImgHandler.saveMrc(self.range_volumes[i], os.path.join(self._getExtraPath(), f'rangeVol_{i+1}.mrc'))
-            #np.save(os.path.join(self._getExtraPath(), f'rangeVol_{i+1}.npy'), self.range_volumes[i])
+            mrcfile.write(os.path.join(self._getExtraPath(), f'rangeVol_{i+1}.mrc'), self.range_volumes[i]#.astype(np.float32),
+                          ,voxel_size=self.voxel_size, overwrite=True)
+
+            #NumpyImgHandler.saveMrc(self.range_volumes[i], os.path.join(self._getExtraPath(), f'rangeVol_{i+1}.mrc'))
 
         #print(self.range_volumes[0][:, :, 200][200])
 
 
 
-    def calculateStatistics(self):
+    def statistic_volumes(self):
+        range_volumes = []
+        for i in range(1, self.numBins.get() + 1):
+            volume = self._getExtraPath("rangeVol_%s.mrc" % i)
+            range_volumes.append(NumpyImgHandler.loadMrc(volume))
+            print(f'RANGE VOLUME {i}:'
+                  f'{NumpyImgHandler.loadMrc(volume)}')
 
-        #volumes = self.num_volumes
+        shape = self.one_volume.shape
 
-        x, y, z = 191, 183, 200   # Ejemplo: voxel en la posición (50, 50, 50)
 
-        voxel_values = []
-        for i in range(len(self.range_volumes)):
-            voxel_values.append(self.range_volumes[i][x ,y, z])
+        bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)])
+        print(f'bin_centers {bin_centers}')
+        print(f'bin_centers SHAPE {bin_centers.shape}')
+        bin_centers_expanded = bin_centers[:, np.newaxis, np.newaxis, np.newaxis]
+        print(f'bin_centers_expanded SHAPE {bin_centers_expanded.shape}')
 
-        print("Voxel values:", voxel_values)
+        weighted_sum = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
+        # mirar si el primero de bincenters_expanded multiplica por el primer volumen entero de range_vol
+        # y si el segundo de bins multiplica por t'odo el volumen de range_volumes
+        # tiene que salir una amtriza d emedia ponderada, revisar el np.sum, to'do inlcudio el axis
+        print(f'weighted_sum {weighted_sum}')
 
-        #hist, bin_edges = np.histogram(voxel_values, bins=self.rango)
+        print(f'suma de pesos {np.sum(self.range_volumes, axis=0)}')
+        weighted_sum_mean = weighted_sum/np.sum(self.range_volumes, axis=0)
 
-        plt.figure(figsize=(8, 6))
-        plt.bar(self.rango[:-1], voxel_values, width=0.00001, edgecolor="black", align="edge", color="blue",
-                alpha=0.7)
-        plt.plot(self.rango[:-1], voxel_values, 'o')
-        plt.plot(self.rango[:-1], voxel_values)
-        plt.xlabel(f"Intensidad del voxel {x, y, z}", fontsize=12)
-        plt.ylabel("Frecuencia", fontsize=12)
-        plt.title("Histograma de intensidades del voxel", fontsize=14)
-        plt.grid(axis="y", linestyle="--", alpha=0.7)
-        plt.show()
+        print(f'valor de media ponderada {weighted_sum_mean}')
+
+        most_probable_value = np.max(self.range_volumes, axis=0)
+        print(f'Valor más probable por voxel:\n {most_probable_value}')
+
+        '''en el caso de arriba estoy generando un volumen de maximo que contiene las frecuencias, Esto me puede servir para
+        ver cuanta frecuencia tiene por ejemplo el ruido o la proteina, es decir, cuantos estan activos en cada voxel, o sea, 
+        cuantas veces ha caido el valor en la reconstruccion. lo ideal seria generar otro volumen, en este caso de maximo, pero 
+        que, en lugar de contener los valores de frecuencia contenga los valores de bin asociados, es decir, los que son con 
+        decimales, el valor de la reconstruccino. 
+        
+        '''
+
+
+        # Guardar los resultados en archivos MRC
+        output_path_mean = os.path.join(self._getExtraPath(), 'weighted_mean.mrc')
+        output_path_max = os.path.join(self._getExtraPath(), 'most_probable_value.mrc')
+        #output_path_std = os.path.join(self._getExtraPath(), 'std_dev.mrc')
+        #output_path_skewness = os.path.join(self._getExtraPath(), 'skewness.mrc')
+        #output_path_kurtosis = os.path.join(self._getExtraPath(), 'kurtosis.mrc')
+
+        mrcfile.write(output_path_mean, weighted_sum_mean.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_path_max, most_probable_value.astype(np.float32), voxel_size=self.voxel_size)
+        #mrcfile.write(output_path_std, std_dev_volume, voxel_size=self.voxel_size, overwrite=True)
+        #mrcfile.write(output_path_skewness, skewness_volume, voxel_size=self.voxel_size, overwrite=True)
+        #mrcfile.write(output_path_kurtosis, kurtosis_volume, voxel_size=self.voxel_size, overwrite=True)
+
+        print(f"Media ponderada guardada en: {output_path_mean}")
+        print(f"Maximo mas probable guardado en: {output_path_max}")
+        #print(f"Desviación típica guardada en: {output_path_std}")
+        #print(f"Skewness guardado en: {output_path_skewness}")
+        #print(f"Curtosis guardado en: {output_path_kurtosis}")
+
         #pass
+
+
 
 
 
@@ -526,7 +557,6 @@ class ProtLocPDF(ProtAnalysis3D):
     def _summary(self):
         summary = []
         summary.append("Input volume: %s" % self.inputParticles.getNameId())
-        summary.append("Number of moments: %s" % self.numMom.get())
         summary.append(" ")
         return summary
 
