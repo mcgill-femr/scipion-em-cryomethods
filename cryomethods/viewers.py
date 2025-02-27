@@ -1184,14 +1184,21 @@ class CalculateHistogram(ProtocolViewer):
         if self.methodApplied == PROB_DENSITY_FUNCT:
 
             self.rango = np.load(self.protocol._getExtraPath("rango.npy"))
-            print(self.rango)
+            print(f'Range: \n{self.rango}')
+
+            bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)])
+            print(f'Bin_centers: \n{bin_centers}')
 
             range_volumes = []
             for i in range(1, self.protocol.numBins.get() +1):
                 volume = self.protocol._getExtraPath("rangeVol_%s.mrc" % i)
-                #volume = self.protocol._getExtraPath("rangeVol_%s.npy" % i)
-                #range_volumes.append(np.load(volume))
                 range_volumes.append(NumpyImgHandler.loadMrc(volume))
+
+            weighted_mean = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_mean.mrc"))
+            weighted_std = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_std.mrc"))
+            weighted_skewness = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_skewness.mrc"))
+            weighted_kurtosis = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_kurtosis.mrc"))
+            most_probable_bin = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("most_probable_bin.mrc"))
 
             voxel_values = []
             for i in range(len(range_volumes)):
@@ -1203,32 +1210,39 @@ class CalculateHistogram(ProtocolViewer):
             valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get())[self.x_value.get(), self.y_value.get(), self.z_value.get()]
             print(f'Real value of the voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {valueVox_inputVol}')
 
-            mean_x = np.average(self.rango[:-1], weights=voxel_values)  # Media ponderada
-            variance_x = np.average((self.rango[:-1] - mean_x) ** 2, weights=voxel_values)  # Varianza ponderada
-            std_dev_x = np.sqrt(variance_x)  # Desviación estándar
-
-            print("Mean in axis X (voxel intensity):", mean_x)
-            print("Standard deviation in axis X:", std_dev_x)
+            mean_x = weighted_mean[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+            std_dev_x = weighted_std[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+            skew_x = weighted_skewness[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+            kurt_x = weighted_kurtosis[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+            max_bin_x = most_probable_bin[self.x_value.get(), self.y_value.get(), self.z_value.get()]
+#
+#
+            print(f"Weighted mean in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {mean_x}")
+            print(f"Weighted standard deviation in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {std_dev_x}")
+            print(f"Weighted skewness in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {skew_x}")
+            print(f"Weighted kurtosis in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {kurt_x}")
+            print(f"Most probable bin in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {max_bin_x}")
             print('-----------------------------------------------')
             print('-----------------------------------------------')
 
-            # hist, bin_edges = np.histogram(voxel_values, bins=self.rango)
             plt.figure(figsize=(8, 6))
-            plt.bar(self.rango[:-1], voxel_values, width=0.00001, edgecolor="black", align="edge", color="blue",
+            plt.bar(bin_centers, voxel_values, width=0.00001, edgecolor="black", align="edge", color="blue",
                     alpha=0.7)
-            plt.plot(self.rango[:-1], voxel_values, 'o')
-            plt.plot(self.rango[:-1], voxel_values)
+            plt.plot(bin_centers, voxel_values, 'o')
+            plt.plot(bin_centers, voxel_values)
 
-            # Marcar la media y la desviación estándar en la gráfica
-            plt.axvline(mean_x, color='red', linestyle='--', label=f"Media: {mean_x:.4f}")
-            plt.axvline(mean_x - std_dev_x, color='green', linestyle='--', label=f"-1σ: {mean_x - std_dev_x:.4f}")
-            plt.axvline(mean_x + std_dev_x, color='green', linestyle='--', label=f"+1σ: {mean_x + std_dev_x:.4f}")
-            plt.axvline(valueVox_inputVol, color='blueviolet', linestyle='--', label=f"Voxel real_value: {valueVox_inputVol:.4f}")
+            # Weighted mean, weighted standard deviation and real value in the graphic
+            plt.axvline(mean_x, color='red', linestyle='--', label=f"Media: {mean_x:.6f}")
+            plt.axvline(mean_x - std_dev_x, color='green', linestyle='--', label=f"-1σ: {mean_x - std_dev_x:.6f}")
+            plt.axvline(mean_x + std_dev_x, color='green', linestyle='--', label=f"+1σ: {mean_x + std_dev_x:.6f}")
+            plt.axvline(valueVox_inputVol, color='blueviolet', linestyle='--', label=f"Voxel real_value: {valueVox_inputVol:.6f}")
+            plt.axvline(max_bin_x, color='orchid', linestyle='--', label=f"Most probable bin: {max_bin_x:.6f}")
 
             plt.xlabel("Voxel intensity", fontsize=12)
             plt.ylabel("Frequency", fontsize=12)
             plt.title(f"Histogram of voxel intensities {self.x_value.get(), self.y_value.get(), self.z_value.get()}", fontsize=14)
             plt.grid(axis="y", linestyle="--", alpha=0.7)
+            plt.legend()
             plt.show()
 
 
