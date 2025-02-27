@@ -63,14 +63,6 @@ class ProtLocPDF(ProtAnalysis3D):
                       label="Maximum value of the range",
                       help='Maximum value of the range.')
 
-        #form.addParam('inputVolume', PointerParam,
-        #              condition='methodApply==%d' % PROB_DENSITY_FUNCT,
-        #              pointerClass='Volume',  #SetOfParticles
-        #              label="Input volume to reconstruct\n"
-        #                    "(resolution Nyquist)",
-        #              help='Select the input volume to reconstruct with resolution Nyquist\n'
-        #                   'by default.')
-
         # -------------------------------- Moments ----------------------------------------
         #form.addParam('numMom', BooleanParam, default=True,
         #              condition='methodApply==%d' % ACC_MOMENTS,
@@ -161,7 +153,6 @@ class ProtLocPDF(ProtAnalysis3D):
         self._insertFunctionStep('convertInputStep')
 
         num_batches = self.numBatches.get()
-        #self.num_volumes = []
 
         if self.methodApply == PROB_DENSITY_FUNCT:
             for m in range(1, num_batches + 1):
@@ -341,7 +332,6 @@ class ProtLocPDF(ProtAnalysis3D):
 
         env = Plugin.getEnviron()
 
-        #self.num_volumes = []
         #volume_name = 'vol_' + str(m_index) + '.mrc'
         volume_name = 'vol_1.mrc'
         imgSet = self.inputParticles.get()
@@ -414,7 +404,6 @@ class ProtLocPDF(ProtAnalysis3D):
             inf_limit = self.rango[i]
             sup_limit = self.rango[i + 1]
 
-            #for volume in self.num_volumes:
             mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
 
             self.range_volumes[i][mask] += 1
@@ -433,61 +422,66 @@ class ProtLocPDF(ProtAnalysis3D):
         for i in range(1, self.numBins.get() + 1):
             volume = self._getExtraPath("rangeVol_%s.mrc" % i)
             range_volumes.append(NumpyImgHandler.loadMrc(volume))
-            print(f'RANGE VOLUME {i}:'
-                  f'{NumpyImgHandler.loadMrc(volume)}')
-
-        shape = self.one_volume.shape
-
 
         bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)])
         print(f'bin_centers {bin_centers}')
         print(f'bin_centers SHAPE {bin_centers.shape}')
+
         bin_centers_expanded = bin_centers[:, np.newaxis, np.newaxis, np.newaxis]
         print(f'bin_centers_expanded SHAPE {bin_centers_expanded.shape}')
 
-        weighted_sum = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
-        # mirar si el primero de bincenters_expanded multiplica por el primer volumen entero de range_vol
-        # y si el segundo de bins multiplica por t'odo el volumen de range_volumes
-        # tiene que salir una amtriza d emedia ponderada, revisar el np.sum, to'do inlcudio el axis
-        print(f'weighted_sum {weighted_sum}')
+        # ------------------------ WEIGHTED MEAN ----------------------------------------
+        sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
+        print(f'weighted_sum {sum_mean}')
 
         print(f'suma de pesos {np.sum(self.range_volumes, axis=0)}')
-        weighted_sum_mean = weighted_sum/np.sum(self.range_volumes, axis=0)
+        weighted_mean = sum_mean/np.sum(self.range_volumes, axis=0)
+        print(f'valor de media ponderada {weighted_mean}')
 
-        print(f'valor de media ponderada {weighted_sum_mean}')
+        # ------------------------ MOST PROBABLE BIN ----------------------------------------
+        most_probable_freq = np.max(self.range_volumes, axis=0)
+        print(f'Valor más probable por voxel:\n {most_probable_freq}'
+              f'\n {most_probable_freq.shape}')
 
-        most_probable_value = np.max(self.range_volumes, axis=0)
-        print(f'Valor más probable por voxel:\n {most_probable_value}')
+        max_index = np.argmax(self.range_volumes, axis=0)
+        print(f'VALOR DE LOS INDICES: {max_index}')
 
-        '''en el caso de arriba estoy generando un volumen de maximo que contiene las frecuencias, Esto me puede servir para
-        ver cuanta frecuencia tiene por ejemplo el ruido o la proteina, es decir, cuantos estan activos en cada voxel, o sea, 
-        cuantas veces ha caido el valor en la reconstruccion. lo ideal seria generar otro volumen, en este caso de maximo, pero 
-        que, en lugar de contener los valores de frecuencia contenga los valores de bin asociados, es decir, los que son con 
-        decimales, el valor de la reconstruccino. 
-        
-        '''
+        bin_values = np.squeeze(bin_centers_expanded[max_index])
+        print(f'DIMENSIONES DE VALORES_BIN {bin_values.shape}')
+        print(f'Valor real correspondiente al máximo de frecuencia:{bin_values}')
+
+        # ------------------------ WEIGHTED VARIANCE AND STD ----------------------------------------
+        weighted_variance = np.average((bin_centers_expanded - weighted_mean) ** 2, axis=0, weights=self.range_volumes)
+        print('----------------------------------------------------')
+        print(f'Varianza ponderada: \n{weighted_variance}')
+
+        weighted_std = np.sqrt(weighted_variance)
+        print(f'desviacion tipica \n{weighted_std}')
+
+        # ------------------------ WEIGHTED SKEWNESS ----------------------------------------
+        weighted_skewness = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 3, axis=0, weights=self.range_volumes)
+        print(f'Skewness ponderado \n{weighted_skewness}')
+
+        # ------------------------ WEIGHTED KURTOSIS ----------------------------------------
+        weighted_kurtosis = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 4 - 3, axis=0, weights=self.range_volumes)
+        print(f'curtosis ponderada \n{weighted_kurtosis}')
 
 
-        # Guardar los resultados en archivos MRC
-        output_path_mean = os.path.join(self._getExtraPath(), 'weighted_mean.mrc')
-        output_path_max = os.path.join(self._getExtraPath(), 'most_probable_value.mrc')
-        #output_path_std = os.path.join(self._getExtraPath(), 'std_dev.mrc')
-        #output_path_skewness = os.path.join(self._getExtraPath(), 'skewness.mrc')
-        #output_path_kurtosis = os.path.join(self._getExtraPath(), 'kurtosis.mrc')
+        output_weighted_mean = os.path.join(self._getExtraPath(), 'weighted_mean.mrc')
+        output_max_freq = os.path.join(self._getExtraPath(), 'most_probable_freq.mrc')
+        output_max_bin = os.path.join(self._getExtraPath(), 'most_probable_bin.mrc')
+        output_path_std = os.path.join(self._getExtraPath(), 'weighted_std.mrc')
+        output_path_skewness = os.path.join(self._getExtraPath(), 'weighted_skewness.mrc')
+        output_path_kurtosis = os.path.join(self._getExtraPath(), 'weighted_kurtosis.mrc')
 
-        mrcfile.write(output_path_mean, weighted_sum_mean.astype(np.float32), voxel_size=self.voxel_size)
-        mrcfile.write(output_path_max, most_probable_value.astype(np.float32), voxel_size=self.voxel_size)
-        #mrcfile.write(output_path_std, std_dev_volume, voxel_size=self.voxel_size, overwrite=True)
-        #mrcfile.write(output_path_skewness, skewness_volume, voxel_size=self.voxel_size, overwrite=True)
-        #mrcfile.write(output_path_kurtosis, kurtosis_volume, voxel_size=self.voxel_size, overwrite=True)
 
-        print(f"Media ponderada guardada en: {output_path_mean}")
-        print(f"Maximo mas probable guardado en: {output_path_max}")
-        #print(f"Desviación típica guardada en: {output_path_std}")
-        #print(f"Skewness guardado en: {output_path_skewness}")
-        #print(f"Curtosis guardado en: {output_path_kurtosis}")
+        mrcfile.write(output_weighted_mean, weighted_mean.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_max_freq, most_probable_freq.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_max_bin, bin_values.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_path_std, weighted_std.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_path_skewness, weighted_skewness.astype(np.float32), voxel_size=self.voxel_size)
+        mrcfile.write(output_path_kurtosis, weighted_kurtosis.astype(np.float32), voxel_size=self.voxel_size)
 
-        #pass
 
 
 
