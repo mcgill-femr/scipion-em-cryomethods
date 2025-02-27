@@ -13,6 +13,7 @@ import numpy as np
 import os
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
+import mrcfile
 
 class ProtLocProb(ProtAnalysis3D):
     """
@@ -134,7 +135,8 @@ class ProtLocProb(ProtAnalysis3D):
 
         m1 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(), mom_order[0]))
         m1[m1 < 0 ] = 0
-        NumpyImgHandler.saveMrc(m1, os.path.join(self._getPath(),"1_mean.mrc"))
+        #NumpyImgHandler.saveMrc(m1, os.path.join(self._getPath(),"1_mean.mrc"))
+        mrcfile.write(os.path.join(self._getPath(),"1_mean.mrc"), m1, voxel_size=self.voxel_size)
 
 
         m2 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(), mom_order[1]))
@@ -146,14 +148,18 @@ class ProtLocProb(ProtAnalysis3D):
 
         variance = (m2 - m12)
         variance[variance < 0] = 0
-        NumpyImgHandler.saveMrc(variance, os.path.join(self._getPath(), "2_variance.mrc"))
+        #NumpyImgHandler.saveMrc(variance, os.path.join(self._getPath(), "2_variance.mrc"))
+        mrcfile.write(os.path.join(self._getPath(),"2_variance.mrc"), variance, voxel_size=self.voxel_size)
+
 
 
         m3 = NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(), mom_order[2]))
         m3[m3 < 0] = 0
         variance32 = np.sqrt(variance*variance*variance)
         skewness = (m3 - 3 * m1 * variance - m13) / (variance32+0.001)
-        NumpyImgHandler.saveMrc(skewness, os.path.join(self._getPath(), "3_skewness.mrc"))
+        #NumpyImgHandler.saveMrc(skewness, os.path.join(self._getPath(), "3_skewness.mrc"))
+        mrcfile.write(os.path.join(self._getPath(),"3_skewness.mrc"), skewness, voxel_size=self.voxel_size)
+
 
 
         del(skewness)
@@ -161,16 +167,18 @@ class ProtLocProb(ProtAnalysis3D):
         m4[m4 < 0] = 0
         kurtosis = (m4 - 4 * m1 * m3 + 6 * m12 * m2 - 3 * m14 )/ (variance*variance+0.001)
         #kurtosis = np.nan_to_num(kurtosis)
-        NumpyImgHandler.saveMrc(kurtosis, os.path.join(self._getPath(), "4_kurtosis.mrc"))
+        #NumpyImgHandler.saveMrc(kurtosis, os.path.join(self._getPath(), "4_kurtosis.mrc"))
+        mrcfile.write(os.path.join(self._getPath(), "4_kurtosis.mrc"), kurtosis, voxel_size=self.voxel_size)
 
 
     def reconstructStep(self, m_index=1):
 
         env = Plugin.getEnviron()
 
+
         volume_name = 'm' + str(m_index) + '.mrc'
         imgSet = self.inputParticles.get()
-
+        self.voxel_size = imgSet.getSamplingRate()
 
         if self.reconstructRelion.get() == True:
 
@@ -181,7 +189,7 @@ class ProtLocProb(ProtAnalysis3D):
             params_relion += ' --subset -1 --class -1'
 
             # Addition of the Sampling rate and the maximum resolution
-            params_relion += ' --angpix %0.5f' % imgSet.getSamplingRate()
+            params_relion += ' --angpix %0.5f' % self.voxel_size
             params_relion += ' --maxres %0.3f' % self.maxResRelion.get()
             params_relion += ' %s' % self.extraParametersRelion.get()
 
@@ -197,12 +205,12 @@ class ProtLocProb(ProtAnalysis3D):
 
 
             # Addition of the Sampling rate, the maximum resolution and extra parameters (if needed)
-            params += ' --sampling %0.5f' % imgSet.getSamplingRate()
+            params += ' --sampling %0.5f' % self.voxel_size
 
             if self.maxRes.get() == -1.0:
                 params += ' --max_resolution %0.3f' % 0.5
             else:
-                params += ' --max_resolution %0.3f' % (imgSet.getSamplingRate()/self.maxRes.get())
+                params += ' --max_resolution %0.3f' % (self.voxel_size/self.maxRes.get())
 
             params += ' %s' % self.extraParameters.get()
 
