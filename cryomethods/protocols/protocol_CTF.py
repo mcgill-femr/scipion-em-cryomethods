@@ -5,7 +5,10 @@ from functools import partial
 from cryomethods import Plugin
 from cryomethods.functions import NumpyImgHandler, compute_ctf_torch
 from .protocol_base import ProtocolBase
-from cryomethods.functions import num_flat_features, calcAvgPsd
+#codex
+# from cryomethods.functions import num_flat_features, calcAvgPsd
+#codex
+from cryomethods.functions import num_flat_features, calcAvgPsd, calcAvgPsd_vectorized, calcAvgPsd_torch  #codex
 from pwem.objects import CTFModel, Float
 
 import torch
@@ -144,8 +147,13 @@ class Protdctf(ProtocolBase):
             if not os.path.exists(path_psd+'data.npy'):
                 nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
                 pool = mp.Pool(processes=nthreads)
-                args = partial(process_ctf, path_psd=path_psd, sampling=sampling, window_size=self.window_size.get(),
-                           step_size=self.step_size.get())
+                #codex
+                # args = partial(process_ctf, path_psd=path_psd, sampling=sampling,
+                #                window_size=self.window_size.get(), step_size=self.step_size.get())
+                args = partial(process_ctf, path_psd=path_psd, sampling=sampling,
+                               window_size=self.window_size.get(), step_size=self.step_size.get(),
+                               use_gpu=bool(self.useGPU) and torch.cuda.is_available())
+                #codex
                 results = pool.map(args, ctfs)
                 self.data.extend(results)
                 pool.close()
@@ -211,7 +219,22 @@ class Protdctf(ProtocolBase):
         img = np.asarray(resized_image)
 
         # Calculate psd:
-        psd = calcAvgPsd(img, windows_size=self.window_size.get(), step_size=self.step_size.get())
+        #codex
+        # psd = calcAvgPsd(img, windows_size=self.window_size.get(), step_size=self.step_size.get())
+        use_gpu = bool(self.useGPU) and torch.cuda.is_available()
+        if use_gpu:
+            psd = calcAvgPsd_torch(
+                img,
+                window_size=self.window_size.get(),
+                step_size=self.step_size.get(),
+                device="cuda")
+        else:
+            psd = calcAvgPsd_vectorized(
+                img,
+                window_size=self.window_size.get(),
+                step_size=self.step_size.get())
+        #codex
+
         filename_psd = self._getExtraPath() + '/' + os.path.basename(filename_img) + '_psd.mrc'
         NumpyImgHandler.saveMrc(psd, filename_psd)
         return filename_psd
@@ -332,8 +355,13 @@ class Protdctf(ProtocolBase):
         """
         Method to prepare the model and calculate the CTF of the psd
         """
+        #codex
+        # trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
+        #                          self.sampling_rate, self.sampling.get())
+        use_psd_gpu = bool(self.useGPU) and torch.cuda.is_available()
         trainset = LoaderPredict(images_path, self.weightsfile.get(), self.window_size.get(), self.step_size.get(),
-                                 self.sampling_rate, self.sampling.get())
+                                 self.sampling_rate, self.sampling.get(), use_gpu=use_psd_gpu)
+        #codex
 
         nthreads = max(1, self.numberOfThreads.get() * self.numberOfMpi.get())
         data_loader = DataLoader(trainset, batch_size=self.batch_size.get(), shuffle=False, num_workers=nthreads,
@@ -562,7 +590,10 @@ class LoaderPredict(Dataset):
     """
     Class to load the dataset for predict
     """
-    def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling):
+    #codex
+    # def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling):
+    #codex
+    def __init__(self, datafiles, weight_path, window_size, step_size, sampling_rate, sampling, use_gpu=False):
         super(LoaderPredict, self).__init__()
         Plugin.setEnviron()
 
@@ -575,6 +606,10 @@ class LoaderPredict(Dataset):
         self._step_size = step_size
         self._sampling_rate = sampling_rate
         self._sampling = sampling
+        #codex
+        self._use_gpu = bool(use_gpu) and torch.cuda.is_available()
+        self._device = torch.device("cuda" if self._use_gpu else "cpu")
+        #codex
 
     def __len__(self):
         return len(self._data)
@@ -596,7 +631,20 @@ class LoaderPredict(Dataset):
         resized_image = PIL_image.resize(new_size, resample=Image.BICUBIC)
         img = np.asarray(resized_image)
 
-        psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self._step_size)
+        #codex
+        # psd = calcAvgPsd(img, windows_size=self._window_size, step_size=self._step_size)
+        if self._use_gpu:
+            psd = calcAvgPsd_torch(
+                img,
+                window_size=self._window_size,
+                step_size=self._step_size,
+                device=self._device)
+        else:
+            psd = calcAvgPsd_vectorized(
+                img,
+                window_size=self._window_size,
+                step_size=self._step_size)
+        #codex
         return torch.from_numpy(np.float32(psd))
 
 
@@ -629,7 +677,7 @@ class LoaderTrain(Dataset):
         #return {'image': img, 'target': target, 'name': img_path}
 
         rotation = np.random.randint(0, 180)
-        rotated_img = TF.rotate(img, rotation)  # Rotar la imagen
+        rotated_img = TF.rotate(img, -rotation)  # Rotar la imagen
 
         #print("----------------")
         #print("rotation:", rotation)
@@ -792,7 +840,10 @@ def ctf_generated_mse_loss(input, target):
     loss = (ctf_input - ctf_target) ** 2
     return torch.sum(loss) / len(loss)
 
-def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
+#codex
+# def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
+#codex
+def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128, use_gpu=False):
     defocus, resolution, filename_img, sampling_rate = ctf
     defocus = np.asarray(defocus)
     resolution = np.asarray(resolution)
@@ -802,14 +853,20 @@ def process_ctf(ctf, path_psd, sampling=2, window_size=256, step_size=128):
     print(filename_img)
     print("data: ",(sampling_rate, sampling))
 
-    filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
+    #codex
+    # filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size)
+    filename_psd = calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size, use_gpu=use_gpu)
+    #codex
     print(filename_psd)
     print("--------------------------------------------------------")
 
     return {'img': filename_psd, 'target': np.array(target, dtype=np.float32)}
 
 
-def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
+#codex
+# def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size):
+#codex
+def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, window_size, step_size, use_gpu=False):
     img = NumpyImgHandler.loadMrc(filename_img)
     img = img[0, :, :]
     new_size = (int(img.shape[1] * sampling_rate / sampling), int(img.shape[0] * sampling_rate / sampling))
@@ -818,7 +875,22 @@ def calc_psd_per_mic_fast(filename_img, path_psd, sampling_rate, sampling, windo
     img = np.asarray(resized_image)
 
     # Calculate psd with some extra noise for data augmentation
-    psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
+    #codex
+    # psd = calcAvgPsd(img, window_size, step_size, add_noise=True)
+    if use_gpu and torch.cuda.is_available():
+        psd = calcAvgPsd_torch(
+            img,
+            window_size=window_size,
+            step_size=step_size,
+            add_noise=True,
+            device="cuda")
+    else:
+        psd = calcAvgPsd_vectorized(
+            img,
+            window_size=window_size,
+            step_size=step_size,
+            add_noise=True)
+    #codex
     filename_psd = path_psd + '/' + os.path.splitext(os.path.basename(filename_img))[0] + '_psd.mrc'
     NumpyImgHandler.saveMrc(psd, filename_psd)
 

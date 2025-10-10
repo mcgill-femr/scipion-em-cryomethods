@@ -416,6 +416,180 @@ def calcAvgPsd(img, windows_size=256, step_size=128, add_noise=False, tmax = 0.9
     return avg_psd
 
 
+#codex
+def calcAvgPsd_vectorized(img, window_size=256, step_size=128,
+                          add_noise=False, tmax=0.99, tmin=0.01,
+                          batch_size=None):
+    """
+    Vectorized alternative to calcAvgPsd that performs the FFTs in batches.
+    """
+    img = np.asarray(img, dtype=np.float32)
+    if img.ndim != 2:
+        raise ValueError("Expected a 2D image.")
+    rows, cols = img.shape
+    if rows < window_size or cols < window_size:
+        raise ValueError("window_size is larger than the image dimensions.")
+
+    windows = _sliding_window_view(img, window_size, step_size)
+    num_windows = windows.shape[0]
+    if num_windows == 0:
+        raise ValueError("No windows were generated with the provided parameters.")
+
+    avg_psd = _accumulate_psd_numpy(windows, window_size, tmax, tmin, batch_size)
+
+    if add_noise:
+        avg_psd = avg_psd + np.random.normal(0, 0.01, avg_psd.shape)
+
+    x = np.linspace(-1, 1, window_size, dtype=np.float32)
+    y = np.linspace(-1, 1, window_size, dtype=np.float32)
+    avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
+
+    q_plus = np.quantile(avg_psd, tmax)
+    q_minus = np.quantile(avg_psd, tmin)
+    q_plus = max(q_plus, q_minus + 1e-6)
+    avg_psd[avg_psd >= q_plus] = q_plus
+    avg_psd[avg_psd < q_minus] = q_minus
+    avg_psd = normalize(avg_psd, q_plus, q_minus)
+    return avg_psd
+#codex
+
+
+#codex
+def calcAvgPsd_torch(img, window_size=256, step_size=128,
+                     add_noise=False, tmax=0.99, tmin=0.01,
+                     device=None):
+    """
+    Alternative PSD estimation using torch.fft, on GPU if available.
+    """
+    import torch
+
+    np_img = np.asarray(img, dtype=np.float32)
+    if not np_img.flags.writeable:
+        np_img = np_img.copy()
+    tensor = torch.from_numpy(np_img)
+    if tensor.ndim != 2:
+        raise ValueError("Expected a 2D image.")
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    tensor = tensor.to(device)
+    windows = tensor.unfold(0, window_size, step_size).unfold(1, window_size, step_size)
+    if windows.numel() == 0:
+        raise ValueError("No windows were generated with the provided parameters.")
+
+    num_windows = windows.shape[0] * windows.shape[1]
+    windows = windows.contiguous().view(num_windows, window_size, window_size)
+
+    fft_windows = torch.fft.fftshift(torch.fft.fft2(windows), dim=(-2, -1))
+    magnitude = torch.abs(fft_windows)
+    magnitude = torch.log(magnitude / (window_size * window_size) + 1e-12)
+
+    num_windows = magnitude.shape[0]
+    magnitude_flat = magnitude.view(num_windows, -1)
+
+    q_max = torch.quantile(magnitude_flat, tmax, dim=1, keepdim=True)
+    q_min = torch.quantile(magnitude_flat, tmin, dim=1, keepdim=True)
+    denom = (q_max - q_min).clamp_min(1e-6)
+
+    q_max = q_max.view(num_windows, 1, 1)
+    q_min = q_min.view(num_windows, 1, 1)
+    denom = denom.view(num_windows, 1, 1)
+
+    clamped = magnitude.clamp(min=q_min, max=q_max)
+    normalized = (clamped - q_min) / denom
+
+    avg_psd = normalized.mean(dim=0)
+
+    if add_noise:
+        avg_psd = avg_psd + torch.randn_like(avg_psd) * 0.01
+
+    avg_psd = avg_psd.cpu().numpy()
+
+    x = np.linspace(-1, 1, window_size, dtype=np.float32)
+    y = np.linspace(-1, 1, window_size, dtype=np.float32)
+    avg_psd = avg_psd - polyfit2d(x, y, avg_psd, kx=2, ky=2, order=2)
+
+    q_plus = np.quantile(avg_psd, tmax)
+    q_minus = np.quantile(avg_psd, tmin)
+    q_plus = max(q_plus, q_minus + 1e-6)
+    avg_psd[avg_psd >= q_plus] = q_plus
+    avg_psd[avg_psd < q_minus] = q_minus
+    avg_psd = normalize(avg_psd, q_plus, q_minus)
+    return avg_psd
+#codex
+
+
+#codex
+def _sliding_window_view(img, window_size, step_size):
+    """
+    Internal helper to obtain windows using sliding_window_view or as_strided.
+    """
+    try:
+        from numpy.lib.stride_tricks import sliding_window_view
+        windows = sliding_window_view(img, (window_size, window_size))
+    except AttributeError:
+        windows = _sliding_window_view_fallback(img, window_size)
+
+    rows_limit = img.shape[0] - window_size
+    cols_limit = img.shape[1] - window_size
+    row_idx = np.arange(0, rows_limit, step_size, dtype=int)
+    col_idx = np.arange(0, cols_limit, step_size, dtype=int)
+
+    if row_idx.size == 0 or col_idx.size == 0:
+        raise ValueError("No windows were generated with the provided parameters.")
+
+    selected = windows[row_idx][:, col_idx]
+    return selected.reshape(-1, window_size, window_size)
+#codex
+
+
+#codex
+def _accumulate_psd_numpy(windows, window_size, tmax, tmin, batch_size):
+    """
+    Internal helper to accumulate PSDs processing windows in batches.
+    """
+    eps = 1e-12
+    if batch_size is None or batch_size <= 0:
+        batch_size = windows.shape[0]
+
+    running_sum = np.zeros((window_size, window_size), dtype=np.float64)
+    total = 0
+
+    for start in range(0, windows.shape[0], batch_size):
+        block = windows[start:start + batch_size]
+        fft_block = np.fft.fft2(block, axes=(-2, -1))
+        fft_block = np.fft.fftshift(fft_block, axes=(-2, -1))
+        magnitude = np.abs(fft_block)
+        magnitude = np.log(np.maximum(magnitude, eps) / (window_size * window_size))
+
+        q_max = np.quantile(magnitude, tmax, axis=(-2, -1), keepdims=True)
+        q_min = np.quantile(magnitude, tmin, axis=(-2, -1), keepdims=True)
+        denom = np.maximum(q_max - q_min, 1e-6)
+        normalized = (np.clip(magnitude, q_min, q_max) - q_min) / denom
+
+        running_sum += normalized.sum(axis=0)
+        total += normalized.shape[0]
+
+    return (running_sum / total).astype(np.float32)
+#codex
+
+
+#codex
+def _sliding_window_view_fallback(img, window_size):
+    """
+    Fallback implementation of sliding window view for older NumPy versions.
+    """
+    from numpy.lib.stride_tricks import as_strided
+    rows, cols = img.shape
+    if rows < window_size or cols < window_size:
+        raise ValueError("window_size is larger than the image dimensions.")
+    shape = (rows - window_size + 1, cols - window_size + 1, window_size, window_size)
+    strides = img.strides + img.strides
+    return as_strided(img, shape=shape, strides=strides)
+#codex
+
+
 def calcAvgPsd_parallel(img, windows_size=256, step_size=128, num_workers=20):
     """
     Calculate PSD using average periodogram in parallel
