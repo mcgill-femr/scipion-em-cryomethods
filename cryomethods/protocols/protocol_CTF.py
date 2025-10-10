@@ -787,8 +787,9 @@ def weighted_mse_loss(input, target, norm):
     # weight = 10 * torch.abs(target[:, 0] - target[:, 1])
     # weight = 10 * torch.square(target[:, 0] - target[:, 1])
     weight = 1 - torch.exp(
-        -100 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
-    loss = (input - target) ** 2
+        -150 * (torch.abs(target[:, 0] - target[:, 1]) / torch.max(target[:, 0], target[:, 1])) ** 2)
+    #loss = (input - target) ** 2
+    loss = torch.abs(input - target)
 
     # norm[0] max
     # norm[1] min
