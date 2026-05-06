@@ -26,10 +26,11 @@
 # **************************************************************************
 
 import os
-
 from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, showj #ChimeraOldViewer,
 from pyworkflow import gui
+from sympy.abc import lamda
+
 from cryomethods.functions import NumpyImgHandler
 
 try:
@@ -54,8 +55,12 @@ from pyworkflow.viewer import (ProtocolViewer, DESKTOP_TKINTER, WEB_DJANGO)
 from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_ML_landscape import ProtLandscapePCA
 from .protocols.protocol_loc_pdf import ProtLocPDF, PROB_DENSITY_FUNCT, ACC_MOMENTS
+from .protocols.protocol_loc_pdf_classes import ProtLocPDF_classes
 from glob import glob
-from scipy.stats import johnsonsu
+from scipy.stats import johnsonsu, lognorm
+from cryomethods.j_johnson_M import f_johnson_M
+import mrcfile
+#from fitter import Fitter, get_common_distributions
 
 RUN_LAST = 0
 RUN_SELECTION = 1
@@ -1137,11 +1142,12 @@ class PathData(Data):
 
 class CalculateHistogram(ProtocolViewer):
     _label = 'voxel histogram'
-    _targets = [ProtLocPDF]
+    _targets = [ProtLocPDF, ProtLocPDF_classes]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
 
     def _defineParams(self, form):
         form.addSection(label='Results')
+        # --------------------------- Method applied -------------------------------------
         group = form.addGroup('Method used')
         group.addParam('methodApplied', params.EnumParam,
                   choices=['PROB_DENSITY_FUNCT', 'ACC_MOMENTS'],
@@ -1153,7 +1159,8 @@ class CalculateHistogram(ProtocolViewer):
                        '2. ACC_MOMENTS calculates the pdf of the 4 moments from a selected voxel.'
                       )
 
-        group.addParam('inputVolume', params.PathParam,
+        # --------------------------- Reconstructed input volume -------------------------------------
+        group.addParam('inputVolume', params.PointerParam,
                      condition='methodApplied==%d' % PROB_DENSITY_FUNCT,
                      pointerClass='Volume',  #SetOfParticles
                      label="Reconstructed input volume\n"
@@ -1161,18 +1168,34 @@ class CalculateHistogram(ProtocolViewer):
                      help='Select the reconstructed input volume with resolution Nyquist\n'
                           'by default.')
 
+        # --------------------------- Noise threshold -------------------------------------
+        group.addParam('threshNoise', params.FloatParam,
+                       condition="methodApplied==%d" % PROB_DENSITY_FUNCT,
+                       label="Noise threshold",
+                       help='Value of noise threshold.')
+        #Value of noise threshold from which we can calculate the noise volumes of mean, std, skewness and kurtosis.'
+
+
+        #groupNoise = form.addGroup('Noise', condition="methodApplied==%d" % PROB_DENSITY_FUNCT)
+        #groupNoise.addParam('threshNoise', params.FloatParam,
+        #                    label="Noise threshold",
+        #                    help='Value of noise threshold from which we can calculate the noise '
+        #                         'volumes of mean, std, skewness and kurtosis.')
+
+
+        # --------------------------- Voxel value -------------------------------------
         groupVoxel = form.addGroup('Voxel')
-        groupVoxel.addParam('x_value', params.IntParam, default=191,
-                       label="X value",
-                       help='X coordinate of voxel')
+        groupVoxel.addParam('z_value', params.IntParam, default=191,
+                       label="Z value",
+                       help='Z coordinate of voxel')
 
         groupVoxel.addParam('y_value', params.IntParam, default=183,
                        label="Y value",
                        help='Y coordinate of voxel')
 
-        groupVoxel.addParam('z_value', params.IntParam, default=200,
-                       label="Z value",
-                       help='Z coordinate of voxel')
+        groupVoxel.addParam('x_value', params.IntParam, default=200,
+                       label="X value",
+                       help='X coordinate of voxel')
 
         groupVoxel.addParam('histogram', params.LabelParam,
                        label='View histogram of the voxel')
@@ -1189,10 +1212,28 @@ class CalculateHistogram(ProtocolViewer):
             bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)])
             print(f'Bin_centers: \n{bin_centers}')
 
+            print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ \n'
+                  f'Noise threshold: {self.threshNoise.get()} '
+                  f'\n ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+
+            bins_noise = bin_centers[bin_centers <= self.threshNoise.get()]
+            print(f'bines correspondientes al ruido {bins_noise}')
+            bins_prot = bin_centers[bin_centers > self.threshNoise.get()]
+            print(f'bines correspondientes a proteina {bins_prot}')
+
+            print(f'---------------------------------------')
+            indices_noise = np.where(bin_centers <= self.threshNoise.get())[0]
+            print(f'Índices de bins ruido: {indices_noise}')
+            indices_prot = np.where(bin_centers > self.threshNoise.get())[0]
+            print(f'Índices de bins proteina: {indices_prot}')
+            print(f'---------------------------------------')
+
             range_volumes = []
             for i in range(1, self.protocol.numBins.get() +1):
                 volume = self.protocol._getExtraPath("rangeVol_%s.mrc" % i)
+                self.voxel_size = mrcfile.open(volume).voxel_size
                 range_volumes.append(NumpyImgHandler.loadMrc(volume))
+
 
             weighted_mean = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_mean.mrc"))
             weighted_std = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_std.mrc"))
@@ -1200,39 +1241,104 @@ class CalculateHistogram(ProtocolViewer):
             weighted_kurtosis = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_kurtosis.mrc"))
             most_probable_bin = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("most_probable_bin.mrc"))
 
-            voxel_values = []
+
+            voxel_values = np.array([])
             for i in range(len(range_volumes)):
-                voxel_values.append(range_volumes[i][self.x_value.get(), self.y_value.get(), self.z_value.get()])
+                voxel_values = np.append(voxel_values, range_volumes[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
+                #voxel_values.append(range_volumes[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
 
 
             print("Voxel values:", voxel_values)
+            print(f'---------------------------------------')
+            voxel_noise = voxel_values[bin_centers <= self.threshNoise.get()]
+            voxel_prot = voxel_values[bin_centers > self.threshNoise.get()]
+            print(f'Voxel values referred to noise {voxel_noise}')
+            print(f'Voxel values referred to protein {voxel_prot}')
+            print(f'---------------------------------------')
 
-            valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get())[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-            print(f'Real value of the voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {valueVox_inputVol}')
+            valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get().getFileName())[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            print(f'Real value of the voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {valueVox_inputVol}')
 
-            mean_x = weighted_mean[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-            std_dev_x = weighted_std[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-            skew_x = weighted_skewness[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-            kurt_x = weighted_kurtosis[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-            max_bin_x = most_probable_bin[self.x_value.get(), self.y_value.get(), self.z_value.get()]
-#
-#
-            print(f"Weighted mean in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {mean_x}")
-            print(f"Weighted standard deviation in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {std_dev_x}")
-            print(f"Weighted skewness in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {skew_x}")
-            print(f"Weighted kurtosis in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {kurt_x}")
-            print(f"Most probable bin in voxel {self.x_value.get(), self.y_value.get(), self.z_value.get()}: {max_bin_x}")
+            mean_x = weighted_mean[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            std_dev_x = weighted_std[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            skew_x = weighted_skewness[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            kurt_x = weighted_kurtosis[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            max_bin_x = most_probable_bin[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+
+
+            print(f"Weighted mean in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {mean_x}")
+            print(f"Weighted standard deviation in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {std_dev_x}")
+            print(f"Weighted skewness in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {skew_x}")
+            print(f"Weighted kurtosis in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {kurt_x}")
+            print(f"Most probable bin in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {max_bin_x}")
             print('-----------------------------------------------')
             print('-----------------------------------------------')
 
+            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_mean.mrc"), weighted_mean_noise.astype(np.float32), voxel_size=self.voxel_size)
+            #mrcfile.write(output_max_freq, most_probable_freq.astype(np.float32), voxel_size=self.voxel_size)
+            #mrcfile.write(output_max_bin, bin_values.astype(np.float32), voxel_size=self.voxel_size)
+            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_std.mrc"), weighted_std_noise.astype(np.float32), voxel_size=self.voxel_size)
+            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_skewness.mrc"), weighted_skewness_noise.astype(np.float32), voxel_size=self.voxel_size)
+            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_kurtosis.mrc"), weighted_kurtosis_noise.astype(np.float32), voxel_size=self.voxel_size)
+
+
+            #noise_mean_voxel = noise_mean[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            #noise_std_voxel = noise_std[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            #noise_skewness_voxel = noise_skew[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            #noise_kurtosis_voxel = noise_kurt[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+
+            #print(f"Noise weighted mean in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_mean_voxel}")
+            #print(f"Noise weighted standard deviation in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_std_voxel}")
+            #print(f"Noise weighted skewness in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_skewness_voxel}")
+            #print(f"Noise weighted kurtosis in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_kurtosis_voxel}")
+            #print('-----------------------------------------------')
+            #print('-----------------------------------------------')
+
+
+
+
+
+            #x = np.linspace(min(bin_centers), max(bin_centers), 4000) #self.protocol.numBins.get()
+            #x = np.linspace(mean_x - 4 * std_dev_x, mean_x + 4 * std_dev_x, 1000)
+
+            #kurt_x = (kurt_x + 3)
+            #print(f_johnson_M(mean_x, std_dev_x, skew_x, kurt_x))
+            #coef, _, _ = f_johnson_M(mean_x, std_dev_x, skew_x, kurt_x)
+            #gamma, delta, xi, lambd = coef
+            #print('valores de gamma, delta, xi y lamda', gamma, delta, xi, lambd)
+
+            ## si es SL --> sin el kurt_x + 3 en el 0,0,0 salia algo
+
+            #sigma = 1 / delta
+            #scale = np.exp(xi + lambd)
+            #print(f'sigma {sigma} y scale {scale}')
+
+            #x_min = np.exp(xi + lambd - 3 * sigma)  # Ajusta el rango basado en la lognormal
+            #x_max = np.exp(xi + lambd + 3 * sigma)
+            #x = np.linspace(x_min, x_max, 40) #1000
+
+
+            #y_johnson = lognorm.pdf(x, sigma, loc=0, scale=scale)
+
+            #y_johnson = johnsonsu.pdf(x, gamma, delta, loc=xi, scale=abs(lambd))
+            #print('VALOR DE JOHNSON', y_johnson)
+            #y_johnson_scaled = y_johnson * np.sum(voxel_values) * (bin_centers[1] - bin_centers[0])
+
+            #y_johnson *= np.max(voxel_values) / np.max(y_johnson)
+
+            #f = Fitter(voxel_values, distributions=get_common_distributions())
+            #f.fit()
+            #f.summary()
+
+            # ------------------------------- Full histogram (noise + protein) ------------------------------------
             plt.figure(figsize=(8, 6))
-            plt.bar(bin_centers, voxel_values, width=0.00001, edgecolor="black", align="edge", color="blue",
+            plt.bar(bin_centers, voxel_values, width=0.00001, edgecolor="black", align="edge", color="black",
                     alpha=0.7)
-            plt.plot(bin_centers, voxel_values, 'o')
-            plt.plot(bin_centers, voxel_values)
+            plt.plot(bin_centers, voxel_values, 'o', color='black')
+            plt.plot(bin_centers, voxel_values, color='orange')
 
             # Weighted mean, weighted standard deviation and real value in the graphic
-            plt.axvline(mean_x, color='red', linestyle='--', label=f"Media: {mean_x:.6f}")
+            plt.axvline(mean_x, color='red', linestyle='--', label=f"Weighted mean: {mean_x:.6f}")
             plt.axvline(mean_x - std_dev_x, color='green', linestyle='--', label=f"-1σ: {mean_x - std_dev_x:.6f}")
             plt.axvline(mean_x + std_dev_x, color='green', linestyle='--', label=f"+1σ: {mean_x + std_dev_x:.6f}")
             plt.axvline(valueVox_inputVol, color='blueviolet', linestyle='--', label=f"Voxel real_value: {valueVox_inputVol:.6f}")
@@ -1240,10 +1346,35 @@ class CalculateHistogram(ProtocolViewer):
 
             plt.xlabel("Voxel intensity", fontsize=12)
             plt.ylabel("Frequency", fontsize=12)
-            plt.title(f"Histogram of voxel intensities {self.x_value.get(), self.y_value.get(), self.z_value.get()}", fontsize=14)
+            plt.title(f"Histogram of voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()}", fontsize=14)
             plt.grid(axis="y", linestyle="--", alpha=0.7)
             plt.legend()
+
+
+            # -------------------------------------- Noise histogram ------------------------------------------
+            plt.figure(figsize=(8, 6))
+            plt.bar(bins_noise, voxel_noise, width=0.00001, edgecolor="black", align="edge", color="black",
+                    alpha=0.7)
+            plt.plot(bins_noise, voxel_noise, 'o', color='black')
+            plt.plot(bins_noise, voxel_noise, color='orange')
+            plt.title(f"Noise voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()} "
+                      f"below threshold {self.threshNoise.get()}",
+                      fontsize=14)
+
+            # ------------------------------------- Protein histogram -----------------------------------------
+            plt.figure(figsize=(8, 6))
+            plt.bar(bins_prot, voxel_prot, width=0.00001, edgecolor="black", align="edge", color="black",
+                    alpha=0.7)
+            plt.plot(bins_prot, voxel_prot, 'o', color='black')
+            plt.plot(bins_prot, voxel_prot, color='orange')
+            plt.title(f"Protein voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()} "
+                      f"above threshold {self.threshNoise.get()}",
+                      fontsize=14)
             plt.show()
+
+            ##plt.figure(figsize=(8, 6))
+            #plt.plot(bin_centers, y_johnson, color='blue', linewidth=2, linestyle="solid", label="Johnson SU")
+            #plt.show()
 
 
         elif self.methodApplied == ACC_MOMENTS:
@@ -1257,15 +1388,20 @@ class CalculateHistogram(ProtocolViewer):
 
             voxel_values = []
             for i in range(len(moments)):
-                voxel_values.append(moments[i][self.x_value.get(), self.y_value.get(), self.z_value.get()])
+                voxel_values.append(moments[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
+
 
             voxel_values[1] = np.sqrt(voxel_values[1])
-            voxel_values[3] = np.sqrt(voxel_values[3] + 3)
+            voxel_values[3] = voxel_values[3] + 3 #np.sqrt(voxel_values[3] + 3)
             print("Voxel values:", voxel_values)
 
 
-            x = np.linspace(-2.5, 2.5, 500)
-
+            x = np.linspace(-1, 1, 500)
+            '''revisar el tema del johnsonsu ya que los parámetros a, b, loc y scale de scipy.stats.johnsonsu 
+            no se corresponden directamente con la media, desviación típica, asimetría ni curtosis. No garantiza
+            que la distribucion tenga la media, desviación, asimetría o curtosis determinadas, es decir, el 
+            resultado será alguna distribución Johnson, pero no tendrá los momentos que se quieren
+            '''
             y_johnson = johnsonsu.pdf(x, voxel_values[2], voxel_values[3], loc=voxel_values[0], scale=voxel_values[1])
 
             fig, ax = plt.subplots()
@@ -1273,7 +1409,7 @@ class CalculateHistogram(ProtocolViewer):
 
             ax.plot(x, y_johnson, label="Johnson SU")
             ax.legend()
-            ax.set_title(f"Histogram of voxel intensities {self.x_value.get(), self.y_value.get(), self.z_value.get()}", fontsize=14)
+            ax.set_title(f"Histogram of voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()}", fontsize=14)
             ax.set_xlabel("x")
             ax.set_ylabel("Density")
             plt.show()
