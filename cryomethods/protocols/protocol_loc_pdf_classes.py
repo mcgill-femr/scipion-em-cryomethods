@@ -9,27 +9,30 @@ from scipy.ndimage import maximum
 
 from cryomethods.convert import writeSetOfParticles
 from xmipp3.convert import writeSetOfParticles as writeSetOfParticlesXmipp
+from xmipp3.convert import *
 from cryomethods.functions import NumpyImgHandler
 import numpy as np
 import os
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
-import mrcfile
-import starfile
+import mrcfile, starfile, sqlite3
 import pandas as pd
+from pwem.emlib.metadata import MetaData
+import xmipp3
 import matplotlib.pyplot as plt
 
+PARTICLE_ID = 199
 PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
 RELION_RECONSTRUCTION = 0
 XMIPP_RECONSTRUCTION = 1
 
 
-class ProtLocPDF(ProtAnalysis3D):
+class ProtLocPDF_classes(ProtAnalysis3D):
     """
     Given a map and the number of moments, the protocol estimates the local probability map.
     """
-    _label = 'locPDF'
+    _label = 'locPDF_classes'
         # --------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
         form.addSection(label='Input')
@@ -73,14 +76,25 @@ class ProtLocPDF(ProtAnalysis3D):
 
         # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
+        group.addParam('inputProt', PointerParam,
+                       label="Input 2D classes",
+                       pointerClass='SetOfClasses2D',
+                       help='Select the 2D classification output. '
+                             'Particles will be sampled from each class to generate '
+                             'bootstrap reconstructions.')
+
         group.addParam('numBatches', IntParam, default=10,
-                             label="Number of batches",
-                             help='Number of batches to apply bootstrap to.')
+                             label="Number of reconstructions",
+                             help='Number of independent particle subsets to generate. '
+                                  'Each subset will be used to compute a separate reconstruction '
+                                  'using random sampling (bootstrap).')
 
-
-        group.addParam('numSamples', IntParam, default=50,
-                             label="Number of samples/particles per batch",
-                             help='Number of samples/particles each batch will contain.')
+        group.addParam('numParticlesPerClass', IntParam, default=5,
+                             label="Particles per class",
+                             help='Maximum number of particles to sample from each class for each reconstruction. '
+                                  'If a class contains fewer particles, all will be included. '
+                                  'The total number of particles per reconstruction depends '
+                                  'on the number of classes.')
 
         group.addParam('reconstruction', EnumParam,
                       choices=['Relion reconstruction', 'Xmipp reconstruction'],
@@ -166,9 +180,9 @@ class ProtLocPDF(ProtAnalysis3D):
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
                 self._insertFunctionStep('reconstructStep', m)
-                #self._insertFunctionStep('_calculatePDF', m)
+                self._insertFunctionStep('_calculatePDF', m)
 
-            #self._insertFunctionStep('statistic_volumes')
+            self._insertFunctionStep('statistic_volumes')
 
 
         elif self.methodApply == ACC_MOMENTS:
@@ -308,11 +322,11 @@ class ProtLocPDF(ProtAnalysis3D):
 
             #print(particles)
 
-            if total_particles < self.numSamples.get():
+            if total_particles < self.numParticlesPerClass.get():
                 print('Not enough particles to create batches')
 
             else:
-                sampled_particles = particles.sample(n=self.numSamples.get(), replace=False) #axis=0, random_state=m_index)
+                sampled_particles = particles.sample(n=self.numParticlesPerClass.get(), replace=False) #axis=0, random_state=m_index)
                 #print('sample particles', sampled_particles.head())
                 #print("Unique particle IDs in sample:", sampled_particles['rlnImageId'].unique())
 
@@ -334,13 +348,96 @@ class ProtLocPDF(ProtAnalysis3D):
 
 
         else:
+
+            prot_classes = self.inputProt.get()
+            mdFile = prot_classes.getFileName()
+            print('Ruta del input (average)', mdFile)
+
+            classes_path = os.path.join(os.path.dirname(mdFile), 'classes2D.sqlite')
+            print('Ruta de las clases', classes_path)
+            print('--------------------------')
+
+            # Connect to the database
+            conn = sqlite3.connect(classes_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                        SELECT name FROM sqlite_master 
+                        WHERE type='table' AND name LIKE 'Class%_Objects';
+                        """)
+            # List of tables
+            tables = [t[0] for t in cursor.fetchall()]
+
+            data = []
+
+            for table in tables:
+                # Extract class_id for each table
+                class_id = int(table.split('_')[0].replace('Class', ''))
+
+                cursor.execute(f"PRAGMA table_info({table});")
+                # List with all columns from each table
+                columns = [col[1] for col in cursor.fetchall()]
+
+                # Search for the id column
+                id_col = None
+                for c in columns:
+                    if "id" in c.lower(): #if c.lower() in ["id", "particle_id", "objid"]:
+                        id_col = c
+                        break
+
+                if id_col is None:
+                    print(f"No id column was found in {table}")
+                    continue
+
+                # Read ids and save data
+                cursor.execute(f"SELECT {id_col} FROM {table}")
+                for (particle_id,) in cursor.fetchall():
+                    data.append((particle_id, class_id))
+
+            # DataFrame created with particle id and class id
+            df = pd.DataFrame(data, columns=["particle_id", "class_id"])
+            #print(df)
+            #print('STOP--------------------------------')
+
+            # Group it and select 5 particles for each class or all if the length is less
+            sampled = df.groupby("class_id").apply(
+                lambda x: x.sample(n=min(self.numParticlesPerClass.get(), len(x)), random_state=42 + m_index)
+            ).reset_index(drop=True)
+
+            # Create a set of particle ids already balanced across classes
+            #print('sampled particles\n', sampled)
+            selected_ids = set(sampled["particle_id"].tolist())
+
+            print(f'selected_ids batch {m_index}: {selected_ids}')
+
+            # Read the original .xmd
             input_xmd = self._getExtraPath('inputParticles.xmd')
-            output_xmd = self._getTmpPath(f'sample_{m_index}.xmd')
 
+            md_in = MetaData()
+            md_in.read(input_xmd)
 
-            self.runJob("xmipp_metadata_utilities", f"-i %s -o %s "
-                        f"--operate random_subset {self.numSamples.get()} --mode overwrite "%(input_xmd, output_xmd))
+            # Create a new empty metadata
+            md_out = MetaData()
 
+            # See labels
+            labels = md_in.getActiveLabels()
+            print('--------------------------')
+
+            for objId in md_in:
+                # Particle id
+                pid = md_in.getValue(PARTICLE_ID, objId)  # particle id
+
+                if pid in selected_ids:
+                    newObjId = md_out.addObject()
+
+                    # Copy all properties to new file
+                    for label in labels:
+                        value = md_in.getValue(label, objId)
+                        md_out.setValue(label, value, newObjId)
+
+            # Save new .xmd
+            output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath  _getTmpPath
+            md_out.write(output_xmd)
 
 
     def reconstructStep(self, m_index=1):
@@ -381,7 +478,6 @@ class ProtLocPDF(ProtAnalysis3D):
             print('============parametros de relion ==============', params_relion)
 
             self.runJob('relion_reconstruct', params_relion, env=env)
-
 
         else:
 

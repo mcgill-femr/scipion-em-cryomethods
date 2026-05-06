@@ -41,6 +41,7 @@ from .protocol_CTF_particle import Protdctf_particle
 from .protocol_loc_prob import ProtLocProb
 from .protocol_CTF_compare import Protdctf_compare
 from .protocol_loc_pdf import ProtLocPDF
+from .protocol_loc_pdf_classes import ProtLocPDF_classes
 
 
 # from .protocol_NMA_landscape import ProtLandscapeNMA
