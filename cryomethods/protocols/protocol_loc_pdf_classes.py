@@ -18,7 +18,7 @@ from cryomethods import Plugin
 import mrcfile, starfile, sqlite3
 import pandas as pd
 from pwem.emlib.metadata import MetaData
-import xmipp3
+import xmipp3, shutil
 import matplotlib.pyplot as plt
 
 PARTICLE_ID = 199
@@ -115,6 +115,12 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         #                    condition='gpu',
         #                    label='GPU Id')
 
+        groupRelion.addParam('inputParticlesStar', PointerParam,
+                       label="Input particles star",
+                       pointerClass='SetOfParticles',
+                       pointerCondition='hasAlignmentProj',
+                       help='Select input particles from a Star file')
+
         groupRelion.addParam('symmetryGroup', StringParam, default='c1',
                       label="Symmetry group",
                       help='See [[https://relion.readthedocs.io/'
@@ -192,99 +198,6 @@ class ProtLocPDF_classes(ProtAnalysis3D):
                 self._insertFunctionStep('_calculateMoments', m)
 
 
-    def _calculateMoments(self, m_index):
-
-        num_mom = 4
-
-        if m_index == 1:
-            self.vol_moments = [np.zeros_like(self.one_volume, dtype=float) for _ in range(1, num_mom + 1)]
-            n = mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float)
-
-        else:
-            mean = np.load(os.path.join(self._getExtraPath(), "1_mean.npy"))
-            m2 = np.load(os.path.join(self._getPath(), "m2.npy"))
-            m3 = np.load(os.path.join(self._getPath(), "m3.npy"))
-            m4 = np.load(os.path.join(self._getPath(), "m4.npy"))
-            n = np.ones_like(self.one_volume, dtype=float) * m_index - 1
-
-        # Convert all volumes into array
-        n, mean, m2, m3, m4 = np.array(n), np.array(mean), np.array(m2), np.array(m3), np.array(m4)
-
-        #print('======================MEAN=================================', mean)
-        x = np.array(self.one_volume)
-        #print('======================X=================================', x)
-        n1 = n.copy()
-
-        #print('======================n1======================', n1)
-        n += np.ones_like(n, dtype=float)
-
-        #print('======================N======================', n)
-        delta = x - mean
-        #print('======================DELTA=================================',delta)
-
-        delta_n = delta / n
-        #print('======================DELTA_N=================================', delta_n)
-
-        delta_n2 = delta_n ** 2
-        #print('======================DELTA_N2=================================', delta_n2)
-
-        term1 = delta * delta_n * n1
-        #print('======================TERM1=================================', term1)
-
-        mean += delta_n
-        #print('======================NEW MEAN =================================', mean)
-
-        m4 += term1 * delta_n2 * (n ** 2 - 3 * n + 3) + 6 * delta_n2 * m2 - 4 * delta_n * m3
-        #print('======================M4=================================', m4)
-
-        m3 += term1 * delta_n * (n - 2) - 3 * delta_n * m2
-        #print('======================m3=================================', m3)
-
-        m2 += term1
-        #print('======================m2=================================', m2)
-
-        np.save(os.path.join(self._getPath(), "m2.npy"), m2)
-        np.save(os.path.join(self._getPath(), "m3.npy"), m3)
-        np.save(os.path.join(self._getPath(), "m4.npy"), m4)
-
-        # Calculate moments
-        if np.any(m2 > 0):
-           variance = m2 / n
-           skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
-           kurtosis = ((n * m4) / (m2 ** 2)) - 3
-
-           self.vol_moments[0] = mean
-           self.vol_moments[1] = variance
-           self.vol_moments[2] = skewness
-           self.vol_moments[3] = kurtosis
-
-        else:
-            print('M2 is 0, so skewness and kurtosis cannot be calculated as they would be divided by 0')
-            self.vol_moments[0] = mean
-            self.vol_moments[1] = np.zeros_like(self.one_volume, dtype=float)
-            self.vol_moments[2] = np.zeros_like(self.one_volume, dtype=float)
-            self.vol_moments[3] = np.zeros_like(self.one_volume, dtype=float)
-
-        #print('mean', self.vol_moments[0])
-        #print('variance', self.vol_moments[1])
-        #print('skewness', self.vol_moments[2])
-        #print('kurtosis', self.vol_moments[3])
-
-        np.save(os.path.join(self._getExtraPath(), "1_mean.npy"), self.vol_moments[0])
-
-        # Save volumes of the moments for further visualization
-        if m_index == self.numBatches.get():
-
-            mrcfile.write(os.path.join(self._getExtraPath(), "1_mean.mrc"), self.vol_moments[0].astype(np.float32),
-                          voxel_size=self.voxel_size)
-            mrcfile.write(os.path.join(self._getExtraPath(), "2_variance.mrc"), self.vol_moments[1].astype(np.float32),
-                          voxel_size=self.voxel_size)
-            mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness.mrc"), self.vol_moments[2].astype(np.float32),
-                          voxel_size=self.voxel_size)
-            mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis.mrc"), self.vol_moments[3].astype(np.float32),
-                          voxel_size=self.voxel_size)
-
-
     def convertInputStep(self):
         """ Create the input file in STAR format as expected by Relion.
         If the input particles comes from Relion, just link the file.
@@ -303,113 +216,85 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
     def _processParticles(self, m_index=1):
 
+        prot_classes = self.inputProt.get()
+        mdFile = prot_classes.getFileName()
+        print('Ruta del input (average)', mdFile)
+
+        classes_path = os.path.join(os.path.dirname(mdFile), 'classes2D.sqlite')
+        print('Ruta de las clases', classes_path)
+        print('--------------------------')
+
+        # Connect to the database
+        conn = sqlite3.connect(classes_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+                       SELECT name FROM sqlite_master 
+                       WHERE type='table' AND name LIKE 'Class%_Objects';
+                       """)
+        # List of tables
+        tables = [t[0] for t in cursor.fetchall()]
+
+        data = []
+
+        for table in tables:
+            # Extract class_id for each table
+            class_id = int(table.split('_')[0].replace('Class', ''))
+
+            cursor.execute(f"PRAGMA table_info({table});")
+            # List with all columns from each table
+            columns = [col[1] for col in cursor.fetchall()]
+
+            # Search for the id column
+            id_col = None
+            for c in columns:
+                if "id" in c.lower():  # if c.lower() in ["id", "particle_id", "objid"]:
+                    id_col = c
+                    break
+
+            if id_col is None:
+                print(f"No id column was found in {table}")
+                continue
+
+            # Read ids and save data
+            cursor.execute(f"SELECT {id_col} FROM {table}")
+            for (particle_id,) in cursor.fetchall():
+                data.append((particle_id, class_id))
+
+        # DataFrame created with particle id and class id
+        df = pd.DataFrame(data, columns=["particle_id", "class_id"])
+
+        # Group it and select 5 particles for each class or all if the length is less
+        sampled = df.groupby("class_id").apply(
+            lambda x: x.sample(n=min(self.numParticlesPerClass.get(), len(x)), random_state=42 + m_index)
+        ).reset_index(drop=True)
+
+        # Create a set of particle ids already balanced across classes
+        print('Length sampled particles: ', len(sampled))
+        selected_ids = set(sampled["particle_id"].tolist())
+
+        #print(f'selected_ids batch {m_index}: {selected_ids}')
+
         if self.reconstruction == RELION_RECONSTRUCTION:
 
-            data = starfile.read(self._getExtraPath('inputParticles.star'))
+            star_relion = self.inputParticlesStar.get()
+            star_relion_file = star_relion.getFileName()
+
+            # Open and read relion star file
+            star_relion_path = os.path.join(os.path.dirname(star_relion_file), 'input_particles.star')
+            data = starfile.read(star_relion_path)
+            particles = data["particles"]
+
+            # Filter ids
+            filtered = particles[particles["rlnImageId"].isin(selected_ids)]
+            print("\nLen filtered:", len(filtered))
+
+            # Save new .star file
             output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
-
-            print("Bloques de datos:", data.keys())
-            for block in data.keys():
-                print(f"Columnas en {block}:", data[block].columns)
-
-            optics = data['optics']
-
-            print('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
-            particles = data['particles']
-            total_particles = len(particles)
-            ##print(particles.columns)
-            ##print(optics.columns)
-
-            #print(particles)
-
-            if total_particles < self.numParticlesPerClass.get():
-                print('Not enough particles to create batches')
-
-            else:
-                sampled_particles = particles.sample(n=self.numParticlesPerClass.get(), replace=False) #axis=0, random_state=m_index)
-                #print('sample particles', sampled_particles.head())
-                #print("Unique particle IDs in sample:", sampled_particles['rlnImageId'].unique())
-
-                print("Número de partículas únicas:", sampled_particles['rlnImageId'].nunique())
-                print("Total de partículas:", len(sampled_particles))
-
-                new_star = {'optics': optics, 'particles': sampled_particles}
-                print('NEW STAR', new_star)
-
-
-                print(f'MINIMO {new_star["particles"]["rlnImageId"].min()}, MAXIMO {new_star["particles"]["rlnImageId"].max()}')
-
-                #print('ANGULOS DE LAS PARTICULAS', new_star["particles"]['rlnAngleRot'], new_star["particles"]['rlnAngleTilt'],
-                #      new_star["particles"]['rlnAnglePsi'])
-                #print(f"VALORES UNICOS {sampled_particles['rlnImageName'].unique()}")
-                print(f'cantidad de valores unicos {new_star["particles"].value_counts().eq(1).sum()}')
-
-                starfile.write(new_star, output_star, overwrite=True)
-
+            starfile.write({"particles": filtered}, output_star, overwrite=True)
+            print(f"RELION STAR saved at: {output_star}")
 
         else:
-
-            prot_classes = self.inputProt.get()
-            mdFile = prot_classes.getFileName()
-            print('Ruta del input (average)', mdFile)
-
-            classes_path = os.path.join(os.path.dirname(mdFile), 'classes2D.sqlite')
-            print('Ruta de las clases', classes_path)
-            print('--------------------------')
-
-            # Connect to the database
-            conn = sqlite3.connect(classes_path)
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                        SELECT name FROM sqlite_master 
-                        WHERE type='table' AND name LIKE 'Class%_Objects';
-                        """)
-            # List of tables
-            tables = [t[0] for t in cursor.fetchall()]
-
-            data = []
-
-            for table in tables:
-                # Extract class_id for each table
-                class_id = int(table.split('_')[0].replace('Class', ''))
-
-                cursor.execute(f"PRAGMA table_info({table});")
-                # List with all columns from each table
-                columns = [col[1] for col in cursor.fetchall()]
-
-                # Search for the id column
-                id_col = None
-                for c in columns:
-                    if "id" in c.lower(): #if c.lower() in ["id", "particle_id", "objid"]:
-                        id_col = c
-                        break
-
-                if id_col is None:
-                    print(f"No id column was found in {table}")
-                    continue
-
-                # Read ids and save data
-                cursor.execute(f"SELECT {id_col} FROM {table}")
-                for (particle_id,) in cursor.fetchall():
-                    data.append((particle_id, class_id))
-
-            # DataFrame created with particle id and class id
-            df = pd.DataFrame(data, columns=["particle_id", "class_id"])
-            #print(df)
-            #print('STOP--------------------------------')
-
-            # Group it and select 5 particles for each class or all if the length is less
-            sampled = df.groupby("class_id").apply(
-                lambda x: x.sample(n=min(self.numParticlesPerClass.get(), len(x)), random_state=42 + m_index)
-            ).reset_index(drop=True)
-
-            # Create a set of particle ids already balanced across classes
-            #print('sampled particles\n', sampled)
-            selected_ids = set(sampled["particle_id"].tolist())
-
-            print(f'selected_ids batch {m_index}: {selected_ids}')
-
             # Read the original .xmd
             input_xmd = self._getExtraPath('inputParticles.xmd')
 
@@ -505,6 +390,98 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
         print(self.one_volume)
         print('tipo de dato de los self.one_volume', self.one_volume.dtype)
+
+    def _calculateMoments(self, m_index):
+
+        num_mom = 4
+
+        if m_index == 1:
+            self.vol_moments = [np.zeros_like(self.one_volume, dtype=float) for _ in range(1, num_mom + 1)]
+            n = mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float)
+
+        else:
+            mean = np.load(os.path.join(self._getExtraPath(), "1_mean.npy"))
+            m2 = np.load(os.path.join(self._getPath(), "m2.npy"))
+            m3 = np.load(os.path.join(self._getPath(), "m3.npy"))
+            m4 = np.load(os.path.join(self._getPath(), "m4.npy"))
+            n = np.ones_like(self.one_volume, dtype=float) * m_index - 1
+
+        # Convert all volumes into array
+        n, mean, m2, m3, m4 = np.array(n), np.array(mean), np.array(m2), np.array(m3), np.array(m4)
+
+        #print('======================MEAN=================================', mean)
+        x = np.array(self.one_volume)
+        #print('======================X=================================', x)
+        n1 = n.copy()
+
+        #print('======================n1======================', n1)
+        n += np.ones_like(n, dtype=float)
+
+        #print('======================N======================', n)
+        delta = x - mean
+        #print('======================DELTA=================================',delta)
+
+        delta_n = delta / n
+        #print('======================DELTA_N=================================', delta_n)
+
+        delta_n2 = delta_n ** 2
+        #print('======================DELTA_N2=================================', delta_n2)
+
+        term1 = delta * delta_n * n1
+        #print('======================TERM1=================================', term1)
+
+        mean += delta_n
+        #print('======================NEW MEAN =================================', mean)
+
+        m4 += term1 * delta_n2 * (n ** 2 - 3 * n + 3) + 6 * delta_n2 * m2 - 4 * delta_n * m3
+        #print('======================M4=================================', m4)
+
+        m3 += term1 * delta_n * (n - 2) - 3 * delta_n * m2
+        #print('======================m3=================================', m3)
+
+        m2 += term1
+        #print('======================m2=================================', m2)
+
+        np.save(os.path.join(self._getPath(), "m2.npy"), m2)
+        np.save(os.path.join(self._getPath(), "m3.npy"), m3)
+        np.save(os.path.join(self._getPath(), "m4.npy"), m4)
+
+        # Calculate moments
+        if np.any(m2 > 0):
+           variance = m2 / n
+           skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
+           kurtosis = ((n * m4) / (m2 ** 2)) - 3
+
+           self.vol_moments[0] = mean
+           self.vol_moments[1] = variance
+           self.vol_moments[2] = skewness
+           self.vol_moments[3] = kurtosis
+
+        else:
+            print('M2 is 0, so skewness and kurtosis cannot be calculated as they would be divided by 0')
+            self.vol_moments[0] = mean
+            self.vol_moments[1] = np.zeros_like(self.one_volume, dtype=float)
+            self.vol_moments[2] = np.zeros_like(self.one_volume, dtype=float)
+            self.vol_moments[3] = np.zeros_like(self.one_volume, dtype=float)
+
+        #print('mean', self.vol_moments[0])
+        #print('variance', self.vol_moments[1])
+        #print('skewness', self.vol_moments[2])
+        #print('kurtosis', self.vol_moments[3])
+
+        np.save(os.path.join(self._getExtraPath(), "1_mean.npy"), self.vol_moments[0])
+
+        # Save volumes of the moments for further visualization
+        if m_index == self.numBatches.get():
+
+            mrcfile.write(os.path.join(self._getExtraPath(), "1_mean.mrc"), self.vol_moments[0].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "2_variance.mrc"), self.vol_moments[1].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness.mrc"), self.vol_moments[2].astype(np.float32),
+                          voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis.mrc"), self.vol_moments[3].astype(np.float32),
+                          voxel_size=self.voxel_size)
 
 
     def _calculatePDF(self, m_index):
