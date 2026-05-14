@@ -1,3 +1,5 @@
+from turtledemo.round_dance import stop
+
 from pyworkflow.protocol import TupleParam
 from pyworkflow.protocol.params import (PointerParam, FloatParam,
                                         StringParam, BooleanParam,
@@ -7,18 +9,17 @@ from pwem.protocols import ProtAnalysis3D
 from pwem import ALIGN_PROJ
 from scipy.ndimage import maximum
 
-from cryomethods.convert import writeSetOfParticles
-from xmipp3.convert import writeSetOfParticles as writeSetOfParticlesXmipp
 from xmipp3.convert import *
+from xmipp3.convert import writeSetOfParticles as writeSetOfParticlesXmipp
+from cryomethods.convert import writeSetOfParticles
 from cryomethods.functions import NumpyImgHandler
 import numpy as np
-import os
+import os, random
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
 import mrcfile, starfile, sqlite3
 import pandas as pd
 from pwem.emlib.metadata import MetaData
-import xmipp3, shutil
 import matplotlib.pyplot as plt
 
 PARTICLE_ID = 199
@@ -194,8 +195,9 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         elif self.methodApply == ACC_MOMENTS:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
-                self._insertFunctionStep('reconstructStep', m)
-                self._insertFunctionStep('_calculateMoments', m)
+                #self._insertFunctionStep('reconstructStep', m)
+                #self._insertFunctionStep('_calculateMoments', m)
+                #self._insertFunctionStep('_calculateFourierMoments', m)
 
 
     def convertInputStep(self):
@@ -207,7 +209,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
         # Pass stack file as None to avoid write the images files
         writeSetOfParticles(imgSet, imgStar,
-                                    outputDir=self._getTmpPath(),
+                                    outputDir=self._getExtraPath(), #Tmp
                                     alignType=ALIGN_PROJ)
 
         imgXmd = self._getExtraPath('inputParticles.xmd')
@@ -217,112 +219,76 @@ class ProtLocPDF_classes(ProtAnalysis3D):
     def _processParticles(self, m_index=1):
 
         prot_classes = self.inputProt.get()
-        mdFile = prot_classes.getFileName()
-        print('Ruta del input (average)', mdFile)
+        print(prot_classes)
+        print(type(prot_classes))
 
-        classes_path = os.path.join(os.path.dirname(mdFile), 'classes2D.sqlite')
-        print('Ruta de las clases', classes_path)
-        print('--------------------------')
+        inputParticles = prot_classes.getImages()
 
-        # Connect to the database
-        conn = sqlite3.connect(classes_path)
-        cursor = conn.cursor()
+        print(type(inputParticles))
 
-        cursor.execute("""
-                       SELECT name FROM sqlite_master 
-                       WHERE type='table' AND name LIKE 'Class%_Objects';
-                       """)
-        # List of tables
-        tables = [t[0] for t in cursor.fetchall()]
+        #outputParticles = SetOfParticles()
+        outputParticles = self._createSetOfParticles()
+        outputParticles.copyInfo(inputParticles)
+        print('outputParticles', outputParticles, type(outputParticles))
 
-        data = []
+        for cls in prot_classes:
+            ids = list(cls.getIdSet())
+            print('ids', ids)
 
-        for table in tables:
-            # Extract class_id for each table
-            class_id = int(table.split('_')[0].replace('Class', ''))
-
-            cursor.execute(f"PRAGMA table_info({table});")
-            # List with all columns from each table
-            columns = [col[1] for col in cursor.fetchall()]
-
-            # Search for the id column
-            id_col = None
-            for c in columns:
-                if "id" in c.lower():  # if c.lower() in ["id", "particle_id", "objid"]:
-                    id_col = c
-                    break
-
-            if id_col is None:
-                print(f"No id column was found in {table}")
+            if not ids:
                 continue
 
-            # Read ids and save data
-            cursor.execute(f"SELECT {id_col} FROM {table}")
-            for (particle_id,) in cursor.fetchall():
-                data.append((particle_id, class_id))
+            random.seed(42 + cls.getObjId())
 
-        # DataFrame created with particle id and class id
-        df = pd.DataFrame(data, columns=["particle_id", "class_id"])
+            selected_ids = random.sample(ids, min(5, len(ids)))
+            print('selected_ids', selected_ids)
 
-        # Group it and select 5 particles for each class or all if the length is less
-        sampled = df.groupby("class_id").apply(
-            lambda x: x.sample(n=min(self.numParticlesPerClass.get(), len(x)), random_state=42 + m_index)
-        ).reset_index(drop=True)
+            for objId in selected_ids:
+                particle = inputParticles[objId]
+                print("---- PARTICLE ----\n")
+                #print(particle)
+                print("Class:", cls.getObjId())
+                print("Particle ID:", particle.getObjId())
+                print("File:", particle.getFileName())
+                print("Index:", particle.getIndex())
 
-        # Create a set of particle ids already balanced across classes
-        print('Length sampled particles: ', len(sampled))
-        selected_ids = set(sampled["particle_id"].tolist())
+                # Sampling rate
+                if hasattr(particle, 'getSamplingRate'):
+                    print("Sampling:", particle.getSamplingRate())
 
-        #print(f'selected_ids batch {m_index}: {selected_ids}')
+                # Alineamiento
+                if particle.hasTransform():
+                    print("Has alignment")
+
+                # CTF
+                if particle.hasCTF():
+                    print("Has CTF")
+
+                print("------------------\n")
+
+                outputParticles.append(particle)
+
+        outputParticles.write()
+        print('outputparticles', type(outputParticles))
+        self._defineOutputs(outputParticles=outputParticles)
+        outputParticles.close()
 
         if self.reconstruction == RELION_RECONSTRUCTION:
-
-            star_relion = self.inputParticlesStar.get()
-            star_relion_file = star_relion.getFileName()
-
-            # Open and read relion star file
-            star_relion_path = os.path.join(os.path.dirname(star_relion_file), 'input_particles.star')
-            data = starfile.read(star_relion_path)
-            particles = data["particles"]
-
-            # Filter ids
-            filtered = particles[particles["rlnImageId"].isin(selected_ids)]
-            print("\nLen filtered:", len(filtered))
-
             # Save new .star file
-            output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
-            starfile.write({"particles": filtered}, output_star, overwrite=True)
-            print(f"RELION STAR saved at: {output_star}")
+            output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
+            writeSetOfParticles(
+                outputParticles,
+                output_star,
+                outputDir=self._getExtraPath(),
+                alignType=ALIGN_2D
+            )
+
+            print("STAR written:", output_star)
 
         else:
-            # Read the original .xmd
-            input_xmd = self._getExtraPath('inputParticles.xmd')
-
-            md_in = MetaData()
-            md_in.read(input_xmd)
-
-            # Create a new empty metadata
-            md_out = MetaData()
-
-            # See labels
-            labels = md_in.getActiveLabels()
-            print('--------------------------')
-
-            for objId in md_in:
-                # Particle id
-                pid = md_in.getValue(PARTICLE_ID, objId)  # particle id
-
-                if pid in selected_ids:
-                    newObjId = md_out.addObject()
-
-                    # Copy all properties to new file
-                    for label in labels:
-                        value = md_in.getValue(label, objId)
-                        md_out.setValue(label, value, newObjId)
-
             # Save new .xmd
-            output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath  _getTmpPath
-            md_out.write(output_xmd)
+            output_xmd = self._getExtraPath(f"sample_{m_index}.xmd") #_getExtraPath  _getTmpPath
+            writeSetOfParticlesXmipp(outputParticles, output_xmd)
 
 
     def reconstructStep(self, m_index=1):
@@ -391,13 +357,18 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         print(self.one_volume)
         print('tipo de dato de los self.one_volume', self.one_volume.dtype)
 
+
     def _calculateMoments(self, m_index):
 
         num_mom = 4
 
         if m_index == 1:
             self.vol_moments = [np.zeros_like(self.one_volume, dtype=float) for _ in range(1, num_mom + 1)]
-            n = mean = m2 = m3 = m4 = np.zeros_like(self.one_volume, dtype=float)
+            n = np.zeros_like(self.one_volume, dtype=float)
+            mean = np.zeros_like(self.one_volume, dtype=float)
+            m2 = np.zeros_like(self.one_volume, dtype=float)
+            m3 = np.zeros_like(self.one_volume, dtype=float)
+            m4 = np.zeros_like(self.one_volume, dtype=float)
 
         else:
             mean = np.load(os.path.join(self._getExtraPath(), "1_mean.npy"))
@@ -451,6 +422,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
            variance = m2 / n
            skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
            kurtosis = ((n * m4) / (m2 ** 2)) - 3
+           print('KURTOSIS TIEMPO REAL \n', kurtosis)
 
            self.vol_moments[0] = mean
            self.vol_moments[1] = variance
@@ -482,6 +454,108 @@ class ProtLocPDF_classes(ProtAnalysis3D):
                           voxel_size=self.voxel_size)
             mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis.mrc"), self.vol_moments[3].astype(np.float32),
                           voxel_size=self.voxel_size)
+
+
+    def _calculateFourierMoments(self, m_index):
+
+        num_mom = 4
+
+        # FFT de la reconstrucción actual
+        vol_fft = np.fft.fftn(self.one_volume)
+        vol_fft = vol_fft.astype(np.complex128)
+        #vol_fft = np.fft.fftshift(np.fft.fftn(self.one_volume)) #solo si vas a interpretar el espectro visualmente o radialmente
+        print(vol_fft)
+
+        if m_index == 1:
+            self.vol_moments_fft = [np.zeros_like(vol_fft) for _ in range(num_mom)] #1, num_mom + 1
+            n_fft = np.zeros_like(vol_fft, dtype=float)
+            mean_fft = np.zeros_like(vol_fft, dtype=np.complex128)
+            m2_fft = np.zeros_like(vol_fft, dtype=np.complex128)
+            m3_fft = np.zeros_like(vol_fft, dtype=np.complex128)
+            m4_fft = np.zeros_like(vol_fft, dtype=np.complex128)
+
+        else:
+            mean_fft = np.load(os.path.join(self._getExtraPath(), "1_mean_fft.npy"))
+            m2_fft = np.load(os.path.join(self._getPath(), "m2_fft.npy"))
+            m3_fft = np.load(os.path.join(self._getPath(), "m3_fft.npy"))
+            m4_fft = np.load(os.path.join(self._getPath(), "m4_fft.npy"))
+            n_fft = np.load(os.path.join(self._getPath(), "n_fft.npy"))
+            #n_fft = np.ones_like(self.one_volume, dtype=float) * m_index - 1
+
+        print('======================MEAN FFT=================================', mean_fft)
+        x_fft = vol_fft
+        print('======================X FFT=================================', x_fft)
+
+        n_fft = n_fft + 1
+        print('======================N FFT======================', n_fft)
+
+        delta_fft = x_fft - mean_fft
+        print('======================DELTA FFT=================================',delta_fft)
+
+        delta_n_fft = delta_fft / n_fft
+        print('======================DELTA_N FFT=================================', delta_n_fft)
+
+        print('======================DELTA_N2 FFT=================================', np.abs(delta_n_fft) ** 2)
+
+
+        term1_fft = delta_fft * np.conj(delta_n_fft) * (n_fft - 1)
+        print('======================TERM1 FFT=================================', term1_fft)
+
+        mean_fft = mean_fft + delta_n_fft
+        print('======================NEW MEAN FFT=================================', mean_fft)
+
+
+        m4_fft = m4_fft + term1_fft * (np.abs(delta_n_fft) ** 2) * (n_fft ** 2 - 3 * n_fft + 3) \
+             + 6 * np.abs(delta_n_fft) ** 2 * m2_fft \
+             - 4 * delta_n_fft * m3_fft
+        print('======================M4 FFT=================================', m4_fft)
+
+
+        m3_fft = m3_fft + term1_fft * delta_n_fft * (n_fft - 2) - 3 * delta_n_fft * m2_fft
+        print('======================m3 FFT=================================', m3_fft)
+
+        m2_fft = m2_fft + term1_fft
+        print('======================m2 FFT=================================', m2_fft)
+
+        np.save(os.path.join(self._getPath(), "m2_fft.npy"), m2_fft)
+        np.save(os.path.join(self._getPath(), "m3_fft.npy"), m3_fft)
+        np.save(os.path.join(self._getPath(), "m4_fft.npy"), m4_fft)
+        np.save(os.path.join(self._getPath(), "n_fft.npy"), n_fft)
+        np.save(os.path.join(self._getExtraPath(), "1_mean_fft.npy"), mean_fft)
+
+        variance_fft = m2_fft / n_fft
+        print('======================VARIANCE FFT=================================')
+        print(variance_fft)
+
+        skewness_fft = (np.sqrt(n_fft) * m3_fft) / (np.abs(m2_fft) ** (3 / 2) + 1e-12)
+        print('======================SKEWNESS FFT=================================\n',
+              skewness_fft)
+
+        kurtosis_fft = ((n_fft * m4_fft) / (np.abs(m2_fft) ** 2 + 1e-12)) - 3
+        print('======================KURTOSIS FFT=================================\n',
+              kurtosis_fft)
+
+        self.vol_moments[0] = mean_fft
+        self.vol_moments[1] = variance_fft
+        self.vol_moments[2] = skewness_fft
+        self.vol_moments[3] = kurtosis_fft
+
+        #if m_index == self.numBatches.get():
+        #    mrcfile.write(os.path.join(self._getExtraPath(), "1_mean_fft.mrc"),
+        #                  np.abs(self.vol_moments[0]).astype(np.float32),
+        #                  voxel_size=self.voxel_size)
+
+        #    mrcfile.write(os.path.join(self._getExtraPath(), "2_variance_fft.mrc"),
+        #                  np.abs(self.vol_moments[1]).astype(np.float32),
+        #                  voxel_size=self.voxel_size)
+
+        #    mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness_fft.mrc"),
+        #                  np.abs(self.vol_moments[2]).astype(np.float32),
+        #                  voxel_size=self.voxel_size)
+
+        #    mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis_fft.mrc"),
+        #                  np.abs(self.vol_moments[3]).astype(np.float32),
+        #                  voxel_size=self.voxel_size)
 
 
     def _calculatePDF(self, m_index):
