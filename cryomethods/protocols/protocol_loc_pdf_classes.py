@@ -116,11 +116,11 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         #                    condition='gpu',
         #                    label='GPU Id')
 
-        groupRelion.addParam('inputParticlesStar', PointerParam,
-                       label="Input particles star",
-                       pointerClass='SetOfParticles',
-                       pointerCondition='hasAlignmentProj',
-                       help='Select input particles from a Star file')
+        #groupRelion.addParam('inputParticlesStar', PointerParam,
+        #               label="Input particles star",
+        #               pointerClass='SetOfParticles',
+        #               pointerCondition='hasAlignmentProj',
+        #               help='Select input particles from a Star file')
 
         groupRelion.addParam('symmetryGroup', StringParam, default='c1',
                       label="Symmetry group",
@@ -233,7 +233,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
         for cls in prot_classes:
             ids = list(cls.getIdSet())
-            print('ids', ids)
+            print('ids', sorted(ids))
 
             if not ids:
                 continue
@@ -266,11 +266,12 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
                 print("------------------\n")
 
-                outputParticles.append(particle)
+                outputParticles.append(particle.clone())
 
+        self._defineOutputs(outputParticles=outputParticles)
         outputParticles.write()
         print('outputparticles', type(outputParticles))
-        self._defineOutputs(outputParticles=outputParticles)
+        #self._defineOutputs(outputParticles=outputParticles)
         outputParticles.close()
 
         if self.reconstruction == RELION_RECONSTRUCTION:
@@ -280,7 +281,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
                 outputParticles,
                 output_star,
                 outputDir=self._getExtraPath(),
-                alignType=ALIGN_2D
+                alignType=ALIGN_PROJ
             )
 
             print("STAR written:", output_star)
