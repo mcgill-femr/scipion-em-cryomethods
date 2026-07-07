@@ -24,8 +24,6 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
-print("🔥 START viewer")
 import os
 from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, showj #ChimeraOldViewer,
@@ -59,10 +57,8 @@ from .protocols.protocol_loc_pdf import ProtLocPDF, PROB_DENSITY_FUNCT, ACC_MOME
 from .protocols.protocol_loc_pdf_classes import ProtLocPDF_classes
 from glob import glob
 from scipy.stats import johnsonsu, lognorm
-from tkinter import messagebox
 #from cryomethods.j_johnson_M import f_johnson_M
 import mrcfile
-print("🔥 VIEWERS MODULE IMPORTED")
 #from fitter import Fitter, get_common_distributions
 
 RUN_LAST = 0
@@ -84,10 +80,6 @@ CUBIC = 1
 
 PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
-
-REAL_SPACE = 0
-FOURIER_SPACE = 1
-BOTH = 2
 
 FREQ_LABEL = 'frequency (1/A)'
 
@@ -1181,16 +1173,15 @@ class CalculateHistogram(ProtocolViewer):
                        condition="methodApplied==%d" % PROB_DENSITY_FUNCT,
                        label="Noise threshold",
                        help='Value of noise threshold.')
-        #Value of noise threshold from which we can calculate the noise volumes of mean, std, skewness and kurtosis.'
+        # Value of noise threshold from which we can calculate the noise volumes of mean, std, skewness and kurtosis.'
 
-        # --------------------------- Moments domain -------------------------------------
-        group.addParam('momentDomain', params.EnumParam,
-                        choices=['Real space', 'Fourier space', 'Both'],
-                        default=REAL_SPACE,
-                        condition='methodApplied==%d' % ACC_MOMENTS,
-                        display=params.EnumParam.DISPLAY_COMBO,
-                        label='Moment domain',
-                        help='Select the domain where moments were calculated.')
+        # --------------------------- Moments -------------------------------------
+        #groupNoise = form.addGroup('Noise', condition="methodApplied==%d" % PROB_DENSITY_FUNCT)
+        #groupNoise.addParam('threshNoise', params.FloatParam,
+        #                    label="Noise threshold",
+        #                    help='Value of noise threshold from which we can calculate the noise '
+        #                         'volumes of mean, std, skewness and kurtosis.')
+
 
         # --------------------------- Voxel value -------------------------------------
         groupVoxel = form.addGroup('Voxel')
@@ -1208,21 +1199,6 @@ class CalculateHistogram(ProtocolViewer):
 
         groupVoxel.addParam('histogram', params.LabelParam,
                        label='View histogram of the voxel')
-
-        groupVoxel.addParam('shellStatistics', params.LabelParam,
-            condition='methodApplied==%d' % ACC_MOMENTS,
-            label='Radial shell statistics'
-        )
-
-
-    def _loadMoments(self, suffix=''):
-
-        mean = NumpyImgHandler.loadMrc(self.protocol._getExtraPath(f"1_mean{suffix}.mrc"))
-        variance = NumpyImgHandler.loadMrc(self.protocol._getExtraPath(f"2_variance{suffix}.mrc"))
-        skewness = NumpyImgHandler.loadMrc(self.protocol._getExtraPath(f"3_skewness{suffix}.mrc"))
-        kurtosis = NumpyImgHandler.loadMrc(self.protocol._getExtraPath(f"4_kurtosis{suffix}.mrc"))
-
-        return [mean, variance, skewness, kurtosis]
 
 
     def _calculateHistogram(self, paramName=None):
@@ -1259,8 +1235,6 @@ class CalculateHistogram(ProtocolViewer):
                 self.voxel_size = mrcfile.open(volume).voxel_size
                 range_volumes.append(NumpyImgHandler.loadMrc(volume))
 
-            if not self._checkVoxelCoordinates(range_volumes[0]):
-                return
 
             weighted_mean = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_mean.mrc"))
             weighted_std = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_std.mrc"))
@@ -1268,14 +1242,10 @@ class CalculateHistogram(ProtocolViewer):
             weighted_kurtosis = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("weighted_kurtosis.mrc"))
             most_probable_bin = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("most_probable_bin.mrc"))
 
-            z = self.z_value.get()
-            y = self.y_value.get()
-            x = self.x_value.get()
-
 
             voxel_values = np.array([])
             for i in range(len(range_volumes)):
-                voxel_values = np.append(voxel_values, range_volumes[i][z, y, x])
+                voxel_values = np.append(voxel_values, range_volumes[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
                 #voxel_values.append(range_volumes[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
 
 
@@ -1287,21 +1257,21 @@ class CalculateHistogram(ProtocolViewer):
             print(f'Voxel values referred to protein {voxel_prot}')
             print(f'---------------------------------------')
 
-            valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get().getFileName())[z, y, x]
-            print(f'Real value of the voxel {z, y, x}: {valueVox_inputVol}')
+            valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get().getFileName())[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            print(f'Real value of the voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {valueVox_inputVol}')
 
-            mean_x = weighted_mean[z, y, x]
-            std_dev_x = weighted_std[z, y, x]
-            skew_x = weighted_skewness[z, y, x]
-            kurt_x = weighted_kurtosis[z, y, x]
-            max_bin_x = most_probable_bin[z, y, x]
+            mean_x = weighted_mean[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            std_dev_x = weighted_std[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            skew_x = weighted_skewness[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            kurt_x = weighted_kurtosis[self.z_value.get(), self.y_value.get(), self.x_value.get()]
+            max_bin_x = most_probable_bin[self.z_value.get(), self.y_value.get(), self.x_value.get()]
 
 
-            print(f"Weighted mean in voxel {z, y, x}: {mean_x}")
-            print(f"Weighted standard deviation in voxel {z, y, x}: {std_dev_x}")
-            print(f"Weighted skewness in voxel {z, y, x}: {skew_x}")
-            print(f"Weighted kurtosis in voxel {z, y, x}: {kurt_x}")
-            print(f"Most probable bin in voxel {z, y, x}: {max_bin_x}")
+            print(f"Weighted mean in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {mean_x}")
+            print(f"Weighted standard deviation in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {std_dev_x}")
+            print(f"Weighted skewness in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {skew_x}")
+            print(f"Weighted kurtosis in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {kurt_x}")
+            print(f"Most probable bin in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {max_bin_x}")
             print('-----------------------------------------------')
             print('-----------------------------------------------')
 
@@ -1324,6 +1294,8 @@ class CalculateHistogram(ProtocolViewer):
             #print(f"Noise weighted kurtosis in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_kurtosis_voxel}")
             #print('-----------------------------------------------')
             #print('-----------------------------------------------')
+
+
 
 
 
@@ -1375,7 +1347,7 @@ class CalculateHistogram(ProtocolViewer):
 
             plt.xlabel("Voxel intensity", fontsize=12)
             plt.ylabel("Frequency", fontsize=12)
-            plt.title(f"Histogram of voxel intensities {z, y, x}", fontsize=14)
+            plt.title(f"Histogram of voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()}", fontsize=14)
             plt.grid(axis="y", linestyle="--", alpha=0.7)
             plt.legend()
 
@@ -1386,7 +1358,7 @@ class CalculateHistogram(ProtocolViewer):
                     alpha=0.7)
             plt.plot(bins_noise, voxel_noise, 'o', color='black')
             plt.plot(bins_noise, voxel_noise, color='orange')
-            plt.title(f"Noise voxel intensities {z, y, x} "
+            plt.title(f"Noise voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()} "
                       f"below threshold {self.threshNoise.get()}",
                       fontsize=14)
 
@@ -1396,7 +1368,7 @@ class CalculateHistogram(ProtocolViewer):
                     alpha=0.7)
             plt.plot(bins_prot, voxel_prot, 'o', color='black')
             plt.plot(bins_prot, voxel_prot, color='orange')
-            plt.title(f"Protein voxel intensities {z, y, x} "
+            plt.title(f"Protein voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()} "
                       f"above threshold {self.threshNoise.get()}",
                       fontsize=14)
             plt.show()
@@ -1405,250 +1377,59 @@ class CalculateHistogram(ProtocolViewer):
             #plt.plot(bin_centers, y_johnson, color='blue', linewidth=2, linestyle="solid", label="Johnson SU")
             #plt.show()
 
+
         elif self.methodApplied == ACC_MOMENTS:
 
-            if not self._checkMomentDomain():
-                return
+            mean = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("1_mean.mrc"))
+            variance = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("2_variance.mrc"))
+            skewness = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("3_skewness.mrc"))
+            kurtosis = NumpyImgHandler.loadMrc(self.protocol._getExtraPath("4_kurtosis.mrc"))
 
-            viewerDomain = self.momentDomain.get()
+            moments = [mean, variance, skewness, kurtosis]
 
-            if viewerDomain == REAL_SPACE:
-                moments = self._loadMoments('')
-                if not self._checkVoxelCoordinates(moments[0]):
-                    return
-                self._plotJohnsonHistogram(moments, "Real space")
-
-            elif viewerDomain == FOURIER_SPACE:
-                moments = self._loadMoments('_fft')
-
-                if not self._checkVoxelCoordinates(moments[0]):
-                    return
-                self._plotJohnsonHistogram(moments, "Fourier space")
-
-            elif viewerDomain == BOTH:
-
-                moments_real = self._loadMoments('')
-                moments_fft = self._loadMoments('_fft')
-                if not self._checkVoxelCoordinates(moments_real[0]) or not self._checkVoxelCoordinates(moments_fft[0]):
-                    return
-
-                self._plotJohnsonHistogram(moments_real, "Real space")
-                self._plotJohnsonHistogram(moments_fft, "Fourier space")
+            voxel_values = []
+            for i in range(len(moments)):
+                voxel_values.append(moments[i][self.z_value.get(), self.y_value.get(), self.x_value.get()])
 
 
-    def _checkVoxelCoordinates(self, volume):
-
-        z = self.z_value.get()
-        y = self.y_value.get()
-        x = self.x_value.get()
-
-        nz, ny, nx = volume.shape
-
-        if not (0 <= z < nz and 0 <= y < ny and 0 <= x < nx):
-            messagebox.showerror(
-                "Invalid voxel",
-                f"Voxel ({z}, {y}, {x}) is outside the volume dimensions "
-                f"({nz}, {ny}, {nx})."
-            )
-
-            return False
-
-        return True
+            voxel_values[1] = np.sqrt(voxel_values[1])
+            voxel_values[3] = voxel_values[3] + 3 #np.sqrt(voxel_values[3] + 3)
+            print("Voxel values:", voxel_values)
 
 
-    def _checkMomentDomain(self):
-        protocolDomain = self.protocol.momentDomain.get()
-        viewerDomain = self.momentDomain.get()
+            x = np.linspace(-1, 1, 500)
+            '''revisar el tema del johnsonsu ya que los parámetros a, b, loc y scale de scipy.stats.johnsonsu
+            no se corresponden directamente con la media, desviación típica, asimetría ni curtosis. No garantiza
+            que la distribucion tenga la media, desviación, asimetría o curtosis determinadas, es decir, el
+            resultado será alguna distribución Johnson, pero no tendrá los momentos que se quieren
+            '''
+            y_johnson = johnsonsu.pdf(x, voxel_values[2], voxel_values[3], loc=voxel_values[0], scale=voxel_values[1])
 
-        domainNames = {
-            REAL_SPACE: "Real space",
-            FOURIER_SPACE: "Fourier space",
-            BOTH: "Both"
-        }
+            fig, ax = plt.subplots()
+            plt.subplots_adjust(left=0.1, bottom=0.35)
 
-        if protocolDomain != BOTH and viewerDomain != protocolDomain:
-            messagebox.showerror(
-                "Selected domain not available",
-                f"The protocol was executed in "
-                f"{domainNames[protocolDomain]} only."
-            )
-            return False
-
-        return True
-
-
-    def _plotJohnsonHistogram(self, moments, domain_name):
-
-        z = self.z_value.get()
-        y = self.y_value.get()
-        x = self.x_value.get()
-
-        voxel_values = []
-        for i in range(len(moments)):
-            voxel_values.append(moments[i][z, y, x])
-
-        voxel_values[1] = np.sqrt(voxel_values[1])
-        voxel_values[3] += 3  # np.sqrt(voxel_values[3] + 3)
-        print("Voxel values:", voxel_values)
-
-        x_plot = np.linspace(-1, 1, 500)
-        '''revisar el tema del johnsonsu ya que los parámetros a, b, loc y scale de scipy.stats.johnsonsu
-        no se corresponden directamente con la media, desviación típica, asimetría ni curtosis. No garantiza
-        que la distribucion tenga la media, desviación, asimetría o curtosis determinadas, es decir, el
-        resultado será alguna distribución Johnson, pero no tendrá los momentos que se quieren
-        '''
-
-        y_johnson = johnsonsu.pdf(x_plot, voxel_values[2], voxel_values[3], loc=voxel_values[0], scale=voxel_values[1])
-
-        fig, ax = plt.subplots()
-        plt.subplots_adjust(left=0.1, bottom=0.35)
-        ax.plot(x_plot, y_johnson, label="Johnson SU")
-        ax.legend()
-        ax.set_title(f"{domain_name} moments - voxel {z, y, x}",
-                     fontsize=14)
-        ax.set_xlabel("x")
-        ax.set_ylabel("Density")
-        plt.show()
-
-        # hist, bin_edges = np.histogram(voxel_values, bins=10)
-        # plt.figure(figsize=(8, 6))
-        # plt.bar(bin_edges[:-1], hist, width=0.0001, edgecolor="black", align="edge", color="blue",
-        #        alpha=0.7)
-        # plt.xlabel("Voxel intensity", fontsize=12)
-        # plt.ylabel("Frequency", fontsize=12)
-        # plt.title("Histogram of voxel intensities", fontsize=14)
-        # plt.grid(axis="y", linestyle="--", alpha=0.7)
-        # plt.show()
-
-    def _computeRadialProfile(self, volume):
-        nz, ny, nx = volume.shape
-
-        z, y, x = np.indices(volume.shape)
-
-        cz = nz // 2
-        cy = ny // 2
-        cx = nx // 2
-
-        r = np.sqrt(
-            (x - cx) ** 2 +
-            (y - cy) ** 2 +
-            (z - cz) ** 2
-        )
-
-        r_int = r.astype(np.int32)
-
-        mean_shell = []
-        std_shell = []
-
-        for shell in range(r_int.max() + 1):
-            values = volume[r_int == shell]
-
-            values = values[np.isfinite(values)]
-
-            if len(values) == 0:
-                mean_shell.append(np.nan)
-                std_shell.append(np.nan)
-                continue
-
-            mean_shell.append(np.mean(np.abs(values)))
-            std_shell.append(np.std(np.abs(values)))
-
-        mean_shell = np.array(mean_shell)
-        std_shell = np.array(std_shell)
-
-        return mean_shell, std_shell
-
-
-    def _getFrequencyAxis(self, n_shells, box): #volume
-
-        apix = self.protocol.inputParticles.get().getSamplingRate()
-        freqs = np.arange(n_shells) / (box * apix)
-
-        return freqs
-
-
-    def _plotMomentSet(self, files, nrows=2, ncols=2):
-
-        fig, axs = plt.subplots(nrows, ncols,
-                                figsize=(6 * ncols, 4 * nrows))
-
-        axs = np.array(axs).ravel()
-
-        for ax, (filename, title) in zip(axs, files):
-            volume = NumpyImgHandler.loadMrc(
-                self.protocol._getExtraPath(filename)
-            )
-
-            mean_shell, std_shell = self._computeRadialProfile(volume)
-            freqs = self._getFrequencyAxis(len(mean_shell), volume.shape[0])
-
-            ax.plot(
-                freqs,
-                mean_shell,
-                color='black',
-                linewidth=2,
-                label='Mean shell'
-            )
-
-            ax.fill_between(
-                freqs,
-                mean_shell - std_shell,
-                mean_shell + std_shell,
-                color='tab:blue',
-                alpha=0.25,
-                label='±1 std'
-            )
-
-            ax.set_title(title)
+            ax.plot(x, y_johnson, label="Johnson SU")
             ax.legend()
-            ax.set_xlabel("Spatial frequency (Å$^{-1}$)")
-            ax.set_ylabel("Moment value")
-            ax.grid(True)
-
-        plt.tight_layout()
-        plt.show()
+            ax.set_title(f"Histogram of voxel intensities {self.z_value.get(), self.y_value.get(), self.x_value.get()}", fontsize=14)
+            ax.set_xlabel("x")
+            ax.set_ylabel("Density")
+            plt.show()
 
 
-    def _plotShellStatistics(self, paramName=None):
+            #hist, bin_edges = np.histogram(voxel_values, bins=10)
+            #plt.figure(figsize=(8, 6))
+            #plt.bar(bin_edges[:-1], hist, width=0.0001, edgecolor="black", align="edge", color="blue",
+            #        alpha=0.7)
+            #plt.xlabel("Voxel intensity", fontsize=12)
+            #plt.ylabel("Frequency", fontsize=12)
+            #plt.title("Histogram of voxel intensities", fontsize=14)
+            #plt.grid(axis="y", linestyle="--", alpha=0.7)
+            #plt.show()
 
-        viewerDomain = self.momentDomain.get()
-
-        if not self._checkMomentDomain():
-            return
-
-        files_real = [
-            ("1_mean.mrc", "Mean"),
-            ("2_variance.mrc", "Variance"),
-            ("3_skewness.mrc", "Skewness"),
-            ("4_kurtosis.mrc", "Kurtosis")
-        ]
-
-        files_fft = [
-            ("1_mean_fft.mrc", "Mean FFT"),
-            ("2_variance_fft.mrc", "Variance FFT"),
-            ("3_skewness_fft.mrc", "Skewness FFT"),
-            ("4_kurtosis_fft.mrc", "Kurtosis FFT")
-        ]
-
-        if viewerDomain == REAL_SPACE:
-            self._plotMomentSet(files_real)
-
-        elif viewerDomain == FOURIER_SPACE:
-            self._plotMomentSet(files_fft)
-
-        elif viewerDomain == BOTH:
-
-            both_files = []
-
-            for real, fft in zip(files_real, files_fft):
-                both_files.extend([real, fft])
-
-            self._plotMomentSet(both_files, nrows=4, ncols=2)
 
 
 
     def _getVisualizeDict(self):
-        visualizeDict = {'histogram': self._calculateHistogram,
-                         'shellStatistics': self._plotShellStatistics}
+        visualizeDict = {'histogram': self._calculateHistogram}
 
         return visualizeDict
