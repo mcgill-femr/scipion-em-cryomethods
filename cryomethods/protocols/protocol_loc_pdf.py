@@ -24,7 +24,7 @@ ACC_MOMENTS = 1
 RELION_RECONSTRUCTION = 0
 XMIPP_RECONSTRUCTION = 1
 
-
+print("🔥 PROTOCOL IMPORTED")
 class ProtLocPDF(ProtAnalysis3D):
     """
     Given a map and the number of moments, the protocol estimates the local probability map.

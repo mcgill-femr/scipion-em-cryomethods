@@ -27,6 +27,9 @@ PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
 RELION_RECONSTRUCTION = 0
 XMIPP_RECONSTRUCTION = 1
+REAL_SPACE = 0
+FOURIER_SPACE = 1
+BOTH = 2
 
 
 class ProtLocPDF_classes(ProtAnalysis3D):
@@ -70,10 +73,16 @@ class ProtLocPDF_classes(ProtAnalysis3D):
                       help='Maximum value of the range.')
 
         # -------------------------------- Moments ----------------------------------------
-        #form.addParam('numMom', BooleanParam, default=True,
-        #              condition='methodApply==%d' % ACC_MOMENTS,
-        #              label="4 moments will be estimated",
-        #              help='If selected, 4 moments will be calculated')
+        form.addParam('momentDomain', EnumParam,
+                      choices = ['Real space', 'Fourier space', 'Both'],
+                      default = REAL_SPACE,
+                      condition='methodApply==%d' % ACC_MOMENTS,
+                      label="Moment calculation domain",
+                      display=EnumParam.DISPLAY_COMBO,
+                      help='Select where accumulative moments will be calculated:\n' 
+                                '1. Real space.\n'
+                                '2. Fourier space.\n'
+                                '3. Both domains')
 
         # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
@@ -195,10 +204,13 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         elif self.methodApply == ACC_MOMENTS:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
-                #self._insertFunctionStep('reconstructStep', m)
-                #self._insertFunctionStep('_calculateMoments', m)
-                #self._insertFunctionStep('_calculateFourierMoments', m)
+                self._insertFunctionStep('reconstructStep', m)
 
+                domain = self.momentDomain.get()
+                if domain in [REAL_SPACE, BOTH]:
+                    self._insertFunctionStep('_calculateMoments', m)
+                if domain in [FOURIER_SPACE, BOTH]:
+                    self._insertFunctionStep('_calculateFourierMoments', m)
 
     def convertInputStep(self):
         """ Create the input file in STAR format as expected by Relion.
@@ -238,7 +250,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
             if not ids:
                 continue
 
-            random.seed(42 + cls.getObjId())
+            random.seed(42 + cls.getObjId() + m_index)
 
             selected_ids = random.sample(ids, min(5, len(ids)))
             print('selected_ids', selected_ids)
@@ -249,8 +261,8 @@ class ProtLocPDF_classes(ProtAnalysis3D):
                 #print(particle)
                 print("Class:", cls.getObjId())
                 print("Particle ID:", particle.getObjId())
-                print("File:", particle.getFileName())
-                print("Index:", particle.getIndex())
+                #print("File:", particle.getFileName())
+                #print("Index:", particle.getIndex())
 
                 # Sampling rate
                 if hasattr(particle, 'getSamplingRate'):
@@ -276,7 +288,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
         if self.reconstruction == RELION_RECONSTRUCTION:
             # Save new .star file
-            output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
+            output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
             writeSetOfParticles(
                 outputParticles,
                 output_star,
@@ -288,7 +300,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
         else:
             # Save new .xmd
-            output_xmd = self._getExtraPath(f"sample_{m_index}.xmd") #_getExtraPath  _getTmpPath
+            output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath  _getTmpPath
             writeSetOfParticlesXmipp(outputParticles, output_xmd)
 
 
@@ -372,7 +384,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
             m4 = np.zeros_like(self.one_volume, dtype=float)
 
         else:
-            mean = np.load(os.path.join(self._getExtraPath(), "1_mean.npy"))
+            mean = np.load(os.path.join(self._getPath(), "1_mean.npy"))
             m2 = np.load(os.path.join(self._getPath(), "m2.npy"))
             m3 = np.load(os.path.join(self._getPath(), "m3.npy"))
             m4 = np.load(os.path.join(self._getPath(), "m4.npy"))
@@ -421,7 +433,9 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         # Calculate moments
         if np.any(m2 > 0):
            variance = m2 / n
-           skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2))
+           skewness = (np.sqrt(n) * m3) / (m2 ** (3 / 2)) #salia nan? np.abs(m2)
+           #poner valor absoluto en denominador
+
            kurtosis = ((n * m4) / (m2 ** 2)) - 3
            print('KURTOSIS TIEMPO REAL \n', kurtosis)
 
@@ -442,7 +456,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         #print('skewness', self.vol_moments[2])
         #print('kurtosis', self.vol_moments[3])
 
-        np.save(os.path.join(self._getExtraPath(), "1_mean.npy"), self.vol_moments[0])
+        np.save(os.path.join(self._getPath(), "1_mean.npy"), self.vol_moments[0])
 
         # Save volumes of the moments for further visualization
         if m_index == self.numBatches.get():
@@ -459,16 +473,18 @@ class ProtLocPDF_classes(ProtAnalysis3D):
 
     def _calculateFourierMoments(self, m_index):
 
-        num_mom = 4
+        #num_mom = 4
 
         # FFT de la reconstrucción actual
-        vol_fft = np.fft.fftn(self.one_volume)
-        vol_fft = vol_fft.astype(np.complex128)
+        vol_fft = np.fft.fftn(self.one_volume).astype(np.complex128)
+        print(np.min(np.abs(vol_fft)))
+        print(np.max(np.abs(vol_fft)))
+        print(np.mean(np.abs(vol_fft)))
         #vol_fft = np.fft.fftshift(np.fft.fftn(self.one_volume)) #solo si vas a interpretar el espectro visualmente o radialmente
-        print(vol_fft)
+        #print(vol_fft)
 
         if m_index == 1:
-            self.vol_moments_fft = [np.zeros_like(vol_fft) for _ in range(num_mom)] #1, num_mom + 1
+            #self.vol_moments_fft = [np.zeros_like(vol_fft) for _ in range(num_mom)] #1, num_mom + 1
             n_fft = np.zeros_like(vol_fft, dtype=float)
             mean_fft = np.zeros_like(vol_fft, dtype=np.complex128)
             m2_fft = np.zeros_like(vol_fft, dtype=np.complex128)
@@ -476,7 +492,7 @@ class ProtLocPDF_classes(ProtAnalysis3D):
             m4_fft = np.zeros_like(vol_fft, dtype=np.complex128)
 
         else:
-            mean_fft = np.load(os.path.join(self._getExtraPath(), "1_mean_fft.npy"))
+            mean_fft = np.load(os.path.join(self._getPath(), "1_mean_fft.npy"))
             m2_fft = np.load(os.path.join(self._getPath(), "m2_fft.npy"))
             m3_fft = np.load(os.path.join(self._getPath(), "m3_fft.npy"))
             m4_fft = np.load(os.path.join(self._getPath(), "m4_fft.npy"))
@@ -496,7 +512,8 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         delta_n_fft = delta_fft / n_fft
         print('======================DELTA_N FFT=================================', delta_n_fft)
 
-        print('======================DELTA_N2 FFT=================================', np.abs(delta_n_fft) ** 2)
+        #print('======================DELTA_N2 FFT=================================', np.abs(delta_n_fft) ** 2)
+        print('======================DELTA_N2 FFT=================================', (delta_n_fft) ** 2)
 
 
         term1_fft = delta_fft * np.conj(delta_n_fft) * (n_fft - 1)
@@ -505,58 +522,75 @@ class ProtLocPDF_classes(ProtAnalysis3D):
         mean_fft = mean_fft + delta_n_fft
         print('======================NEW MEAN FFT=================================', mean_fft)
 
+        m2_fft_old = m2_fft.copy()
+        m3_fft_old = m3_fft.copy()
+        m4_fft_old = m4_fft.copy()
 
-        m4_fft = m4_fft + term1_fft * (np.abs(delta_n_fft) ** 2) * (n_fft ** 2 - 3 * n_fft + 3) \
-             + 6 * np.abs(delta_n_fft) ** 2 * m2_fft \
-             - 4 * delta_n_fft * m3_fft
+        #m4_fft = m4_fft_old + term1_fft * (np.abs(delta_n_fft) ** 2) * (n_fft ** 2 - 3 * n_fft + 3) \
+        #     + 6 * np.abs(delta_n_fft) ** 2 * m2_fft_old \
+        #     - 4 * delta_n_fft * m3_fft_old
+        m4_fft = m4_fft_old + term1_fft * (delta_n_fft ** 2) * (n_fft ** 2 - 3 * n_fft + 3) \
+             + 6 * (delta_n_fft ** 2) * m2_fft_old \
+             - 4 * delta_n_fft * m3_fft_old
         print('======================M4 FFT=================================', m4_fft)
 
 
-        m3_fft = m3_fft + term1_fft * delta_n_fft * (n_fft - 2) - 3 * delta_n_fft * m2_fft
+        m3_fft = m3_fft_old + term1_fft * delta_n_fft * (n_fft - 2) - 3 * delta_n_fft * m2_fft_old
         print('======================m3 FFT=================================', m3_fft)
 
-        m2_fft = m2_fft + term1_fft
+        m2_fft = m2_fft_old + term1_fft
         print('======================m2 FFT=================================', m2_fft)
 
         np.save(os.path.join(self._getPath(), "m2_fft.npy"), m2_fft)
         np.save(os.path.join(self._getPath(), "m3_fft.npy"), m3_fft)
         np.save(os.path.join(self._getPath(), "m4_fft.npy"), m4_fft)
         np.save(os.path.join(self._getPath(), "n_fft.npy"), n_fft)
-        np.save(os.path.join(self._getExtraPath(), "1_mean_fft.npy"), mean_fft)
+        np.save(os.path.join(self._getPath(), "1_mean_fft.npy"), mean_fft)
 
         variance_fft = m2_fft / n_fft
         print('======================VARIANCE FFT=================================')
         print(variance_fft)
 
-        skewness_fft = (np.sqrt(n_fft) * m3_fft) / (np.abs(m2_fft) ** (3 / 2) + 1e-12)
+        #skewness_fft = (np.sqrt(n_fft) * m3_fft) / (np.abs(m2_fft) ** (3 / 2) + 1e-12)
+        skewness_fft = (np.sqrt(n_fft) * m3_fft) / (m2_fft ** (3 / 2) + 1e-12)
         print('======================SKEWNESS FFT=================================\n',
               skewness_fft)
 
-        kurtosis_fft = ((n_fft * m4_fft) / (np.abs(m2_fft) ** 2 + 1e-12)) - 3
+        #kurtosis_fft = ((n_fft * m4_fft) / (np.abs(m2_fft) ** 2 + 1e-12)) - 3
+        kurtosis_fft = ((n_fft * m4_fft) / (m2_fft ** 2 + 1e-12)) - 3
         print('======================KURTOSIS FFT=================================\n',
               kurtosis_fft)
 
-        self.vol_moments[0] = mean_fft
-        self.vol_moments[1] = variance_fft
-        self.vol_moments[2] = skewness_fft
-        self.vol_moments[3] = kurtosis_fft
+        self.vol_moments_fft = [mean_fft,
+                               variance_fft,
+                               skewness_fft,
+                               kurtosis_fft]
+        #
+        vis_mean = np.fft.fftshift(np.real(mean_fft))
+        vis_var = np.fft.fftshift(np.real(variance_fft))
+        vis_skew = np.fft.fftshift(np.real(skewness_fft))
+        vis_kurt = np.fft.fftshift(np.real(kurtosis_fft))
 
-        #if m_index == self.numBatches.get():
-        #    mrcfile.write(os.path.join(self._getExtraPath(), "1_mean_fft.mrc"),
-        #                  np.abs(self.vol_moments[0]).astype(np.float32),
-        #                  voxel_size=self.voxel_size)
+        if m_index == self.numBatches.get():
+            mrcfile.write(os.path.join(self._getExtraPath(), "1_mean_fft.mrc"),
+                          #np.abs(vis_mean).astype(np.float32),
+                          vis_mean.astype(np.float32),
+                          voxel_size=self.voxel_size)
 
-        #    mrcfile.write(os.path.join(self._getExtraPath(), "2_variance_fft.mrc"),
-        #                  np.abs(self.vol_moments[1]).astype(np.float32),
-        #                  voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "2_variance_fft.mrc"),
+                          #np.abs(vis_var).astype(np.float32),
+                          vis_var.astype(np.float32),
+                          voxel_size=self.voxel_size)
 
-        #    mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness_fft.mrc"),
-        #                  np.abs(self.vol_moments[2]).astype(np.float32),
-        #                  voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "3_skewness_fft.mrc"),
+                          #np.abs(vis_skew).astype(np.float32),
+                          vis_skew.astype(np.float32),
+                          voxel_size=self.voxel_size)
 
-        #    mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis_fft.mrc"),
-        #                  np.abs(self.vol_moments[3]).astype(np.float32),
-        #                  voxel_size=self.voxel_size)
+            mrcfile.write(os.path.join(self._getExtraPath(), "4_kurtosis_fft.mrc"),
+                          #np.abs(vis_kurt).astype(np.float32),
+                          vis_kurt.astype(np.float32),
+                          voxel_size=self.voxel_size)
 
 
     def _calculatePDF(self, m_index):
