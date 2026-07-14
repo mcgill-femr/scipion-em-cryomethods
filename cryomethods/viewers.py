@@ -57,6 +57,7 @@ from .protocols.protocol_volume_selector import ProtInitialVolumeSelector
 from .protocols.protocol_ML_landscape import ProtLandscapePCA
 from .protocols.protocol_loc_pdf import ProtLocPDF, PROB_DENSITY_FUNCT, ACC_MOMENTS
 from .protocols.protocol_loc_pdf_classes import ProtLocPDF_classes
+from .protocols.protocol_loc_pdf_classes_abs import ProtLocPDF_classes_abs
 from glob import glob
 from scipy.stats import johnsonsu, lognorm
 from tkinter import messagebox
@@ -1150,7 +1151,7 @@ class PathData(Data):
 
 class CalculateHistogram(ProtocolViewer):
     _label = 'voxel histogram'
-    _targets = [ProtLocPDF, ProtLocPDF_classes]
+    _targets = [ProtLocPDF, ProtLocPDF_classes, ProtLocPDF_classes_abs]
     _environments = [DESKTOP_TKINTER, WEB_DJANGO]
 
     def _defineParams(self, form):
@@ -1161,7 +1162,7 @@ class CalculateHistogram(ProtocolViewer):
                   choices=['PROB_DENSITY_FUNCT', 'ACC_MOMENTS'],
                   important=True,
                   label='Method applied earlier', display=params.EnumParam.DISPLAY_COMBO,
-                  help='Methods appllied to particles.\n'
+                  help='Methods applied to particles.\n'
                        '1. PROB_DENSITY_FUNCT calculates the pdf of a selected voxel from '
                        'the volumes obtained in each range interval.\n'
                        '2. ACC_MOMENTS calculates the pdf of the 4 moments from a selected voxel.'
@@ -1229,7 +1230,7 @@ class CalculateHistogram(ProtocolViewer):
         from cryomethods import Plugin
         Plugin.setEnviron()
 
-        if self.methodApplied == PROB_DENSITY_FUNCT:
+        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
 
             self.rango = np.load(self.protocol._getExtraPath("rango.npy"))
             print(f'Range: \n{self.rango}')
@@ -1296,7 +1297,6 @@ class CalculateHistogram(ProtocolViewer):
             kurt_x = weighted_kurtosis[z, y, x]
             max_bin_x = most_probable_bin[z, y, x]
 
-
             print(f"Weighted mean in voxel {z, y, x}: {mean_x}")
             print(f"Weighted standard deviation in voxel {z, y, x}: {std_dev_x}")
             print(f"Weighted skewness in voxel {z, y, x}: {skew_x}")
@@ -1304,60 +1304,6 @@ class CalculateHistogram(ProtocolViewer):
             print(f"Most probable bin in voxel {z, y, x}: {max_bin_x}")
             print('-----------------------------------------------')
             print('-----------------------------------------------')
-
-            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_mean.mrc"), weighted_mean_noise.astype(np.float32), voxel_size=self.voxel_size)
-            #mrcfile.write(output_max_freq, most_probable_freq.astype(np.float32), voxel_size=self.voxel_size)
-            #mrcfile.write(output_max_bin, bin_values.astype(np.float32), voxel_size=self.voxel_size)
-            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_std.mrc"), weighted_std_noise.astype(np.float32), voxel_size=self.voxel_size)
-            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_skewness.mrc"), weighted_skewness_noise.astype(np.float32), voxel_size=self.voxel_size)
-            #mrcfile.write(os.path.join(self.protocol._getExtraPath(), "noise_weighted_kurtosis.mrc"), weighted_kurtosis_noise.astype(np.float32), voxel_size=self.voxel_size)
-
-
-            #noise_mean_voxel = noise_mean[self.z_value.get(), self.y_value.get(), self.x_value.get()]
-            #noise_std_voxel = noise_std[self.z_value.get(), self.y_value.get(), self.x_value.get()]
-            #noise_skewness_voxel = noise_skew[self.z_value.get(), self.y_value.get(), self.x_value.get()]
-            #noise_kurtosis_voxel = noise_kurt[self.z_value.get(), self.y_value.get(), self.x_value.get()]
-
-            #print(f"Noise weighted mean in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_mean_voxel}")
-            #print(f"Noise weighted standard deviation in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_std_voxel}")
-            #print(f"Noise weighted skewness in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_skewness_voxel}")
-            #print(f"Noise weighted kurtosis in voxel {self.z_value.get(), self.y_value.get(), self.x_value.get()}: {noise_kurtosis_voxel}")
-            #print('-----------------------------------------------')
-            #print('-----------------------------------------------')
-
-
-
-            #x = np.linspace(min(bin_centers), max(bin_centers), 4000) #self.protocol.numBins.get()
-            #x = np.linspace(mean_x - 4 * std_dev_x, mean_x + 4 * std_dev_x, 1000)
-
-            #kurt_x = (kurt_x + 3)
-            #print(f_johnson_M(mean_x, std_dev_x, skew_x, kurt_x))
-            #coef, _, _ = f_johnson_M(mean_x, std_dev_x, skew_x, kurt_x)
-            #gamma, delta, xi, lambd = coef
-            #print('valores de gamma, delta, xi y lamda', gamma, delta, xi, lambd)
-
-            ## si es SL --> sin el kurt_x + 3 en el 0,0,0 salia algo
-
-            #sigma = 1 / delta
-            #scale = np.exp(xi + lambd)
-            #print(f'sigma {sigma} y scale {scale}')
-
-            #x_min = np.exp(xi + lambd - 3 * sigma)  # Ajusta el rango basado en la lognormal
-            #x_max = np.exp(xi + lambd + 3 * sigma)
-            #x = np.linspace(x_min, x_max, 40) #1000
-
-
-            #y_johnson = lognorm.pdf(x, sigma, loc=0, scale=scale)
-
-            #y_johnson = johnsonsu.pdf(x, gamma, delta, loc=xi, scale=abs(lambd))
-            #print('VALOR DE JOHNSON', y_johnson)
-            #y_johnson_scaled = y_johnson * np.sum(voxel_values) * (bin_centers[1] - bin_centers[0])
-
-            #y_johnson *= np.max(voxel_values) / np.max(y_johnson)
-
-            #f = Fitter(voxel_values, distributions=get_common_distributions())
-            #f.fit()
-            #f.summary()
 
             # ------------------------------- Full histogram (noise + protein) ------------------------------------
             plt.figure(figsize=(8, 6))
@@ -1405,7 +1351,7 @@ class CalculateHistogram(ProtocolViewer):
             #plt.plot(bin_centers, y_johnson, color='blue', linewidth=2, linestyle="solid", label="Johnson SU")
             #plt.show()
 
-        elif self.methodApplied == ACC_MOMENTS:
+        elif self.methodApplied.get() == ACC_MOMENTS:
 
             if not self._checkMomentDomain():
                 return
@@ -1419,7 +1365,7 @@ class CalculateHistogram(ProtocolViewer):
                 self._plotJohnsonHistogram(moments, "Real space")
 
             elif viewerDomain == FOURIER_SPACE:
-                moments = self._loadMoments('_fft')
+                moments = self._loadMoments('_fft_mag')
 
                 if not self._checkVoxelCoordinates(moments[0]):
                     return
@@ -1428,7 +1374,7 @@ class CalculateHistogram(ProtocolViewer):
             elif viewerDomain == BOTH:
 
                 moments_real = self._loadMoments('')
-                moments_fft = self._loadMoments('_fft')
+                moments_fft = self._loadMoments('_fft_mag')
                 if not self._checkVoxelCoordinates(moments_real[0]) or not self._checkVoxelCoordinates(moments_fft[0]):
                     return
 
@@ -1490,8 +1436,11 @@ class CalculateHistogram(ProtocolViewer):
         voxel_values[1] = np.sqrt(voxel_values[1])
         voxel_values[3] += 3  # np.sqrt(voxel_values[3] + 3)
         print("Voxel values:", voxel_values)
+        mean = voxel_values[0]
+        std = voxel_values[1]
 
-        x_plot = np.linspace(-1, 1, 500)
+        #x_plot = np.linspace(-1, 1, 500)
+        x_plot = np.linspace(mean - 4*std, mean + 4*std, 500)
         '''revisar el tema del johnsonsu ya que los parámetros a, b, loc y scale de scipy.stats.johnsonsu
         no se corresponden directamente con la media, desviación típica, asimetría ni curtosis. No garantiza
         que la distribucion tenga la media, desviación, asimetría o curtosis determinadas, es decir, el
@@ -1520,7 +1469,58 @@ class CalculateHistogram(ProtocolViewer):
         # plt.grid(axis="y", linestyle="--", alpha=0.7)
         # plt.show()
 
-    def _computeRadialProfile(self, volume):
+    def _computeRadialProfileFourier(self, volume, apix, shifted=True):
+        # Assumes that the Fourier volume was saved with fftshift
+
+        nz, ny, nx = volume.shape
+
+        # Frecuencias por eje en Å^-1
+        kz = np.fft.fftfreq(nz, d=apix)
+        ky = np.fft.fftfreq(ny, d=apix)
+        kx = np.fft.fftfreq(nx, d=apix)
+
+        if shifted:
+            kz = np.fft.fftshift(kz)
+            ky = np.fft.fftshift(ky)
+            kx = np.fft.fftshift(kx)
+
+        KZ, KY, KX = np.meshgrid(kz, ky, kx, indexing='ij')
+
+        r = np.sqrt(KX ** 2 + KY ** 2 + KZ ** 2)
+
+        # Bin radial
+        r_flat = r.ravel()
+        v_flat = volume.ravel()
+
+        finite_mask = np.isfinite(v_flat)
+        r_flat = r_flat[finite_mask]
+        v_flat = v_flat[finite_mask]
+
+        # Definir bins
+        dk = min(
+            np.abs(kx[1] - kx[0]),
+            np.abs(ky[1] - ky[0]),
+            np.abs(kz[1] - kz[0])
+        )
+
+        bins = np.arange(0, r_flat.max() + dk, dk)
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
+        mean_shell = np.full(len(bin_centers), np.nan)
+        std_shell = np.full(len(bin_centers), np.nan)
+
+        for i in range(len(bin_centers)):
+            mask = (r_flat >= bins[i]) & (r_flat < bins[i + 1])
+            values = v_flat[mask]
+
+            if len(values) > 0:
+                mean_shell[i] = np.mean(values)
+                std_shell[i] = np.std(values)
+
+        return bin_centers, mean_shell, std_shell
+
+
+    def _computeRadialProfileReal(self, volume, apix):
         nz, ny, nx = volume.shape
 
         z, y, x = np.indices(volume.shape)
@@ -1529,20 +1529,21 @@ class CalculateHistogram(ProtocolViewer):
         cy = ny // 2
         cx = nx // 2
 
-        r = np.sqrt(
+        # Distancia radial en voxels
+        r_vox = np.sqrt(
             (x - cx) ** 2 +
             (y - cy) ** 2 +
             (z - cz) ** 2
         )
 
-        r_int = r.astype(np.int32)
+        # Bin por radio entero en voxels
+        r_int = r_vox.astype(np.int32)
 
         mean_shell = []
         std_shell = []
 
         for shell in range(r_int.max() + 1):
             values = volume[r_int == shell]
-
             values = values[np.isfinite(values)]
 
             if len(values) == 0:
@@ -1550,40 +1551,44 @@ class CalculateHistogram(ProtocolViewer):
                 std_shell.append(np.nan)
                 continue
 
-            mean_shell.append(np.mean(np.abs(values)))
-            std_shell.append(np.std(np.abs(values)))
+            mean_shell.append(np.mean(values))
+            std_shell.append(np.std(values))
 
         mean_shell = np.array(mean_shell)
         std_shell = np.array(std_shell)
 
-        return mean_shell, std_shell
+        # Eje radial en Å
+        radial_axis = (np.arange(len(mean_shell)) + 0.5) * apix
+
+        return radial_axis, mean_shell, std_shell
 
 
-    def _getFrequencyAxis(self, n_shells, box): #volume
-
-        apix = self.protocol.inputParticles.get().getSamplingRate()
-        freqs = np.arange(n_shells) / (box * apix)
-
-        return freqs
-
-
-    def _plotMomentSet(self, files, nrows=2, ncols=2):
-
+    def _plotMomentSet(self, files, nrows=2, ncols=2, domain = 'fourier', shifted=True):
         fig, axs = plt.subplots(nrows, ncols,
                                 figsize=(6 * ncols, 4 * nrows))
 
         axs = np.array(axs).ravel()
+
+        apix = self.protocol.inputParticles.get().getSamplingRate()
 
         for ax, (filename, title) in zip(axs, files):
             volume = NumpyImgHandler.loadMrc(
                 self.protocol._getExtraPath(filename)
             )
 
-            mean_shell, std_shell = self._computeRadialProfile(volume)
-            freqs = self._getFrequencyAxis(len(mean_shell), volume.shape[0])
+            if domain == 'real':
+                radial_axis, mean_shell, std_shell = self._computeRadialProfileReal(volume, apix)
+                xlabel = "Radius (Å)"
+
+            elif domain == 'fourier':
+                radial_axis, mean_shell, std_shell = self._computeRadialProfileFourier(volume, apix, shifted=shifted)
+                xlabel = "Spatial frequency (Å$^{-1}$)"
+
+            else:
+                raise ValueError("domain must be 'real' or 'fourier'")
 
             ax.plot(
-                freqs,
+                radial_axis,
                 mean_shell,
                 color='black',
                 linewidth=2,
@@ -1591,7 +1596,7 @@ class CalculateHistogram(ProtocolViewer):
             )
 
             ax.fill_between(
-                freqs,
+                radial_axis,
                 mean_shell - std_shell,
                 mean_shell + std_shell,
                 color='tab:blue',
@@ -1601,7 +1606,7 @@ class CalculateHistogram(ProtocolViewer):
 
             ax.set_title(title)
             ax.legend()
-            ax.set_xlabel("Spatial frequency (Å$^{-1}$)")
+            ax.set_xlabel(xlabel)
             ax.set_ylabel("Moment value")
             ax.grid(True)
 
@@ -1624,26 +1629,31 @@ class CalculateHistogram(ProtocolViewer):
         ]
 
         files_fft = [
-            ("1_mean_fft.mrc", "Mean FFT"),
-            ("2_variance_fft.mrc", "Variance FFT"),
-            ("3_skewness_fft.mrc", "Skewness FFT"),
-            ("4_kurtosis_fft.mrc", "Kurtosis FFT")
+            ("1_mean_fft_mag.mrc", "Mean FFT"),
+            ("2_variance_fft_mag.mrc", "Variance FFT"),
+            ("3_skewness_fft_mag.mrc", "Skewness FFT"),
+            ("4_kurtosis_fft_mag.mrc", "Kurtosis FFT")
         ]
 
+        # shell profile en espacio real
         if viewerDomain == REAL_SPACE:
-            self._plotMomentSet(files_real)
+            self._plotMomentSet(files_real, domain ='real')
 
+        # shell profile en espacio de Fourier con fftshift
         elif viewerDomain == FOURIER_SPACE:
-            self._plotMomentSet(files_fft)
+            # Los archivos *_fft_mag.mrc se guardan con fftshift
+            self._plotMomentSet(files_fft, domain ='fourier', shifted=True)
 
         elif viewerDomain == BOTH:
+            self._plotMomentSet(files_real, nrows=2, ncols=2, domain='real')
+            self._plotMomentSet(files_fft, nrows=2, ncols=2, domain='fourier', shifted=True)
 
-            both_files = []
+            #both_files = []
 
-            for real, fft in zip(files_real, files_fft):
-                both_files.extend([real, fft])
+            #for real, fft in zip(files_real, files_fft):
+            #    both_files.extend([real, fft])
 
-            self._plotMomentSet(both_files, nrows=4, ncols=2)
+            #self._plotMomentSet(both_files, nrows=4, ncols=2)
 
 
 
@@ -1652,3 +1662,90 @@ class CalculateHistogram(ProtocolViewer):
                          'shellStatistics': self._plotShellStatistics}
 
         return visualizeDict
+
+    # def _computeRadialProfile2(self, volume):
+    #    nz, ny, nx = volume.shape
+
+    #    z, y, x = np.indices(volume.shape)
+
+    #    cz = nz // 2
+    #    cy = ny // 2
+    #    cx = nx // 2
+
+    #    r = np.sqrt(
+    #        (x - cx) ** 2 +
+    #        (y - cy) ** 2 +
+    #        (z - cz) ** 2
+    #    )
+
+    #    r_int = r.astype(np.int32)
+
+    #    mean_shell = []
+    #    std_shell = []
+
+    #    for shell in range(r_int.max() + 1):
+    #        values = volume[r_int == shell]
+
+    #        values = values[np.isfinite(values)]
+
+    #        if len(values) == 0:
+    #            mean_shell.append(np.nan)
+    #            std_shell.append(np.nan)
+    #            continue
+
+    #        mean_shell.append(np.mean(values))
+    #        std_shell.append(np.std(values))
+
+    #    mean_shell = np.array(mean_shell)
+    #    std_shell = np.array(std_shell)
+
+    #    return mean_shell, std_shell
+
+    # def _getFrequencyAxis(self, n_shells, box): #volume
+
+    #    apix = self.protocol.inputParticles.get().getSamplingRate()
+    #    freqs = np.arange(n_shells) / (box * apix)
+
+    #    return freqs
+
+
+    #def _plotMomentSet2(self, files, nrows=2, ncols=2):
+
+    #    fig, axs = plt.subplots(nrows, ncols,
+    #                            figsize=(6 * ncols, 4 * nrows))
+
+    #    axs = np.array(axs).ravel()
+
+    #    for ax, (filename, title) in zip(axs, files):
+    #        volume = NumpyImgHandler.loadMrc(
+    #            self.protocol._getExtraPath(filename)
+    #        )
+
+    #        mean_shell, std_shell = self._computeRadialProfile(volume)
+    #        freqs = self._getFrequencyAxis(len(mean_shell), volume.shape[0])
+
+    #        ax.plot(
+    #            freqs,
+    #            mean_shell,
+    #            color='black',
+    #            linewidth=2,
+    #            label='Mean shell'
+    #        )
+
+    #        ax.fill_between(
+    #            freqs,
+    #            mean_shell - std_shell,
+    #            mean_shell + std_shell,
+    #            color='tab:blue',
+    #            alpha=0.25,
+    #            label='±1 std'
+    #        )
+
+    #        ax.set_title(title)
+    #        ax.legend()
+    #        ax.set_xlabel("Spatial frequency (Å$^{-1}$)")
+    #        ax.set_ylabel("Moment value")
+    #        ax.grid(True)
+
+    #    plt.tight_layout()
+    #    plt.show()
