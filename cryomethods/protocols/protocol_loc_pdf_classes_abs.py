@@ -116,8 +116,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         #                    condition='gpu',
         #                    label='GPU Id')
 
-        groupRelion.addParam('symmetryGroup', StringParam, default='c1',
-                      label="Symmetry group",
+        groupRelion.addParam('relionSymmetryGroup', StringParam, default='c1',
+                      label="Symmetry group Relion",
                       help='See [[https://relion.readthedocs.io/'
                            'en/latest/Reference/Conventions.html#symmetry]'
                            '[Relion Symmetry]] page for a description '
@@ -138,8 +138,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         #----------------------------------Xmipp reconstruction---------------------------------
         groupXmipp = form.addGroup('Xmipp', condition="reconstruction==%d" % XMIPP_RECONSTRUCTION) #"not reconstructRelion"
-        groupXmipp.addParam('symmetryGroup', StringParam, default='c1',
-                       label="Symmetry group",
+        groupXmipp.addParam('xmippSymmetryGroup', StringParam, default='c1',
+                       label="Symmetry group Xmipp",
                        help='Enforce symmetry in projections')
 
         groupXmipp.addParam('maxRes', FloatParam, default=-1,
@@ -231,6 +231,12 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             if not ids:
                 continue
 
+            # Deterministic seed for reproducibility
+            # 42: arbitrary constant
+            # cls.getObjId(): ensures different classes get different seeds
+            # m_index: ensures different bootstrap iterations get different samples from the same
+            #          class; without it, every iteration would select the same particles, defeating
+            #          the purpose of bootstrapping
             random.seed(42 + cls.getObjId() + m_index)
 
             selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
@@ -248,7 +254,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         if self.reconstruction == RELION_RECONSTRUCTION:
             # Save new .star file
-            output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
+            output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
             writeSetOfParticles(
                 outputParticles,
                 output_star,
@@ -265,7 +271,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
 
     def reconstructStep(self, m_index=1):
-
         env = Plugin.getEnviron()
 
         volume_name = 'vol_' + str(m_index) + '.mrc'
@@ -276,9 +281,9 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         if self.reconstruction == RELION_RECONSTRUCTION:
 
-            params_relion = ' --i %s' % self._getTmpPath(f'sample_{m_index}.star') #'inputParticles.star'
-            params_relion += ' --o %s' % self._getPath(volume_name) #output_volume
-            params_relion += ' --sym %s' % self.symmetryGroup.get()
+            params_relion = ' --i %s' % self._getExtraPath(f'sample_{m_index}.star') #'inputParticles.star'
+            params_relion += ' --o %s' % self._getTmpPath(volume_name) #_getTmpPath   #_getPath
+            params_relion += ' --sym %s' % self.relionSymmetryGroup.get()
             params_relion += ' --pad %0.1f' % self.paddingFactorRelion.get()
             #params_relion += ' --subset -1 --class -1'
 
@@ -306,8 +311,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         else:
 
             params = ' -i %s' % self._getTmpPath(f'sample_{m_index}.xmd') #input_particles
-            params += ' -o %s' % self._getPath(volume_name) #output_volume
-            params += ' --sym %s' % self.symmetryGroup.get()
+            params += ' -o %s' % self._getTmpPath(volume_name) #_getTmpPath   #_getPath
+            params += ' --sym %s' % self.xmippSymmetryGroup.get()
             params += ' --padding %0.1f %0.1f' % (self.projection.get(), self.volume.get())
 
             # Addition of the Sampling rate, the maximum resolution and extra parameters (if needed)
@@ -328,8 +333,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             self.runJob('xmipp_reconstruct_fourier_accel', params, env=env)
 
         print('TAMAÑO DEL VOXEL', self.voxel_size)
-        self.one_volume = NumpyImgHandler.loadMrc(os.path.join(self._getPath(), volume_name))
-        # _getTmpPath
+        self.one_volume = NumpyImgHandler.loadMrc(os.path.join(self._getTmpPath(), volume_name))
+        # _getTmpPath  #_getPath
 
         print(self.one_volume)
         print('tipo de dato de los self.one_volume', self.one_volume.dtype)
