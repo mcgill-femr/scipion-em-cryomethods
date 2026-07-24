@@ -191,30 +191,35 @@ class ProtAutoBase(ProtocolBase):
             matrix = npIh.getAllNpList(listVol, 2)
             labels = self._clusteringData(matrix)
 
-            clsChange = 0
             prevStar = self._getFileName('rawFinalData')
-            pTable = Table()
             origStar = self._getFileName('input_star', lev=1, rLev=1)
             opticsTable = Table(fileName=origStar, tableName='optics')
             print("OPTABLE: ", origStar, opticsTable.size())
-            for row in pTable.iterRows(prevStar, key="rlnClassNumber",
-                                       tableName='particles'):
+            tableIn = Table(fileName=prevStar, tableName='particles')
+            cols = [str(c) for c in tableIn.getColumnNames()]
+
+            # A cluster label can occur in several non-contiguous blocks of
+            # the input classes.  The old code wrote the same STAR file at
+            # every block transition, overwriting rows written by an earlier
+            # block.  Accumulate all rows per output class and write once.
+            groupedTables = {}
+            for row in Table.iterRows(prevStar, key="rlnClassNumber",
+                                      tableName='particles'):
                 clsPart = row.rlnClassNumber
                 newClass = labels[clsPart - 1] + 1
                 newRow = row._replace(rlnClassNumber=newClass)
 
-                if not newClass == clsChange:
-                    if not clsChange == 0:
-                        self.writeStar(fn, ouTable, opticsTable)
-                    clsChange = newClass
-                    fn = self._getFileName('input_star', lev=self._level,
-                                           rLev=newClass)
-                    tableIn = Table(fileName=prevStar, tableName='particles')
-                    cols = [str(c) for c in tableIn.getColumnNames()]
-                    ouTable = Table(columns=cols, tableName='particles')
-                ouTable.addRow(*newRow)
-            print("mergeClassesStep ouTable.size: ", ouTable.size())
-            self.writeStar(fn, ouTable, opticsTable)
+                if newClass not in groupedTables:
+                    groupedTables[newClass] = Table(columns=cols,
+                                                    tableName='particles')
+                groupedTables[newClass].addRow(*newRow)
+
+            for newClass in sorted(groupedTables):
+                outTable = groupedTables[newClass]
+                fn = self._getFileName('input_star', lev=self._level,
+                                       rLev=newClass)
+                print("mergeClassesStep %s size: %s" % (fn, outTable.size()))
+                self.writeStar(fn, outTable, opticsTable)
 
         else:
             prevData = self._getFileName('rawFinalData')

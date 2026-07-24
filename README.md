@@ -48,56 +48,25 @@ Cryomethods is a cryo-electron microscopy image processing plugin of Scipion fra
 
 ## 5) Install cryomethods:
 
-  #Download cryomethods plugin in the folder where Scipion is installed, in my case:
+Install the native build tools and FFTW headers once. `alignLib` is written in
+C; no Fortran compiler is required.
 
-  $cd  /home/jvargas/Software
-  
-  $git clone https://github.com/mcgill-femr/scipion-em-cryomethods.git
+  $sudo apt-get install build-essential libfftw3-dev
 
-  #Download cryomethods inside scipion/em folder, in my case: /home/jvargas/Software/scipion/software/em
-  
-  $cd /home/jvargas/Software/scipion/software/em
-  
-  $git clone https://github.com/mcgill-femr/cryomethods.git 
+SWIG is installed automatically in the Scipion Python environment by the
+plugin installer.
 
-  #rename cryomehods folder
-  
-  $mv cryomethods cryomethods-0.1
-  
-  #install swig from anaconda
-  
-  $conda install -c anaconda swig #(install swig)
+Install the plugin through Scipion. The installer now compiles `alignLib`,
+checks every compiler command, and configures its runtime library path. No
+second repository, folder rename, manual compilation, or symbolic links are
+needed.
 
-  #install python3-dev
-  
-  $sudo apt-get install python3-dev
-  
-  #enter cryomethods folder
-  
-  $cd cryomethods-0.1
-
-  #compile alignLib
-  
-  $scipion3 python alignLib/compile.py #should compile without errors
-
-  #install cryomethods plugin in scipion
-  
   $scipion3 installp -p scipion-em-cryomethods --devel
+  $scipion3 config --update
 
-  #Copy libraries to scipion libraries from alignLib folder (inside cryomethods folder) to scipion lib folder, in my case:
-  
-  $cd alignLib/frm/swig
+Optional validation:
 
-  $ln -s /home/jvargas/Software/scipion/software/em/cryomethods-0.1/alignLib/SpharmonicKit27/libsphkit.so /home/jvargas/Software/scipion/software/lib/libsphkit.so
-  
-  $ln -s /home/jvargas/Software/scipion/software/em/cryomethods-0.1/alignLib/frm/swig/_swig_frm.so /home/jvargas/Software/scipion/software/lib/_swig_frm.so
-
-  #scipion config update
-  
-  $scipion3 config --update 
-
-  #Check that in scipion.cof (/home/jvargas/Software/scipion/config/scipion.conf) the environment variables RELION_CRUOMETHODS_HOME, XMIPP_CRYOMETHODS_HOME and CRYOMETHODS_HOME   
-  #are correctly set up, if not change the path (in my case Relion path was incorrect).
+  $scipion3 python -c "from cryomethods import Plugin; Plugin.setEnviron(); import frm; print('alignLib OK')"
 
   ## 6) Use case: 3D autoclassification 
   We have included a use case to show how to run the 3D autoclassification method of CryoMethods plugin with real data. To run this example run in the command line the following line:

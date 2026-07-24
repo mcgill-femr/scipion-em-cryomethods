@@ -206,7 +206,7 @@ setup(
          'Bug Reports': 'https://github.com/mcgill-femr/scipion-em-cryomethods/issues/',
          'Source': 'https://github.com/mcgill-femr/scipion-em-cryomethods/',
      },
-    install_requires=[requirements],
+    install_requires=requirements,
     entry_points={
         'pyworkflow.plugin': 'cryomethods = cryomethods'
     },
