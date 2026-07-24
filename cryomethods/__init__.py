@@ -28,6 +28,7 @@
 This sub-package contains cryoMethods protocols and tools.
 """
 import os, sys
+import shlex
 import pwem
 import pyworkflow.utils as pwutils
 
@@ -64,16 +65,16 @@ class Plugin(pwem.Plugin):
                       cls.getHome('alignLib/frm/swig'),
                       cls.getHome('alignLib/tompy')]
 
-        libPath = [cls.getHome('acryoMethHomelignLib/frm/swig'),
+        libPath = [cls.getHome('alignLib/frm/swig'),
                    cls.getHome('alignLib/SpharmonicKit27')]
 
-        # for lPath in libPath:
-        #     if not lPath in os.environ['LD_LIBRARY_PATH']:
-        #        environ.update({'LD_LIBRARY_PATH': lPath},
-        #                       position=pwutils.Environ.BEGIN)
+        for lPath in libPath:
+            if lPath and lPath not in environ.get('LD_LIBRARY_PATH', '').split(os.pathsep):
+                environ.update({'LD_LIBRARY_PATH': lPath},
+                                position=pwutils.Environ.BEGIN)
 
         for pPath in pythonPath:
-            if not pPath in os.environ['PYTHONPATH']:
+            if pPath not in os.environ.get('PYTHONPATH', '').split(os.pathsep):
                 env.update({'PYTHONPATH': pPath},
                                position=pwutils.Environ.BEGIN)
         env.update({'PATH': Plugin.getVar(NMA_HOME)},
@@ -211,18 +212,23 @@ class Plugin(pwem.Plugin):
 
     @classmethod
     def defineBinaries(cls, env):
-        libSphPath = cls.getHome('alignLib/SpharmonicKit27/libsphkit.so')
-        libFrmPath = cls.getHome('alignLib/frm/swig/_swig_frm.so')
         environ = cls.getEnviron()
         environ.update(cls.getVars())
-        commands = ('python alignLib/compile.py; ln -sf %s ../../lib/; '
-                    'python programs/src/programs_compile.py;'
-                    ' ln -sf %s ../../lib/' %(libSphPath, libFrmPath))
-        target = cls.getHome('programs/bin/angular_neighbourhood')
+        builder = os.path.join(os.path.dirname(__file__), 'alignlib_builder.py')
+        python = shlex.quote(sys.executable)
+        commands = '%s %s --root .' % (python, shlex.quote(builder))
+        target = cls.getHome('alignLib/frm/swig/_swig_frm.so')
         url= 'https://github.com/mcgill-femr/cryomethods/archive/v0.1.tar.gz'
         env.addPackage('cryomethods', version='0.1',
                        url=url, vars=environ,
                        commands=[(commands, target)])
+        # SWIG is a build-time dependency of alignLib.  Install it in the
+        # Scipion Python environment instead of requiring a system package.
+        try:
+            env.addPipModule('swig')
+        except Exception as ex:
+            if "Duplicated target 'swig'" not in str(ex):
+                raise
 
         # PIP PACKAGES #
         def addPipModule(moduleName, *args, **kwargs):
