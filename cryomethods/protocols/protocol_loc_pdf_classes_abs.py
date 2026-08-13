@@ -9,7 +9,7 @@ from xmipp3.convert import writeSetOfParticles as writeSetOfParticlesXmipp
 from cryomethods.convert import writeSetOfParticles
 from cryomethods.functions import NumpyImgHandler
 import numpy as np
-import os, random
+import os, random, shutil, pickle
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
 import mrcfile
@@ -170,20 +170,20 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
 
     # --------------------------- INSERT steps functions ----------------------
-
     def _insertAllSteps(self):
 
         self._insertFunctionStep('convertInputStep')
+        self._insertFunctionStep('_prepareParticleClassesStep')
 
         num_batches = self.numBatches.get()
 
         if self.methodApply.get() == PROB_DENSITY_FUNCT:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
-                self._insertFunctionStep('reconstructStep', m)
-                self._insertFunctionStep('_calculatePDF', m)
+                #self._insertFunctionStep('reconstructStep', m)
+                #self._insertFunctionStep('_calculatePDF', m)
 
-            self._insertFunctionStep('statistic_volumes')
+            #self._insertFunctionStep('statistic_volumes')
 
 
         elif self.methodApply.get() == ACC_MOMENTS:
@@ -215,45 +215,210 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         writeSetOfParticlesXmipp(imgSet, imgXmd)
 
 
-    def _processParticles(self, m_index=1):
-
+    def _prepareParticleClassesStep(self):
         prot_classes = self.inputProt.get()
 
-        inputParticles = prot_classes.getImages()
+        # 1. COLLECT CLASS INFORMATION
+        # =========================================================
+        class_info = []
+        for cls in prot_classes:
+            # returns the IDs of the particles belonging to that class
+            particle_ids = set(cls.getIdSet())
 
+            if not particle_ids:
+                continue
+
+            class_info.append({
+                "class_id": cls.getObjId(),  #identifies the Class2D object
+                "ids": particle_ids,
+                "size": len(particle_ids)
+            })
+
+        # 2. FIND PARTICLES THAT APPEAR IN MULTIPLE CLASSES
+        # =========================================================
+        # Map each particle ID to the classes it belongs to
+        particle_classes = {}
+        for info in class_info:
+            class_id = info["class_id"]
+
+            # Assign the current class ID to each particle in the class
+            for particle_id in info["ids"]:
+                if particle_id not in particle_classes:
+                    particle_classes[particle_id] = []
+
+                particle_classes[particle_id].append(class_id)
+
+        # 3. FIND OVERLAPPING PARTICLES
+        # =========================================================
+        # Identify particles assigned to more than one class
+        overlapping_particles = {
+            particle_id: class_ids
+            for particle_id, class_ids in particle_classes.items() if len(class_ids) > 1
+        }
+        print("Particle/class overlap check")
+        print("==============================================")
+
+        print(f"Total unique particles before resolving overlap: {len(particle_classes)}")
+        print(f"Particles present in multiple classes: {len(overlapping_particles)}")
+
+        # If a particle belongs to several classes, keep it in the MINORITY class, i.e. the class
+        # containing fewer particles
+        # In case of a tie, the class with the smallest class ID wins. This makes the decision deterministic
+        allowed_ids_by_class = {
+            info["class_id"]: set(info["ids"])
+            for info in class_info
+        }
+
+        if overlapping_particles:
+            print("Resolving overlapping particles...")
+            print("----------------------------------------------")
+
+            class_sizes = {
+                info["class_id"]: info["size"]
+                for info in class_info
+            }
+
+            for particle_id, class_ids in overlapping_particles.items():
+                # Sort by number of particles in the class and class ID. The smallest class wins
+                winning_class = min(
+                                class_ids,
+                                key=lambda class_id: (
+                                    class_sizes[class_id],
+                                    class_id)
+                                )
+
+                print(f"Particle {particle_id}: "
+                      f"classes {class_ids} -> "
+                      f"keeping in minority class {winning_class} "
+                      f"(size={class_sizes[winning_class]})")
+
+                # Remove the particle from every class except the winning class
+                for class_id in class_ids:
+                    if class_id != winning_class:
+                        allowed_ids_by_class[class_id].discard(particle_id)
+
+            print("----------------------------------------------")
+            print(f"Resolved {len(overlapping_particles)} overlapping particles")
+            print("----------------------------------------------")
+
+        else:
+            print("No particle overlap detected")
+
+        # 4. FINAL VALIDATION
+        # After resolving overlaps, no particle should belong to more than one class.
+        # =========================================================
+        particle_occurrences = {}
+
+        for class_id, particle_ids in allowed_ids_by_class.items():
+
+            for particle_id in particle_ids:
+                particle_occurrences.setdefault(
+                    particle_id,
+                    []
+                ).append(class_id)
+
+        remaining_overlaps = {
+            particle_id: class_ids
+            for particle_id, class_ids in particle_occurrences.items() if len(class_ids) > 1
+        }
+
+        if remaining_overlaps:
+            raise RuntimeError(
+                f"Overlap still exists after resolving classes: {remaining_overlaps}")
+
+        print("----------------------------------------------")
+        print("Overlap resolution completed successfully")
+        print("----------------------------------------------")
+
+        # 5. SAVE RESULT
+        # =========================================================
+        output_file_particles = self._getExtraPath('allowed_ids_by_class.pkl')
+
+        with open(output_file_particles, 'wb') as f:
+            pickle.dump(allowed_ids_by_class, f)
+
+        print("Saved resolved particle assignment to:", output_file_particles )
+        print("==============================================")
+
+
+    def _processParticles(self, m_index=1):
+
+        assignment_file = self._getExtraPath('allowed_ids_by_class.pkl')
+        if not os.path.exists(assignment_file):
+            raise RuntimeError(f"Particle assignment file not found: {assignment_file}")
+
+        with open(assignment_file, 'rb') as f:
+            allowed_ids_by_class = pickle.load(f)
+
+        prot_classes = self.inputProt.get()
+        inputParticles = prot_classes.getImages()
         outputParticles = self._createSetOfParticles()
         outputParticles.copyInfo(inputParticles)
 
-        for cls in prot_classes:
-            ids = list(cls.getIdSet())
-            #print('ids', sorted(ids))
+        # IMPORTANT:
+        # We sample from allowed_ids_by_class, NOT directly from cls.getIdSet().
+        # Therefore particles that were found in several classes are only available in their minority class.
+        used_ids = set()
+        duplicates_skipped = 0
+
+        for class_id, ids_set in allowed_ids_by_class.items():
+            ids = list(ids_set)
 
             if not ids:
                 continue
 
             # Deterministic seed for reproducibility
             # 42: arbitrary constant
-            # cls.getObjId(): ensures different classes get different seeds
+            # class_id: ensures different classes get different seeds
             # m_index: ensures different bootstrap iterations get different samples from the same
             #          class; without it, every iteration would select the same particles, defeating
             #          the purpose of bootstrapping
-            random.seed(42 + cls.getObjId() + m_index)
+            random.seed(42 + class_id + m_index)
 
             selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
             #print('selected_ids', selected_ids)
             #print("------------------\n")
 
-            for objId in selected_ids:
-                particle = inputParticles[objId]
+            for particle_id in selected_ids:
+                # Even after resolving class overlaps, make sure the same particle can NEVER be added twice to
+                # the reconstruction.
+                if particle_id in used_ids:
+                    duplicates_skipped += 1
+
+                    print(f"WARNING: Particle {particle_id} was already selected in bootstrap {m_index}. "
+                          f"Skipping duplicate")
+                    continue
+
+                used_ids.add(particle_id)
+                particle = inputParticles[particle_id]
                 outputParticles.append(particle.clone())
 
-        #self._defineOutputs(outputParticles=outputParticles)
+        num_selected = len(used_ids)
+        num_output = outputParticles.getSize()
+
+        print("==============================================")
+        print(f"BOOTSTRAP {m_index} CHECK")
+        print("==============================================")
+
+        print(f"Particles selected: {num_selected}")
+        print(f"Duplicates skipped during bootstrap: {duplicates_skipped}")
+        print(f"Particles in output: {num_output}")
+
+        # This should always be true because used_ids is a set and duplicates are filtered before append()
+        if num_selected != num_output:
+            raise RuntimeError(
+                f"Internal consistency error in bootstrap "
+                f"{m_index}: "
+                f"{num_selected} selected particles but "
+                f"{num_output} particles in output."
+            )
+
+        print("==============================================")
+
         outputParticles.write()
         outputParticles.close()
 
-
         if self.reconstruction == RELION_RECONSTRUCTION:
-            # Save new .star file
             output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
             writeSetOfParticles(
                 outputParticles,
@@ -268,6 +433,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             # Save new .xmd
             output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
             writeSetOfParticlesXmipp(outputParticles, output_xmd)
+            print("XMD written:", output_xmd)
 
 
     def reconstructStep(self, m_index=1):
@@ -333,11 +499,12 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             self.runJob('xmipp_reconstruct_fourier_accel', params, env=env)
 
         print('TAMAÑO DEL VOXEL', self.voxel_size)
-        self.one_volume = NumpyImgHandler.loadMrc(os.path.join(self._getTmpPath(), volume_name))
+        #self.one_volume = NumpyImgHandler.loadMrc(os.path.join(self._getTmpPath(), volume_name))
         # _getTmpPath  #_getPath
 
-        print(self.one_volume)
-        print('tipo de dato de los self.one_volume', self.one_volume.dtype)
+        #print(self.one_volume)
+        #print('tipo de dato de los self.one_volume', self.one_volume.dtype)
+        #self.one_volume = None
 
 
     def _calculateMoments(self, m_index):
@@ -444,6 +611,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         )
         print('======================VARIANZA=================================', variance_real)
 
+        std_real = np.sqrt(variance_real)
+
         skewness_real = np.zeros_like(self.M2_real, dtype=np.float64)
         kurtosis_real = np.zeros_like(self.M2_real, dtype=np.float64)
 
@@ -452,6 +621,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         with np.errstate(divide='ignore', invalid='ignore'):
             skewness_real[mask] = (np.sqrt(self.n_real[mask]) * self.M3_real[mask]) / (self.M2_real[mask] ** 1.5)
 
+            # voxels with variance <= eps are excluded from the kurtosis computation and remain equal to 0
             kurtosis_real[mask] = ((self.n_real[mask] * self.M4_real[mask]) / (self.M2_real[mask] ** 2)) - 3.0
 
         print('======================SKEWNESS=================================', skewness_real)
@@ -462,7 +632,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         kurtosis_real = np.nan_to_num(kurtosis_real, nan=0.0, posinf=0.0, neginf=0.0)
 
         ##### INICIO COMPROBACIONES
-        if self.debug:
+        if getattr(self, 'debug', False):
             print("Kurtosis min:", np.min(kurtosis_real))
             print("Kurtosis max:", np.max(kurtosis_real))
             print("Kurtosis std:", np.std(kurtosis_real))
@@ -473,40 +643,18 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             center = kurtosis_real.shape[0] // 2
 
             print(kurtosis_real[center])
-            print(
-                "Central slice min:",
-                np.min(kurtosis_real[center])
-            )
-
-            print(
-                "Central slice max:",
-                np.max(kurtosis_real[center])
-            )
+            print("Central slice min:", np.min(kurtosis_real[center]))
+            print("Central slice max:", np.max(kurtosis_real[center]))
 
             high_var_mask = self.M2_real > np.percentile(self.M2_real, 95)
-
-            print(
-                "Kurtosis in high variance region:",
-                np.mean(kurtosis_real[high_var_mask]),
-                np.std(kurtosis_real[high_var_mask])
-            )
+            print("Kurtosis in high variance region:", np.mean(kurtosis_real[high_var_mask]), np.std(kurtosis_real[high_var_mask]))
             ##### FIN COMPROBACIONES
 
         print('==============SKEWNESS QUITANDO ARTEFACTOS=================', skewness_real)
         print('==============KURTOSIS QUITANDO ARTEFACTOS=================', kurtosis_real)
 
         # ------------------------------------------------------------
-        # 5. Store in memory
-        # ------------------------------------------------------------
-        #self.vol_moments = [
-        #    self.mean_real,
-        #    variance_real,
-        #    skewness_real,
-        #    kurtosis_real
-        #]
-
-        # ------------------------------------------------------------
-        # 6. Save accumulators for next batch
+        # 5. Save accumulators for next batch
         # ------------------------------------------------------------
         np.save(os.path.join(self._getPath(), "n_real.npy"), self.n_real)
         np.save(os.path.join(self._getPath(), "mean_real.npy"), self.mean_real)
@@ -527,12 +675,10 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         num_small = np.sum(self.M2_real <= eps)
         total = self.M2_real.size
 
-        print(
-            f"{100 * num_small / total:.2f}% voxels have M2 <= eps"
-        )
+        print(f"{100 * num_small / total:.2f}% voxels have M2 <= eps")
 
         # ------------------------------------------------------------
-        # 7. Save final MRC volumes only at last batch
+        # 6. Save final MRC volumes only at last batch
         # ------------------------------------------------------------
         if m_index == self.numBatches.get():
             mrcfile.write(
@@ -543,6 +689,11 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             mrcfile.write(
                 os.path.join(self._getExtraPath(), "2_variance.mrc"),
                 variance_real.astype(np.float32),
+                voxel_size=self.voxel_size
+            )
+            mrcfile.write(
+                os.path.join(self._getExtraPath(), "2_std.mrc"),
+                std_real.astype(np.float32),
                 voxel_size=self.voxel_size
             )
             mrcfile.write(
@@ -667,6 +818,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         print('======================VARIANZA=================================', variance_fft)
 
+        std_fft = np.sqrt(variance_fft)
+
         skewness_fft = np.zeros_like(self.M2_mag_fft)
         kurtosis_fft = np.zeros_like(self.M2_mag_fft)
 
@@ -677,6 +830,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         with np.errstate(divide='ignore', invalid='ignore'):
             skewness_fft[mask] = (np.sqrt(self.n_mag_fft[mask]) * self.M3_mag_fft[mask])/(self.M2_mag_fft[mask] ** 1.5)
 
+            # voxels with variance <= eps are excluded from the kurtosis computation and remain equal to 0
             kurtosis_fft[mask] = ((self.n_mag_fft[mask] * self.M4_mag_fft[mask]) / (self.M2_mag_fft[mask] ** 2)) - 3.0
 
         print('======================SKEWNESS======================', skewness_fft)
@@ -698,40 +852,20 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         center = kurtosis_fft.shape[0] // 2
 
         print(kurtosis_fft[center])
-        print(
-            "Central slice min fft:",
-            np.min(kurtosis_fft[center])
-        )
-
-        print(
-            "Central slice max fft:",
-            np.max(kurtosis_fft[center])
-        )
+        print("Central slice min fft:", np.min(kurtosis_fft[center]))
+        print("Central slice max fft:", np.max(kurtosis_fft[center]))
 
         high_var_mask = self.M2_mag_fft > np.percentile(self.M2_mag_fft, 95)
-
-        print(
-            "Kurtosis in high variance region fft:",
-            np.mean(kurtosis_fft[high_var_mask]),
-            np.std(kurtosis_fft[high_var_mask])
-        )
+        print("Kurtosis in high variance region fft:",
+                np.mean(kurtosis_fft[high_var_mask]),
+                np.std(kurtosis_fft[high_var_mask]))
         ##### FIN COMPROBACIONES
 
         print('============SKEWNESS QUITANDO ARTEFACTOS FFT================', skewness_fft)
         print('============KURTOSIS QUITANDO ARTEFACTOS FFT================', kurtosis_fft)
 
         # ------------------------------------------------------------
-        # 5. Store in memory
-        # ------------------------------------------------------------
-        #self.vol_moments_fft = [
-        #    self.mean_mag_fft,
-        #    variance_fft,
-        #    skewness_fft,
-        #    kurtosis_fft
-        #]
-
-        # ------------------------------------------------------------
-        # 6. Save accumulators for next bootstrap batch
+        # 5. Save accumulators for next bootstrap batch
         # ------------------------------------------------------------
         np.save(os.path.join(self._getPath(), "n_mag_fft.npy"), self.n_mag_fft)
         np.save(os.path.join(self._getPath(), "mean_mag_fft.npy"), self.mean_mag_fft)
@@ -740,12 +874,13 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         np.save(os.path.join(self._getPath(), "M4_mag_fft.npy"), self.M4_mag_fft)
 
         # ------------------------------------------------------------
-        # 7. Save MRC volumes only on the last batch
+        # 6. Save MRC volumes only on the last batch
         # ------------------------------------------------------------
         if m_index == self.numBatches.get():
             # Center spectrum only for visualization
             vis_mean = np.fft.fftshift(self.mean_mag_fft)
             vis_var = np.fft.fftshift(variance_fft)
+            vis_std = np.fft.fftshift(std_fft)
             vis_skew = np.fft.fftshift(skewness_fft)
             vis_kurt = np.fft.fftshift(kurtosis_fft)
 
@@ -758,6 +893,12 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             mrcfile.write(
                 os.path.join(self._getExtraPath(), "2_variance_fft_mag.mrc"),
                 vis_var.astype(np.float32),
+                voxel_size=self.voxel_size
+            )
+
+            mrcfile.write(
+                os.path.join(self._getExtraPath(), "2_std_fft_mag.mrc"),
+                vis_std.astype(np.float32),
                 voxel_size=self.voxel_size
             )
 
@@ -783,16 +924,13 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             min_value = self.minRange.get()
             max_value = self.maxRange.get()
 
-            self.len_interv = (max_value - min_value)/num_bins
+            self.rango = np.linspace(min_value, max_value, num_bins + 1)
 
-            self.rango = []
-            for i in range(num_bins + 1):
-               self.rango.append(min_value + i * self.len_interv)
-
-            np.save(self._getExtraPath('rango.npy'), np.array(self.rango))
-
+            np.save(self._getExtraPath('rango.npy'), self.rango)
+            print(f'Min real: {min_value}, Max real: {max_value}')
             print(self.rango)
-            self.range_volumes = [np.zeros_like(self.one_volume, dtype=float) for _ in range(len(self.rango) - 1)]
+            self.range_volumes = [np.zeros_like(vol, dtype=float) for _ in range(len(self.rango) - 1)]
+            #self.range_volumes = [np.zeros_like(self.one_volume, dtype=float) for _ in range(len(self.rango) - 1)]
 
         #else:
         #    self.rango = np.load(self._getExtraPath('rango.npy'))
@@ -800,47 +938,86 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         #        NumpyImgHandler.loadMrc(os.path.join(self._getExtraPath(), f'rangeVol_{i + 1}.mrc'))
         #        for i in range(len(self.rango) - 1)]
 
+        # COMPROBACIONES
+        outside_mask = ((vol < self.rango[0]) | (vol > self.rango[-1]))
+                       #(self.one_volume < self.rango[0]) | (self.one_volume > self.rango[-1])
+
+        print("Outside voxels:", np.count_nonzero(outside_mask))
+        print("Outside fraction:",
+                np.count_nonzero(outside_mask) /
+                vol.size
+                #self.one_volume.size
+        )
+
+
         for i in range(len(self.rango) - 1):
             inf_limit = self.rango[i]
             sup_limit = self.rango[i + 1]
 
-            #if i == len(self.rango) - 2:
-            #    mask = (self.one_volume >= inf_limit) & (self.one_volume <= sup_limit)
-            #else:
-            #    mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
+            if i == len(self.rango) - 2:    #last bin
+                mask = (vol >= inf_limit) & (vol <= sup_limit)
+                #mask = (self.one_volume >= inf_limit) & (self.one_volume <= sup_limit)
+            else:
+                mask = (vol >= inf_limit) & (vol < sup_limit)
+                #mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
 
-            mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
-            #print(f'Voxel count in range: {np.count_nonzero(mask)}')
+            ##mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
+            ##print(f'Voxel count in range: {np.count_nonzero(mask)}')
 
             self.range_volumes[i][mask] += 1
             #print(f'Non-zero count in range_volumes[{i}]: {np.count_nonzero(self.range_volumes[i])}')
-
-            np.save(self._getExtraPath('first_bin.npy'), self.range_volumes[0])
             mrcfile.write(os.path.join(self._getExtraPath(), f'rangeVol_{i+1}.mrc'), self.range_volumes[i].astype(np.float32)
                           ,voxel_size=self.voxel_size, overwrite=True)
 
-            #voxel_distribution = [vol[200, 200, 200] for vol in self.range_volumes]
-            #print("Distribución del voxel (200, 200, 200) entre bins:", voxel_distribution)
-            #plt.bar(range(len(voxel_distribution)), voxel_distribution)
-            #plt.title("Histograma del voxel (200, 200, 200)")
-            #plt.xlabel("Bin")
-            #plt.ylabel("Frecuencia")
-            #plt.show()
-            #print('tipo de dato de los self.range_volumes', self.range_volumes[0].dtype)
+        np.save(self._getExtraPath('first_bin.npy'), self.range_volumes[0])
 
 
-    def statistic_volumes(self): ##### REVISAR
-        ''''si para relion hay que añadir el valor de 10**-15 en el denominador del calculo de las 
-        ponderaciones, pero para xmipp no es necesario porque se realizan correctamente todos los
-        calculos, lo ideal es crear una funcion que tenga ese parametro, por ejemplo, epsilon, 
-        de tal manera que cuando se haga la reconstr por relion valga 10**-15, pero cuando sea por
-        medio de xmipp entonces valga 0 '''''
+    #def _calculatePDF(self, m_index): ##RANGO INFLUENCIADO POR PRIMER VOLUMEN
+
+    #    if m_index == 1:
+    #        num_bins = self.numBins.get()
+    #        min_value = self.minRange.get()
+    #        max_value = self.maxRange.get()
+
+    #        vol_min = np.min(self.one_volume)
+    #        vol_max = np.max(self.one_volume)
+    #        print(f'VOL_MIN {vol_min}, VOL_MAX {vol_max}')
+
+    #        if min_value > vol_min or max_value < vol_max:
+    #            print(f"WARNING: rango [{min_value}, {max_value}] is outside range "
+    #                  f"[{vol_min}, {vol_max}]")
+    #            min_value = min(min_value, vol_min)
+    #            max_value = max(max_value, vol_max)
+
+    #        self.rango = np.linspace(min_value, max_value, num_bins + 1)
+
+    #        np.save(self._getExtraPath('rango.npy'), np.array(self.rango))
+    #        print(f'Min real: {min_value}, Max real: {max_value}')
+    #        print(self.rango)
+    #        self.range_volumes = [np.zeros_like(self.one_volume, dtype=float) for _ in range(len(self.rango) - 1)]
+
+    #    for i in range(len(self.rango) - 1):
+    #        inf_limit = self.rango[i]
+    #        sup_limit = self.rango[i + 1]
+
+    #        if i == len(self.rango) - 2: #last bin (39 of 40)
+    #            mask = (self.one_volume >= inf_limit) & (self.one_volume <= sup_limit)
+    #        else:
+    #            mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
+
+    #        self.range_volumes[i][mask] += 1
+
+    #        mrcfile.write(os.path.join(self._getExtraPath(), f'rangeVol_{i + 1}.mrc'),
+    #                  self.range_volumes[i].astype(np.float32)
+    #                  , voxel_size=self.voxel_size, overwrite=True)
+
+    #    np.save(self._getExtraPath('first_bin.npy'), self.range_volumes[0])
 
 
+    def statistic_volumes(self):
         self.range_volumes = []
         for i in range(1, self.numBins.get() + 1):
             volume = self._getExtraPath("rangeVol_%s.mrc" % i)
-            #vol = NumpyImgHandler.loadMrc(volume)
             self.range_volumes.append(NumpyImgHandler.loadMrc(volume).copy())
 
         bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)],
@@ -853,12 +1030,24 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print('TIPO DE DATOS DE bin_centers_expanded', type(bin_centers_expanded))
         print('TIPO DE DATOS DE range_volumes', type(self.range_volumes))
 
+        # total_count stores the number of times each voxel was assigned to any bin
+        total_count = np.sum(self.range_volumes, axis=0)
+        # nonzero_mask identifies voxels with at least one histogram observation
+        nonzero_mask = total_count > 0
+
+        print(f'min total_count {np.min(total_count)}')
+        print(f'max total_count {np.max(total_count)}')
+        print(f'unique total_count {np.unique(total_count)}')
 
         # ------------------------ WEIGHTED MEAN ----------------------------------------
         sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
         print(f'weighted_sum {sum_mean}')
 
-        weighted_mean = sum_mean/(np.sum(self.range_volumes, axis=0)) #+ 10**-15
+        weighted_mean = np.divide(sum_mean, total_count,
+                                  out=np.zeros_like(total_count, dtype=np.float32),
+                                  where=nonzero_mask)   #total_count > 0
+
+        #weighted_mean = sum_mean/(np.sum(self.range_volumes, axis=0)) #+ 10**-15
         print(f'valor de media ponderada {weighted_mean}')
         print(f'TAMAÑO de media ponderada {weighted_mean.shape}')
 
@@ -867,39 +1056,87 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print(f'Valor más probable por voxel:\n {most_probable_freq}'
               f'\n {most_probable_freq.shape}')
 
-        max_index = np.argmax(self.range_volumes, axis=0)
+        max_index = np.argmax(self.range_volumes, axis=0)   # index bin with most counts for each voxel
         print(f'VALOR DE LOS INDICES: {max_index}')
 
-        bin_values = np.squeeze(bin_centers_expanded[max_index])
+        bin_values = np.squeeze(bin_centers_expanded[max_index])    # center of the bin
         print(f'DIMENSIONES DE VALORES_BIN {bin_values.shape}')
         print(f'Valor real correspondiente al máximo de frecuencia:{bin_values}')
+
+        # Set to 0 for voxels with no data (all bins empty) to avoid false positive from argmax
+        most_probable_freq[~nonzero_mask] = 0   #frequency = 0
+        bin_values[~nonzero_mask] = 0           #value = 0
 
         # ------------------------ WEIGHTED VARIANCE AND STD ----------------------------------------
         sum_weighted_variance = np.sum(self.range_volumes * (bin_centers_expanded - weighted_mean) ** 2, axis=0)
         print(f'suma de varianza ponderada \n{sum_weighted_variance}')
-        weighted_variance = sum_weighted_variance/(np.sum(self.range_volumes, axis=0))# + 10**-15)
+
+        weighted_variance = np.divide(sum_weighted_variance, total_count,
+                                      out=np.zeros_like(total_count, dtype=np.float32),
+                                      where=nonzero_mask)
+
+        print("Variance min:", np.min(weighted_variance))
+        print("Variance max:", np.max(weighted_variance))
+        print("Variance mean:", np.mean(weighted_variance))
+
+        print("Non-zero variance voxels:", np.count_nonzero(weighted_variance > 0))
+        print("Fraction non-zero variance:", np.count_nonzero(weighted_variance > 0) / weighted_variance.size)
+
+        #weighted_variance = sum_weighted_variance/(np.sum(self.range_volumes, axis=0))# + 10**-15)
         print(f'Varianza ponderada SEPARADA: \n{weighted_variance}')
         print(f'TAMAÑO de varianza ponderada {weighted_variance.shape}')
 
-        #weighted_variance = np.average((bin_centers_expanded - weighted_mean) ** 2, axis=0, weights=self.range_volumes)
-        #print(f'Varianza ponderada: \n{weighted_variance}')
+        ##weighted_variance = np.average((bin_centers_expanded - weighted_mean) ** 2, axis=0, weights=self.range_volumes)
+        ##print(f'Varianza ponderada: \n{weighted_variance}')
 
-        weighted_std = np.sqrt(weighted_variance)
+        #weighted_std = np.sqrt(weighted_variance)
+        weighted_std = np.zeros_like(weighted_variance)
+        std_mask = weighted_variance > 0
+        weighted_std[std_mask] = np.sqrt(weighted_variance[std_mask])
         print(f'desviacion tipica \n{weighted_std}')
 
         # ------------------------ WEIGHTED SKEWNESS ----------------------------------------
-        sum_weighted_skew = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 3, axis=0)
-        weighted_skewness = sum_weighted_skew/(np.sum(self.range_volumes, axis=0)) # + 10**-15)
+        numerator = bin_centers_expanded - weighted_mean
+        diff_over_std = np.divide(numerator, weighted_std,
+                                  out=np.zeros_like(numerator, dtype=np.float32),
+                                  where=std_mask[np.newaxis, :, :, :]) # std_mask condition to all dimensions
+        sum_weighted_skew = np.sum(self.range_volumes * (diff_over_std) ** 3, axis=0)
+        # Compute skewness/kurtosis only for voxels with valid observations (total_count > 0) and non-zero variance (std > 0).
+        weighted_skewness = np.divide(sum_weighted_skew, total_count,
+                                      out=np.zeros_like(total_count, dtype=np.float32),
+                                      where=nonzero_mask & std_mask)
+
+        #sum_weighted_skew = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 3, axis=0)
+        #weighted_skewness = sum_weighted_skew/(np.sum(self.range_volumes, axis=0)) # + 10**-15)
 
         #weighted_skewness = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 3, axis=0, weights=self.range_volumes)
         print(f'Skewness ponderado \n{weighted_skewness}')
 
         # ------------------------   WEIGHTED KURTOSIS ----------------------------------------
-        sum_weighted_kurt = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 4, axis=0)
-        weighted_kurtosis = sum_weighted_kurt/(np.sum(self.range_volumes, axis=0)) - 3
-        #weighted_kurtosis = sum_weighted_kurt / (np.sum(self.range_volumes, axis=0) + 10 ** -15) - 3
+        sum_weighted_kurt = np.sum(self.range_volumes * (diff_over_std) ** 4, axis=0)
 
-        #weighted_kurtosis = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 4 - 3, axis=0, weights=self.range_volumes)
+        # Voxels with insufficient observations or zero variance remain equal to -3 after excess-kurtosis conversion.
+        # This value is used as a sentinel indicating that the kurtosis could not be estimated.
+        # Compute skewness/kurtosis only for voxels with valid observations (total_count > 0) and non-zero variance (std > 0).
+        weighted_kurtosis = np.divide(sum_weighted_kurt, total_count,
+                                      out=np.zeros_like(total_count, dtype=np.float32),
+                                      where=nonzero_mask & std_mask) - 3
+
+        print("Valid skewness voxels:", np.count_nonzero(nonzero_mask & std_mask))
+        print("Invalid skewness voxels:", np.count_nonzero(~(nonzero_mask & std_mask)))
+        valid_mask = nonzero_mask & std_mask
+
+        print('min weighted_skewness[valid_mask]', np.min(weighted_skewness[valid_mask]))
+        print('max weighted_skewness[valid_mask]', np.max(weighted_skewness[valid_mask]))
+
+        print('min weighted_skewness[valid_mask]', np.min(weighted_kurtosis[valid_mask]))
+        print('max weighted_skewness[valid_mask]', np.max(weighted_kurtosis[valid_mask]))
+
+        #sum_weighted_kurt = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 4, axis=0)
+        #weighted_kurtosis = sum_weighted_kurt/(np.sum(self.range_volumes, axis=0)) - 3
+        ##weighted_kurtosis = sum_weighted_kurt / (np.sum(self.range_volumes, axis=0) + 10 ** -15) - 3
+
+        ##weighted_kurtosis = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 4 - 3, axis=0, weights=self.range_volumes)
         print(f'curtosis ponderada \n{weighted_kurtosis}')
 
 
@@ -917,6 +1154,96 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         mrcfile.write(output_path_std, weighted_std.astype(np.float32), voxel_size=self.voxel_size)
         mrcfile.write(output_path_skewness, weighted_skewness.astype(np.float32), voxel_size=self.voxel_size)
         mrcfile.write(output_path_kurtosis, weighted_kurtosis.astype(np.float32), voxel_size=self.voxel_size)
+
+
+    #def statistic_volumes(self): ##### REVISAR
+    #    ''''si para relion hay que añadir el valor de 10**-15 en el denominador del calculo de las
+    #    ponderaciones, pero para xmipp no es necesario porque se realizan correctamente todos los
+    #    calculos, lo ideal es crear una funcion que tenga ese parametro, por ejemplo, epsilon,
+    #    de tal manera que cuando se haga la reconstr por relion valga 10**-15, pero cuando sea por
+    #    medio de xmipp entonces valga 0 '''''
+
+
+    #    self.range_volumes = []
+    #    for i in range(1, self.numBins.get() + 1):
+    #        volume = self._getExtraPath("rangeVol_%s.mrc" % i)
+    #        #vol = NumpyImgHandler.loadMrc(volume)
+    #        self.range_volumes.append(NumpyImgHandler.loadMrc(volume).copy())
+
+    #    bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)],
+    #                           dtype=np.float32)
+    #    print(f'bin_centers {bin_centers}')
+    #    print(f'bin_centers SHAPE {bin_centers.shape}')
+
+    #    bin_centers_expanded = bin_centers[:, np.newaxis, np.newaxis, np.newaxis]
+    #    print(f'bin_centers_expanded SHAPE {bin_centers_expanded.shape}')
+    #    print('TIPO DE DATOS DE bin_centers_expanded', type(bin_centers_expanded))
+    #    print('TIPO DE DATOS DE range_volumes', type(self.range_volumes))
+
+
+    #    # ------------------------ WEIGHTED MEAN ----------------------------------------
+    #    sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
+    #    print(f'weighted_sum {sum_mean}')
+
+    #    weighted_mean = sum_mean/(np.sum(self.range_volumes, axis=0)) #+ 10**-15
+    #    print(f'valor de media ponderada {weighted_mean}')
+    #    print(f'TAMAÑO de media ponderada {weighted_mean.shape}')
+
+    #    # ------------------------ MOST PROBABLE BIN ----------------------------------------
+    #    most_probable_freq = np.max(self.range_volumes, axis=0)
+    #    print(f'Valor más probable por voxel:\n {most_probable_freq}'
+    #          f'\n {most_probable_freq.shape}')
+
+    #    max_index = np.argmax(self.range_volumes, axis=0)
+    #    print(f'VALOR DE LOS INDICES: {max_index}')
+
+    #    bin_values = np.squeeze(bin_centers_expanded[max_index])
+    #    print(f'DIMENSIONES DE VALORES_BIN {bin_values.shape}')
+    #    print(f'Valor real correspondiente al máximo de frecuencia:{bin_values}')
+
+    #    # ------------------------ WEIGHTED VARIANCE AND STD ----------------------------------------
+    #    sum_weighted_variance = np.sum(self.range_volumes * (bin_centers_expanded - weighted_mean) ** 2, axis=0)
+    #    print(f'suma de varianza ponderada \n{sum_weighted_variance}')
+    #    weighted_variance = sum_weighted_variance/(np.sum(self.range_volumes, axis=0))# + 10**-15)
+    #    print(f'Varianza ponderada SEPARADA: \n{weighted_variance}')
+    #    print(f'TAMAÑO de varianza ponderada {weighted_variance.shape}')
+
+    #    #weighted_variance = np.average((bin_centers_expanded - weighted_mean) ** 2, axis=0, weights=self.range_volumes)
+    #    #print(f'Varianza ponderada: \n{weighted_variance}')
+
+    #    weighted_std = np.sqrt(weighted_variance)
+    #    print(f'desviacion tipica \n{weighted_std}')
+
+    #    # ------------------------ WEIGHTED SKEWNESS ----------------------------------------
+    #    sum_weighted_skew = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 3, axis=0)
+    #    weighted_skewness = sum_weighted_skew/(np.sum(self.range_volumes, axis=0)) # + 10**-15)
+
+    #    #weighted_skewness = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 3, axis=0, weights=self.range_volumes)
+    #    print(f'Skewness ponderado \n{weighted_skewness}')
+
+    #    # ------------------------   WEIGHTED KURTOSIS ----------------------------------------
+    #    sum_weighted_kurt = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 4, axis=0)
+    #    weighted_kurtosis = sum_weighted_kurt/(np.sum(self.range_volumes, axis=0)) - 3
+    #    #weighted_kurtosis = sum_weighted_kurt / (np.sum(self.range_volumes, axis=0) + 10 ** -15) - 3
+
+    #    #weighted_kurtosis = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 4 - 3, axis=0, weights=self.range_volumes)
+    #    print(f'curtosis ponderada \n{weighted_kurtosis}')
+
+
+    #    output_weighted_mean = os.path.join(self._getExtraPath(), 'weighted_mean.mrc')
+    #    output_max_freq = os.path.join(self._getExtraPath(), 'most_probable_freq.mrc')
+    #    output_max_bin = os.path.join(self._getExtraPath(), 'most_probable_bin.mrc')
+    #    output_path_std = os.path.join(self._getExtraPath(), 'weighted_std.mrc')
+    #    output_path_skewness = os.path.join(self._getExtraPath(), 'weighted_skewness.mrc')
+    #    output_path_kurtosis = os.path.join(self._getExtraPath(), 'weighted_kurtosis.mrc')
+
+
+    #    mrcfile.write(output_weighted_mean, weighted_mean.astype(np.float32), voxel_size=self.voxel_size)
+    #    mrcfile.write(output_max_freq, most_probable_freq.astype(np.float32), voxel_size=self.voxel_size)
+    #    mrcfile.write(output_max_bin, bin_values.astype(np.float32), voxel_size=self.voxel_size)
+    #    mrcfile.write(output_path_std, weighted_std.astype(np.float32), voxel_size=self.voxel_size)
+    #    mrcfile.write(output_path_skewness, weighted_skewness.astype(np.float32), voxel_size=self.voxel_size)
+    #    mrcfile.write(output_path_kurtosis, weighted_kurtosis.astype(np.float32), voxel_size=self.voxel_size)
 
 
 
@@ -953,6 +1280,249 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _citations(self):
         return ['Vargas2021']
+
+
+    #def _processParticles_old_ver(self, m_index=1):
+
+    #    prot_classes = self.inputProt.get()
+
+    #    inputParticles = prot_classes.getImages()
+
+    #    outputParticles = self._createSetOfParticles()
+    #    outputParticles.copyInfo(inputParticles)
+
+    #    for cls in prot_classes:
+    #        ids = list(cls.getIdSet())
+    #        #print('ids', sorted(ids))
+
+    #        if not ids:
+    #            continue
+
+    #        # Deterministic seed for reproducibility
+    #        # 42: arbitrary constant
+    #        # cls.getObjId(): ensures different classes get different seeds
+    #        # m_index: ensures different bootstrap iterations get different samples from the same
+    #        #          class; without it, every iteration would select the same particles, defeating
+    #        #          the purpose of bootstrapping
+    #        random.seed(42 + cls.getObjId() + m_index)
+
+    #        selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
+    #        #print('selected_ids', selected_ids)
+    #        #print("------------------\n")
+
+    #        for objId in selected_ids:
+    #            particle = inputParticles[objId]
+    #            outputParticles.append(particle.clone())
+
+    #    #self._defineOutputs(outputParticles=outputParticles)
+    #    outputParticles.write()
+    #    outputParticles.close()
+
+
+    #    if self.reconstruction == RELION_RECONSTRUCTION:
+    #        # Save new .star file
+    #        output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
+    #        writeSetOfParticles(
+    #            outputParticles,
+    #            output_star,
+    #            outputDir=self._getExtraPath(),
+    #            alignType=ALIGN_PROJ
+    #        )
+
+    #        print("STAR written:", output_star)
+
+    #    else:
+    #        # Save new .xmd
+    #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
+    #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
+
+
+    #def _processParticles_completo(self, m_index=1):
+         # Esta el solpamaiento y el bootstrapping junto
+
+    #    prot_classes = self.inputProt.get()
+    #    inputParticles = prot_classes.getImages()
+
+    #    print("Input particles:")
+    #    print("  Size:", inputParticles.getSize())
+    #    print("  Dimensions:", inputParticles.getDimensions())
+
+    #    outputParticles = self._createSetOfParticles()
+    #    outputParticles.copyInfo(inputParticles)
+
+    #    class_info = []
+    #    for cls in prot_classes:
+    #        # returns the IDs of the particles belonging to that class
+    #        particle_ids = set(cls.getIdSet())
+
+    #        if not particle_ids:
+    #            continue
+
+    #        class_info.append({
+    #            "class_id": cls.getObjId(),  # identifies the Class2D object
+    #            "ids": particle_ids,
+    #            "size": len(particle_ids)
+    #        })
+
+    #    # 2. FIND PARTICLES THAT APPEAR IN MULTIPLE CLASSES
+    #    # =========================================================
+    #    # Map each particle ID to the classes it belongs to
+    #    particle_classes = {}
+    #    for info in class_info:
+    #        class_id = info["class_id"]
+
+    #        # Assign the current class ID to each particle in the class
+    #        for particle_id in info["ids"]:
+    #            if particle_id not in particle_classes:
+    #                particle_classes[particle_id] = []
+
+    #            particle_classes[particle_id].append(class_id)
+
+    #    # 3. FIND OVERLAPPING PARTICLES
+    #    # =========================================================
+    #    # Identify particles assigned to more than one class
+    #    overlapping_particles = {
+    #        particle_id: class_ids
+    #        for particle_id, class_ids in particle_classes.items() if len(class_ids) > 1
+    #    }
+    #    print("Particle/class overlap check")
+    #    print("==============================================")
+
+    #    print(f"Total unique particles before resolving overlap: {len(particle_classes)}")
+    #    print(f"Particles present in multiple classes: {len(overlapping_particles)}")
+
+    #    # If a particle belongs to several classes, keep it in the MINORITY class, i.e. the class
+    #    # containing fewer particles
+    #    # In case of a tie, the class with the smallest class ID wins. This makes the decision deterministic
+    #    allowed_ids_by_class = {
+    #        info["class_id"]: set(info["ids"])
+    #        for info in class_info
+    #    }
+
+    #    if overlapping_particles:
+    #        print("Resolving overlapping particles...")
+    #        print("----------------------------------------------")
+
+    #        class_sizes = {
+    #            info["class_id"]: info["size"]
+    #            for info in class_info
+    #        }
+
+    #        for particle_id, class_ids in overlapping_particles.items():
+    #            # Sort by number of particles in the class and class ID. The smallest class wins
+    #            winning_class = min(
+    #                class_ids,
+    #                key=lambda class_id: (
+    #                    class_sizes[class_id],
+    #                    class_id)
+    #            )
+
+    #            print(f"Particle {particle_id}: "
+    #                  f"classes {class_ids} -> "
+    #                  f"keeping in minority class {winning_class} "
+    #                  f"(size={class_sizes[winning_class]})")
+
+    #            # Remove the particle from every class except the winning class
+    #            for class_id in class_ids:
+    #                if class_id != winning_class:
+    #                    allowed_ids_by_class[class_id].discard(particle_id)
+
+    #        print("----------------------------------------------")
+    #        print(f"Resolved {len(overlapping_particles)} overlapping particles")
+    #        print("----------------------------------------------")
+
+    #    else:
+    #        print("No particle overlap detected")
+
+
+    #    # IMPORTANT:
+    #    # We sample from allowed_ids_by_class, NOT directly from cls.getIdSet().
+    #    # Therefore particles that were found in several classes are only available in their minority class.
+    #    used_ids = set()
+    #    duplicates_skipped = 0
+
+    #    for class_id, ids_set in allowed_ids_by_class.items():
+    #        ids = list(ids_set)
+
+    #        if not ids:
+    #            continue
+
+    #        # Deterministic seed for reproducibility
+    #        # 42: arbitrary constant
+    #        # class_id: ensures different classes get different seeds
+    #        # m_index: ensures different bootstrap iterations get different samples from the same
+    #        #          class; without it, every iteration would select the same particles, defeating
+    #        #          the purpose of bootstrapping
+    #        random.seed(42 + class_id + m_index)
+
+    #        selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
+    #        #print('selected_ids', selected_ids)
+    #        #print("------------------\n")
+
+    #        for particle_id in selected_ids:
+    #            # Even after resolving class overlaps, make sure the same particle can NEVER be added twice to
+    #            # the reconstruction.
+    #            if particle_id in used_ids:
+    #                duplicates_skipped += 1
+
+    #                print(f"WARNING: Particle {particle_id} was already selected in bootstrap {m_index}. "
+    #                      f"Skipping duplicate")
+    #                continue
+
+    #            used_ids.add(particle_id)
+    #            particle = inputParticles[particle_id]
+    #            outputParticles.append(particle.clone())
+
+    #    # AÑADIDO AHORA
+    #    print("Output particles:")
+    #    print("  Size:", outputParticles.getSize())
+    #    print("  Dimensions:", outputParticles.getDimensions())
+
+
+    #    num_selected = len(used_ids)
+    #    num_output = outputParticles.getSize()
+
+    #    print("==============================================")
+    #    print(f"BOOTSTRAP {m_index} CHECK")
+    #    print("==============================================")
+
+    #    print(f"Particles selected: {num_selected}")
+    #    print(f"Duplicates skipped during bootstrap: {duplicates_skipped}")
+    #    print(f"Particles in output: {num_output}")
+
+    #    # This should always be true because used_ids is a set and duplicates are filtered before append()
+    #    if num_selected != num_output:
+    #        raise RuntimeError(
+    #            f"Internal consistency error in bootstrap "
+    #            f"{m_index}: "
+    #            f"{num_selected} selected particles but "
+    #            f"{num_output} particles in output."
+    #        )
+
+    #    print("==============================================")
+
+    #    outputParticles.write()
+    #    print("Output particles 2:")
+    #    print("  Size:", outputParticles.getSize())
+    #    print("  Dimensions:", outputParticles.getDimensions())
+    #    outputParticles.close()
+
+    #    if self.reconstruction == RELION_RECONSTRUCTION:
+    #        output_star = self._getExtraPath(f'sample_{m_index}.star')  #cambiar al temporal
+    #        writeSetOfParticles(
+    #            outputParticles,
+    #            output_star,
+    #            outputDir=self._getExtraPath(),
+    #            alignType=ALIGN_PROJ
+    #        )
+
+    #        print("STAR written:", output_star)
+
+    #    else:
+    #        # Save new .xmd
+    #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd")  #_getExtraPath
+    #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
+    #        print("XMD written:", output_xmd)
 
 
 
