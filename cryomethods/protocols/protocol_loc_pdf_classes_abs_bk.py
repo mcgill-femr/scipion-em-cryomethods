@@ -22,7 +22,8 @@ XMIPP_RECONSTRUCTION = 1
 REAL_SPACE = 0
 FOURIER_SPACE = 1
 BOTH = 2
-
+GAUSSIAN_SCIPY = 0
+LOWPASS_RELION = 1
 
 class ProtLocPDF_classes_abs(ProtAnalysis3D):
     """
@@ -48,6 +49,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                        'will be calculated (mean, variance, skewness and kurtosis).\n'
                       )
 
+        # -------------------------------- Normalization ----------------------------------------
         form.addParam('normalizeVolumes', BooleanParam, default=False,
                       label="Normalize reconstructed volumes",
                       help='If YES, each reconstructed volume will be Z-score normalized '
@@ -91,16 +93,42 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         # ----------------------------------Filtering---------------------------------
         groupFilter = form.addGroup('Filtering')
-        groupFilter.addParam('applyGaussianFilter', BooleanParam,
+        groupFilter.addParam('applyFilter', BooleanParam,
                       default=False,
-                      label='Apply Gaussian filter',
-                      help='Apply a Gaussian filter to each reconstructed volume.')
+                      label='Apply filter?',
+                      help='If set to Yes, a smoothing filter will be applied '
+                           'to each volume after normalization (if enabled) '
+                           'and before the statistical moments calculation.')
+
+        groupFilter.addParam('filterMethod', EnumParam,
+                             choices=['Gaussian filter (scipy)', 'Low-pass filter (RELION)'],
+                             default=GAUSSIAN_SCIPY,
+                             condition='applyFilter',
+                             display=EnumParam.DISPLAY_COMBO,
+                             label='Filtering method',
+                             help='Choose the filtering method:\n'
+                                  '1. Gaussian filter: real-space Gaussian smoothing '
+                                  '(scipy.ndimage.gaussian_filter), sigma expressed '
+                                  'in voxels.\n'
+                                  '2. Low-pass filter: Fourier-space low-pass filter '
+                                  'applied via RELION\'s relion_image_handler, cutoff '
+                                  'expressed as a resolution in Angstroms.')
 
         groupFilter.addParam('gaussianSigma', FloatParam,
-                      default=2.0,
-                      condition='applyGaussianFilter',
-                      label='Gaussian sigma',
-                      help='Sigma of the Gaussian kernel, expressed in voxels.')
+                             default=2.0,
+                             condition='applyFilter and filterMethod==%d' % GAUSSIAN_SCIPY,
+                             label='Gaussian sigma',
+                             help='Sigma of the Gaussian kernel, expressed in voxels.')
+
+        groupFilter.addParam('lowpassResolution', FloatParam,
+                             default=20,
+                             condition='applyFilter and filterMethod==%d' % LOWPASS_RELION,
+                             label='Low-pass resolution cutoff (A)',
+                             help='Resolution cutoff, in Angstroms, for the low-pass '
+                                  'filter applied via relion_image_handler (--lowpass '
+                                  'option). Lower values (finer resolution) preserve '
+                                  'more detail; higher values (coarser resolution) '
+                                  'apply stronger smoothing.')
 
         # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
@@ -207,29 +235,35 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         if self.methodApply.get() == PROB_DENSITY_FUNCT:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
-                #self._insertFunctionStep('reconstructStep', m)
-                ##if self.normalizeVolumes.get():
-                ##    self._insertFunctionStep('_normalizeVolumeStep', m)
-                ##if self.applyGaussianFilter.get():
-                ##    self._insertFunctionStep('_gaussianFilterStep', m)
-                #self._insertFunctionStep('_calculatePDF', m)
-                #self._insertFunctionStep('_removePreviousVolume', m)
+                self._insertFunctionStep('reconstructStep', m)
+                if self.normalizeVolumes.get():
+                    self._insertFunctionStep('_normalizeVolumeStep', m)
+                if self.applyFilter.get():
+                    if self.filterMethod.get() == GAUSSIAN_SCIPY:
+                        self._insertFunctionStep('_gaussianFilterStep', m)
+                    else:
+                        self._insertFunctionStep('_gaussianFilterRelionStep', m)
+                self._insertFunctionStep('_calculatePDF', m)
+                self._insertFunctionStep('_removePreviousVolume', m)
 
-            #self._insertFunctionStep('statistic_volumes')
+            self._insertFunctionStep('statistic_volumes')
 
 
         elif self.methodApply.get() == ACC_MOMENTS:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
                 self._insertFunctionStep('reconstructStep', m)
-                #if self.normalizeVolumes.get():
-                #    self._insertFunctionStep('_normalizeVolumeStep', m)
+                if self.normalizeVolumes.get():
+                    self._insertFunctionStep('_normalizeVolumeStep', m)
 
 
                 domain = self.momentDomain.get()
                 if domain in [REAL_SPACE, BOTH]:
-                    #if self.applyGaussianFilter.get():
-                    #    self._insertFunctionStep('_gaussianFilterStep', m)
+                    if self.applyFilter.get():
+                        if self.filterMethod.get() == GAUSSIAN_SCIPY:
+                            self._insertFunctionStep('_gaussianFilterStep', m)
+                        else:
+                            self._insertFunctionStep('_gaussianFilterRelionStep', m)
                     self._insertFunctionStep('_calculateMoments', m)
 
                 if domain in [FOURIER_SPACE, BOTH]:
@@ -254,13 +288,19 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         imgXmd = self._getExtraPath('inputParticles.xmd')
         writeSetOfParticlesXmipp(imgSet, imgXmd)
 
-
     def _loadVolume(self, m_index):
-        return NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc'))
+        return NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
 
-    def _loadFilteredVolume(self, m_index):
-        return NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}_filtered.mrc'))
-
+    def _getVolumeForProcessing(self, m_index):
+        """
+        Returns the volume that should be used for moments/PDF calculation,
+        taking into account whether a filter step was applied.
+        """
+        if self.applyFilter.get():
+            vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+        else:
+            vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        return NumpyImgHandler.loadMrc(vol_fn)
 
     def _prepareParticleClassesStep(self):
         prot_classes = self.inputProt.get()
@@ -422,6 +462,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             #          the purpose of bootstrapping
             random.seed(42 + class_id + m_index)
 
+            # no replacement
             selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
             #print('selected_ids', selected_ids)
             #print("------------------\n")
@@ -495,7 +536,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         if self.reconstruction == RELION_RECONSTRUCTION:
 
             params_relion = ' --i %s' % self._getExtraPath(f'sample_{m_index}.star') #'inputParticles.star'
-            params_relion += ' --o %s' % self._getTmpPath(volume_name) #_getTmpPath   #_getPath
+            params_relion += ' --o %s' % self._getExtraPath(volume_name) #_getTmpPath   #_getPath
             params_relion += ' --sym %s' % self.relionSymmetryGroup.get()
             params_relion += ' --pad %0.1f' % self.paddingFactorRelion.get()
             #params_relion += ' --subset -1 --class -1'
@@ -560,7 +601,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             self._getTmpPath(f'vol_{m_index}.mrc'),
             self._getTmpPath(f'sample_{m_index}.xmd'),
             #self._getTmpPath(f'sample_{m_index}.star')
-            ##filtered_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+            #self._getExtraPath(f'vol_{m_index}_filtered.mrc')
         ]
 
         for fn in files:
@@ -569,18 +610,28 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                 print(f"Deleted: {fn}")
 
 
-    def _normalizeVolumeStep(self, m_index):
-
-        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
-        vol = np.array(self._loadVolume(m_index))
-
-        original_dir =  self._getExtraPath('originals')
-        os.makedirs(original_dir, exist_ok=True)
-        backup_fn = os.path.join(original_dir, f'vol_{m_index}_orig.mrc')
+    def _backupMaps(self, vol_fn, output_dir, output_name):
+        os.makedirs(output_dir, exist_ok=True)
+        backup_fn = os.path.join(output_dir, output_name)
 
         if not os.path.exists(backup_fn):  # only the first time
             shutil.copy2(vol_fn, backup_fn)
-            print(f"Backup guardado: {backup_fn}")
+            print(f"Backup saved: {backup_fn}")
+
+        return backup_fn
+
+
+    def _normalizeVolumeStep(self, m_index):
+
+        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        #vol = NumpyImgHandler.loadMrc(vol_fn)
+        vol = np.array(self._loadVolume(m_index))
+
+        # Original volume backup
+        #original_dir = self._getExtraPath('originals')
+        #backup_fn = self._backupMaps(vol_fn,
+        #                             original_dir,
+        #                             f'vol_{m_index}_orig.mrc')
 
         mean = np.mean(vol)
         std = np.std(vol)
@@ -592,13 +643,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             print(f'WARNING: std ≈ 0 in volume {m_index}, it is not normalized')
             vol_norm = vol
 
-        #out_fn = self._getPath(f'vol_{m_index}_norm.mrc')
-        #norm_dir = self._getExtraPath('norm')
-        #os.makedirs(norm_dir, exist_ok=True)
-        #norm_fn = os.path.join(norm_dir, f'vol_{m_index}.mrc')
-        #norm_fn = self._getExtraPath(f'vol_{m_index}.mrc')
 
-        mrcfile.write(vol_fn, #norm_fn,
+        mrcfile.write(vol_fn,
                       vol_norm.astype(np.float32),
                       overwrite=True,
                       voxel_size=self.voxel_size
@@ -608,8 +654,9 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _gaussianFilterStep(self, m_index):
         # If normalization is enabled, the Gaussian filter is applied on the normalized volume because _normalizeVolumeStep runs first.
+        #vol_fn_inicial = self._getExtraPath(f'vol_{m_index}.mrc')
+        #vol = NumpyImgHandler.loadMrc(vol_fn_inicial)
         vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
-
         vol = np.array(self._loadVolume(m_index))
 
         sigma = self.gaussianSigma.get()
@@ -626,10 +673,26 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             voxel_size=self.voxel_size
         )
 
-        print(
-            f'Gaussian filter applied '
-            f'(batch={m_index}, sigma={sigma})'
+        print(f'Gaussian filter applied (batch={m_index}, sigma={sigma})')
+
+
+    def _gaussianFilterRelionStep(self, m_index):
+        # If normalization is enabled, the filter is applied on the normalized volume because _normalizeVolumeStep runs first.
+        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        vol_filtered = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+
+        # Cutoff resolution for the low-pass filter, in Angstroms
+        lowpass_res = self.lowpassResolution.get()
+
+        args = (
+            f'--i {vol_fn} '
+            f'--o {vol_filtered} '
+            f'--lowpass {lowpass_res} '
+            f'--angpix {self.voxel_size} '
         )
+
+        self.runJob('relion_image_handler', args)
+        print(f'RELION lowpass filter applied (batch={m_index}, lowpass={lowpass_res} A)')
 
 
     def _calculateMoments(self, m_index):
@@ -647,11 +710,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # ------------------------------------------------------------
         # 1. Input reconstructed volume
         # ------------------------------------------------------------
-        if self.applyGaussianFilter.get():
-            vol = self._loadFilteredVolume(m_index)
-        else:
-            vol = self._loadVolume(m_index)     #NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc'))
-        x = np.asarray(vol, dtype=np.float64)
+        x = np.asarray(self._getVolumeForProcessing(m_index), dtype=np.float64)
         #x = np.asarray(self.one_volume, dtype=np.float64)
         #x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -855,8 +914,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # ------------------------------------------------------------
         # 1. FFT of the reconstructed volume
         # ------------------------------------------------------------
-        vol = self._loadVolume(m_index)     #NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc'))
-        vol_real = np.asarray(vol, dtype=np.float64)
+        vol_real = np.asarray(self._loadVolume(m_index), dtype=np.float64)
         #vol_real = np.asarray(self.one_volume, dtype=np.float64)
         #vol_real = np.nan_to_num(vol_real, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -1051,10 +1109,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _calculatePDF(self, m_index): ##REVISAR
 
-        if self.applyGaussianFilter.get():
-            vol = self._loadFilteredVolume(m_index)
-        else:
-            vol = self._loadVolume(m_index)     #NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc'))
+        #vol = NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
+        vol = self._getVolumeForProcessing(m_index)
 
         if m_index == 1:
             num_bins = self.numBins.get()
@@ -1175,6 +1231,15 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print(f'min total_count {np.min(total_count)}')
         print(f'max total_count {np.max(total_count)}')
         print(f'unique total_count {np.unique(total_count)}')
+
+        unique, counts = np.unique(total_count, return_counts=True)
+
+        for value, count in zip(unique, counts):
+            print(
+                f"total_count = {value}: "
+                f"{count} voxels "
+                f"({100 * count / total_count.size:.6f} %)"
+            )
 
         # ------------------------ WEIGHTED MEAN ----------------------------------------
         sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
@@ -1472,5 +1537,194 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
     #        # Save new .xmd
     #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
     #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
+
+
+    #def _processParticles_completo(self, m_index=1):
+         # Esta el solpamaiento y el bootstrapping junto
+
+    #    prot_classes = self.inputProt.get()
+    #    inputParticles = prot_classes.getImages()
+
+    #    print("Input particles:")
+    #    print("  Size:", inputParticles.getSize())
+    #    print("  Dimensions:", inputParticles.getDimensions())
+
+    #    outputParticles = self._createSetOfParticles()
+    #    outputParticles.copyInfo(inputParticles)
+
+    #    class_info = []
+    #    for cls in prot_classes:
+    #        # returns the IDs of the particles belonging to that class
+    #        particle_ids = set(cls.getIdSet())
+
+    #        if not particle_ids:
+    #            continue
+
+    #        class_info.append({
+    #            "class_id": cls.getObjId(),  # identifies the Class2D object
+    #            "ids": particle_ids,
+    #            "size": len(particle_ids)
+    #        })
+
+    #    # 2. FIND PARTICLES THAT APPEAR IN MULTIPLE CLASSES
+    #    # =========================================================
+    #    # Map each particle ID to the classes it belongs to
+    #    particle_classes = {}
+    #    for info in class_info:
+    #        class_id = info["class_id"]
+
+    #        # Assign the current class ID to each particle in the class
+    #        for particle_id in info["ids"]:
+    #            if particle_id not in particle_classes:
+    #                particle_classes[particle_id] = []
+
+    #            particle_classes[particle_id].append(class_id)
+
+    #    # 3. FIND OVERLAPPING PARTICLES
+    #    # =========================================================
+    #    # Identify particles assigned to more than one class
+    #    overlapping_particles = {
+    #        particle_id: class_ids
+    #        for particle_id, class_ids in particle_classes.items() if len(class_ids) > 1
+    #    }
+    #    print("Particle/class overlap check")
+    #    print("==============================================")
+
+    #    print(f"Total unique particles before resolving overlap: {len(particle_classes)}")
+    #    print(f"Particles present in multiple classes: {len(overlapping_particles)}")
+
+    #    # If a particle belongs to several classes, keep it in the MINORITY class, i.e. the class
+    #    # containing fewer particles
+    #    # In case of a tie, the class with the smallest class ID wins. This makes the decision deterministic
+    #    allowed_ids_by_class = {
+    #        info["class_id"]: set(info["ids"])
+    #        for info in class_info
+    #    }
+
+    #    if overlapping_particles:
+    #        print("Resolving overlapping particles...")
+    #        print("----------------------------------------------")
+
+    #        class_sizes = {
+    #            info["class_id"]: info["size"]
+    #            for info in class_info
+    #        }
+
+    #        for particle_id, class_ids in overlapping_particles.items():
+    #            # Sort by number of particles in the class and class ID. The smallest class wins
+    #            winning_class = min(
+    #                class_ids,
+    #                key=lambda class_id: (
+    #                    class_sizes[class_id],
+    #                    class_id)
+    #            )
+
+    #            print(f"Particle {particle_id}: "
+    #                  f"classes {class_ids} -> "
+    #                  f"keeping in minority class {winning_class} "
+    #                  f"(size={class_sizes[winning_class]})")
+
+    #            # Remove the particle from every class except the winning class
+    #            for class_id in class_ids:
+    #                if class_id != winning_class:
+    #                    allowed_ids_by_class[class_id].discard(particle_id)
+
+    #        print("----------------------------------------------")
+    #        print(f"Resolved {len(overlapping_particles)} overlapping particles")
+    #        print("----------------------------------------------")
+
+    #    else:
+    #        print("No particle overlap detected")
+
+
+    #    # IMPORTANT:
+    #    # We sample from allowed_ids_by_class, NOT directly from cls.getIdSet().
+    #    # Therefore particles that were found in several classes are only available in their minority class.
+    #    used_ids = set()
+    #    duplicates_skipped = 0
+
+    #    for class_id, ids_set in allowed_ids_by_class.items():
+    #        ids = list(ids_set)
+
+    #        if not ids:
+    #            continue
+
+    #        # Deterministic seed for reproducibility
+    #        # 42: arbitrary constant
+    #        # class_id: ensures different classes get different seeds
+    #        # m_index: ensures different bootstrap iterations get different samples from the same
+    #        #          class; without it, every iteration would select the same particles, defeating
+    #        #          the purpose of bootstrapping
+    #        random.seed(42 + class_id + m_index)
+
+    #        selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
+    #        #print('selected_ids', selected_ids)
+    #        #print("------------------\n")
+
+    #        for particle_id in selected_ids:
+    #            # Even after resolving class overlaps, make sure the same particle can NEVER be added twice to
+    #            # the reconstruction.
+    #            if particle_id in used_ids:
+    #                duplicates_skipped += 1
+
+    #                print(f"WARNING: Particle {particle_id} was already selected in bootstrap {m_index}. "
+    #                      f"Skipping duplicate")
+    #                continue
+
+    #            used_ids.add(particle_id)
+    #            particle = inputParticles[particle_id]
+    #            outputParticles.append(particle.clone())
+
+    #    # AÑADIDO AHORA
+    #    print("Output particles:")
+    #    print("  Size:", outputParticles.getSize())
+    #    print("  Dimensions:", outputParticles.getDimensions())
+
+
+    #    num_selected = len(used_ids)
+    #    num_output = outputParticles.getSize()
+
+    #    print("==============================================")
+    #    print(f"BOOTSTRAP {m_index} CHECK")
+    #    print("==============================================")
+
+    #    print(f"Particles selected: {num_selected}")
+    #    print(f"Duplicates skipped during bootstrap: {duplicates_skipped}")
+    #    print(f"Particles in output: {num_output}")
+
+    #    # This should always be true because used_ids is a set and duplicates are filtered before append()
+    #    if num_selected != num_output:
+    #        raise RuntimeError(
+    #            f"Internal consistency error in bootstrap "
+    #            f"{m_index}: "
+    #            f"{num_selected} selected particles but "
+    #            f"{num_output} particles in output."
+    #        )
+
+    #    print("==============================================")
+
+    #    outputParticles.write()
+    #    print("Output particles 2:")
+    #    print("  Size:", outputParticles.getSize())
+    #    print("  Dimensions:", outputParticles.getDimensions())
+    #    outputParticles.close()
+
+    #    if self.reconstruction == RELION_RECONSTRUCTION:
+    #        output_star = self._getExtraPath(f'sample_{m_index}.star')  #cambiar al temporal
+    #        writeSetOfParticles(
+    #            outputParticles,
+    #            output_star,
+    #            outputDir=self._getExtraPath(),
+    #            alignType=ALIGN_PROJ
+    #        )
+
+    #        print("STAR written:", output_star)
+
+    #    else:
+    #        # Save new .xmd
+    #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd")  #_getExtraPath
+    #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
+    #        print("XMD written:", output_xmd)
+
 
 

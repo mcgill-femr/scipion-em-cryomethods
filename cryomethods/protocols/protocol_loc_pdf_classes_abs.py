@@ -13,6 +13,7 @@ import os, random, shutil, pickle
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
 import mrcfile
+from scipy.ndimage import gaussian_filter
 
 PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
@@ -21,7 +22,8 @@ XMIPP_RECONSTRUCTION = 1
 REAL_SPACE = 0
 FOURIER_SPACE = 1
 BOTH = 2
-
+GAUSSIAN_SCIPY = 0
+LOWPASS_RELION = 1
 
 class ProtLocPDF_classes_abs(ProtAnalysis3D):
     """
@@ -47,6 +49,16 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                        'will be calculated (mean, variance, skewness and kurtosis).\n'
                       )
 
+        # -------------------------------- Normalization ----------------------------------------
+        form.addParam('normalizeVolumes', BooleanParam, default=False,
+                      label="Normalize reconstructed volumes",
+                      help='If YES, each reconstructed volume will be Z-score normalized '
+                           '(mean=0, std=1) before further processing.\n\n'
+                           'For PDF: \n   if ON, use a range around [-4, 4]; '
+                           '\n   if OFF, set the range according to your original density scale.\n'
+                           'For Moments: \n   if ON, moments capture shape variability only; '
+                           '\n   if OFF, they also capture global scale differences between reconstructions.')
+
         # -------------------------------- Pdf ----------------------------------------
         form.addParam('numBins', IntParam, default=10,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
@@ -56,12 +68,16 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         form.addParam('minRange', FloatParam, default=-1.0,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Minimum value of the range",
-                      help='Minimum value of the range.')
+                      help='Minimum value of the range.\n'
+                           'If normalization is ON (recommended): use -4.0 to cover ~99.99% of data.\n'
+                           'If normalization is OFF: set according to your original density scale.')
 
         form.addParam('maxRange', FloatParam, default=1.0,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Maximum value of the range",
-                      help='Maximum value of the range.')
+                      help='Maximum value of the range.\n'
+                           'If normalization is ON (recommended): use 4.0 to cover ~99.99% of data.\n'
+                           'If normalization is OFF: set according to your original density scale.')
 
         # -------------------------------- Moments ----------------------------------------
         form.addParam('momentDomain', EnumParam,
@@ -74,6 +90,45 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                                 '1. Real space.\n'
                                 '2. Fourier space, but only aplied on |FFT|\n'
                                 '3. Both domains')
+
+        # ----------------------------------Filtering---------------------------------
+        groupFilter = form.addGroup('Filtering')
+        groupFilter.addParam('applyFilter', BooleanParam,
+                      default=False,
+                      label='Apply filter?',
+                      help='If set to Yes, a smoothing filter will be applied '
+                           'to each volume after normalization (if enabled) '
+                           'and before the statistical moments calculation.')
+
+        groupFilter.addParam('filterMethod', EnumParam,
+                             choices=['Gaussian filter (scipy)', 'Low-pass filter (RELION)'],
+                             default=GAUSSIAN_SCIPY,
+                             condition='applyFilter',
+                             display=EnumParam.DISPLAY_COMBO,
+                             label='Filtering method',
+                             help='Choose the filtering method:\n'
+                                  '1. Gaussian filter: real-space Gaussian smoothing '
+                                  '(scipy.ndimage.gaussian_filter), sigma expressed '
+                                  'in voxels.\n'
+                                  '2. Low-pass filter: Fourier-space low-pass filter '
+                                  'applied via RELION\'s relion_image_handler, cutoff '
+                                  'expressed as a resolution in Angstroms.')
+
+        groupFilter.addParam('gaussianSigma', FloatParam,
+                             default=2.0,
+                             condition='applyFilter and filterMethod==%d' % GAUSSIAN_SCIPY,
+                             label='Gaussian sigma',
+                             help='Sigma of the Gaussian kernel, expressed in voxels.')
+
+        groupFilter.addParam('lowpassResolution', FloatParam,
+                             default=20,
+                             condition='applyFilter and filterMethod==%d' % LOWPASS_RELION,
+                             label='Low-pass resolution cutoff (A)',
+                             help='Resolution cutoff, in Angstroms, for the low-pass '
+                                  'filter applied via relion_image_handler (--lowpass '
+                                  'option). Lower values (finer resolution) preserve '
+                                  'more detail; higher values (coarser resolution) '
+                                  'apply stronger smoothing.')
 
         # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
@@ -180,23 +235,42 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         if self.methodApply.get() == PROB_DENSITY_FUNCT:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
-                #self._insertFunctionStep('reconstructStep', m)
-                #self._insertFunctionStep('_calculatePDF', m)
+                self._insertFunctionStep('reconstructStep', m)
+                if self.normalizeVolumes.get():
+                    self._insertFunctionStep('_normalizeVolumeStep', m)
+                if self.applyFilter.get():
+                    if self.filterMethod.get() == GAUSSIAN_SCIPY:
+                        self._insertFunctionStep('_gaussianFilterStep', m)
+                    else:
+                        self._insertFunctionStep('_gaussianFilterRelionStep', m)
+                self._insertFunctionStep('_calculatePDF', m)
+                self._insertFunctionStep('_removePreviousVolume', m)
 
-            #self._insertFunctionStep('statistic_volumes')
+            self._insertFunctionStep('statistic_volumes')
 
 
         elif self.methodApply.get() == ACC_MOMENTS:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
                 self._insertFunctionStep('reconstructStep', m)
+                if self.normalizeVolumes.get():
+                    self._insertFunctionStep('_normalizeVolumeStep', m)
+
 
                 domain = self.momentDomain.get()
                 if domain in [REAL_SPACE, BOTH]:
+                    if self.applyFilter.get():
+                        if self.filterMethod.get() == GAUSSIAN_SCIPY:
+                            self._insertFunctionStep('_gaussianFilterStep', m)
+                        else:
+                            self._insertFunctionStep('_gaussianFilterRelionStep', m)
                     self._insertFunctionStep('_calculateMoments', m)
 
                 if domain in [FOURIER_SPACE, BOTH]:
+                    # Not applying Gaussian filtering in Fourier space
                     self._insertFunctionStep('_calculateFourierMoments', m)
+
+                self._insertFunctionStep('_removePreviousVolume', m)
 
 
     def convertInputStep(self):
@@ -214,6 +288,19 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         imgXmd = self._getExtraPath('inputParticles.xmd')
         writeSetOfParticlesXmipp(imgSet, imgXmd)
 
+    def _loadVolume(self, m_index):
+        return NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
+
+    def _getVolumeForProcessing(self, m_index):
+        """
+        Returns the volume that should be used for moments/PDF calculation,
+        taking into account whether a filter step was applied.
+        """
+        if self.applyFilter.get():
+            vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+        else:
+            vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        return NumpyImgHandler.loadMrc(vol_fn)
 
     def _prepareParticleClassesStep(self):
         prot_classes = self.inputProt.get()
@@ -375,6 +462,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             #          the purpose of bootstrapping
             random.seed(42 + class_id + m_index)
 
+            # no replacement
             selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
             #print('selected_ids', selected_ids)
             #print("------------------\n")
@@ -448,7 +536,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         if self.reconstruction == RELION_RECONSTRUCTION:
 
             params_relion = ' --i %s' % self._getExtraPath(f'sample_{m_index}.star') #'inputParticles.star'
-            params_relion += ' --o %s' % self._getTmpPath(volume_name) #_getTmpPath   #_getPath
+            params_relion += ' --o %s' % self._getExtraPath(volume_name) #_getTmpPath   #_getPath
             params_relion += ' --sym %s' % self.relionSymmetryGroup.get()
             params_relion += ' --pad %0.1f' % self.paddingFactorRelion.get()
             #params_relion += ' --subset -1 --class -1'
@@ -507,6 +595,106 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         #self.one_volume = None
 
 
+    def _removePreviousVolume(self, m_index):
+
+        files = [
+            self._getTmpPath(f'vol_{m_index}.mrc'),
+            self._getTmpPath(f'sample_{m_index}.xmd'),
+            #self._getTmpPath(f'sample_{m_index}.star')
+            #self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+        ]
+
+        for fn in files:
+            if os.path.exists(fn):
+                os.remove(fn)
+                print(f"Deleted: {fn}")
+
+
+    def _backupMaps(self, vol_fn, output_dir, output_name):
+        os.makedirs(output_dir, exist_ok=True)
+        backup_fn = os.path.join(output_dir, output_name)
+
+        if not os.path.exists(backup_fn):  # only the first time
+            shutil.copy2(vol_fn, backup_fn)
+            print(f"Backup saved: {backup_fn}")
+
+        return backup_fn
+
+
+    def _normalizeVolumeStep(self, m_index):
+
+        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        #vol = NumpyImgHandler.loadMrc(vol_fn)
+        vol = np.array(self._loadVolume(m_index))
+
+        # Original volume backup
+        #original_dir = self._getExtraPath('originals')
+        #backup_fn = self._backupMaps(vol_fn,
+        #                             original_dir,
+        #                             f'vol_{m_index}_orig.mrc')
+
+        mean = np.mean(vol)
+        std = np.std(vol)
+        eps = 1e-12
+
+        if std > eps:
+            vol_norm = (vol - mean)/std
+        else:
+            print(f'WARNING: std ≈ 0 in volume {m_index}, it is not normalized')
+            vol_norm = vol
+
+
+        mrcfile.write(vol_fn,
+                      vol_norm.astype(np.float32),
+                      overwrite=True,
+                      voxel_size=self.voxel_size
+        )
+        print(f"Normalization batch {m_index}: mean={mean:.4f}, std={std:.4f}")
+
+
+    def _gaussianFilterStep(self, m_index):
+        # If normalization is enabled, the Gaussian filter is applied on the normalized volume because _normalizeVolumeStep runs first.
+        #vol_fn_inicial = self._getExtraPath(f'vol_{m_index}.mrc')
+        #vol = NumpyImgHandler.loadMrc(vol_fn_inicial)
+        vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+        vol = np.array(self._loadVolume(m_index))
+
+        sigma = self.gaussianSigma.get()
+
+        vol_filtered = gaussian_filter(
+            vol,
+            sigma=sigma
+        )
+
+        mrcfile.write(
+            vol_fn,
+            vol_filtered.astype(np.float32),
+            overwrite=True,
+            voxel_size=self.voxel_size
+        )
+
+        print(f'Gaussian filter applied (batch={m_index}, sigma={sigma})')
+
+
+    def _gaussianFilterRelionStep(self, m_index):
+        # If normalization is enabled, the filter is applied on the normalized volume because _normalizeVolumeStep runs first.
+        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        vol_filtered = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+
+        # Cutoff resolution for the low-pass filter, in Angstroms
+        lowpass_res = self.lowpassResolution.get()
+
+        args = (
+            f'--i {vol_fn} '
+            f'--o {vol_filtered} '
+            f'--lowpass {lowpass_res} '
+            f'--angpix {self.voxel_size} '
+        )
+
+        self.runJob('relion_image_handler', args)
+        print(f'RELION lowpass filter applied (batch={m_index}, lowpass={lowpass_res} A)')
+
+
     def _calculateMoments(self, m_index):
         """
         Calculate accumulative moments in real space using voxel-wise online update.
@@ -522,7 +710,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # ------------------------------------------------------------
         # 1. Input reconstructed volume
         # ------------------------------------------------------------
-        x = np.asarray(self.one_volume, dtype=np.float64)
+        x = np.asarray(self._getVolumeForProcessing(m_index), dtype=np.float64)
+        #x = np.asarray(self.one_volume, dtype=np.float64)
         #x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
 
         print("VOL MIN:", np.nanmin(x))
@@ -725,7 +914,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # ------------------------------------------------------------
         # 1. FFT of the reconstructed volume
         # ------------------------------------------------------------
-        vol_real = np.asarray(self.one_volume, dtype=np.float64)
+        vol_real = np.asarray(self._loadVolume(m_index), dtype=np.float64)
+        #vol_real = np.asarray(self.one_volume, dtype=np.float64)
         #vol_real = np.nan_to_num(vol_real, nan=0.0, posinf=0.0, neginf=0.0)
 
         vol_fft = np.fft.fftn(vol_real).astype(np.complex128)
@@ -919,6 +1109,9 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _calculatePDF(self, m_index): ##REVISAR
 
+        #vol = NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
+        vol = self._getVolumeForProcessing(m_index)
+
         if m_index == 1:
             num_bins = self.numBins.get()
             min_value = self.minRange.get()
@@ -1038,6 +1231,15 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print(f'min total_count {np.min(total_count)}')
         print(f'max total_count {np.max(total_count)}')
         print(f'unique total_count {np.unique(total_count)}')
+
+        unique, counts = np.unique(total_count, return_counts=True)
+
+        for value, count in zip(unique, counts):
+            print(
+                f"total_count = {value}: "
+                f"{count} voxels "
+                f"({100 * count / total_count.size:.6f} %)"
+            )
 
         # ------------------------ WEIGHTED MEAN ----------------------------------------
         sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
