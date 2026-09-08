@@ -13,7 +13,9 @@ import os, random, shutil, pickle
 from pwem.constants import NO_INDEX
 from cryomethods import Plugin
 import mrcfile
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, zoom
+from scipy.linalg import subspace_angles
+from scipy.stats import jarque_bera
 
 PROB_DENSITY_FUNCT = 0
 ACC_MOMENTS = 1
@@ -130,6 +132,60 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                                   'more detail; higher values (coarser resolution) '
                                   'apply stronger smoothing.')
 
+        # ----------------------------------PCA---------------------------------
+        groupPCA = form.addGroup('PCA (online)')
+        groupPCA.addParam('doPCA', BooleanParam,
+                          default=False,
+                          label='Compute online PCA basis?',
+                          help='If set to Yes, an incremental PCA basis (eigenvolumes) '
+                               'will be computed from the intermediate reconstructed '
+                               'volumes (real space, using the same processing volume '
+                               'as the moments/PDF calculation), and the projections '
+                               'of subsequent volumes onto this basis will be stored '
+                               'once the basis is considered stable.')
+
+        groupPCA.addParam('numComponents', IntParam, default=10,
+                          condition='doPCA',
+                          label='Number of PCA components',
+                          help='Number of eigenvolumes (principal components) to '
+                               'compute and retain.')
+
+        groupPCA.addParam('pcaMinBatches', IntParam, default=2, #20
+                          condition='doPCA',
+                          label='Minimum batches before first PCA estimate',
+                          help='No PCA basis will be attempted before this many '
+                               'reconstructed volumes are available.')
+
+        groupPCA.addParam('pcaRecomputeEvery', IntParam, default=10,
+                          condition='doPCA',
+                          label='Recompute basis every N batches',
+                          help='The PCA basis is recomputed from scratch (exact dual/'
+                               'Gram PCA) every N new batches, once pcaMinBatches has '
+                               'been reached.')
+
+        groupPCA.addParam('pcaStabilityThreshold', FloatParam, default=0.1,
+                          condition='doPCA',
+                          label='Subspace angle stability threshold (rad)',
+                          help='Maximum principal subspace angle (radians, from '
+                               'scipy.linalg.subspace_angles) allowed between two '
+                               'consecutive basis recomputations for the basis to be '
+                               'considered stable. Coefficients are only stored once '
+                               'this threshold is met.')
+
+        groupPCA.addParam('pcaMaskFile', PointerParam,
+                          pointerClass='VolumeMask', allowsNull=True,
+                          condition='doPCA',
+                          label='Mask (optional)',
+                          help='Optional binary/soft mask restricting the voxels used '
+                               'for the PCA, to reduce dimensionality and exclude '
+                               'solvent/background.')
+
+        groupPCA.addParam('pcaBinningFactor', IntParam, default=1,
+                          condition='doPCA',
+                          label='Binning factor',
+                          help='Downsampling factor applied to volumes before PCA, '
+                               'to further reduce dimensionality (1 = no binning).')
+
         # ----------------------------------Bootstrap---------------------------------
         group = form.addGroup('Bootstrap')
         group.addParam('inputProt', PointerParam,
@@ -243,10 +299,20 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                         self._insertFunctionStep('_gaussianFilterStep', m)
                     else:
                         self._insertFunctionStep('_gaussianFilterRelionStep', m)
+
+                #if self.doPCA.get():
+                #    self._insertFunctionStep('_pcaBufferVolumeStep', m)
+                #    if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
+                #        self._insertFunctionStep('_pcaRecomputeBaseStep', m)
+                #    self._insertFunctionStep('_pcaProjectAndWriteStep', m)
+
                 self._insertFunctionStep('_calculatePDF', m)
                 self._insertFunctionStep('_removePreviousVolume', m)
 
             self._insertFunctionStep('statistic_volumes')
+            #if self.doPCA.get():
+            #    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep')
+            #    self._insertFunctionStep('_saveEigenvolumes')
 
 
         elif self.methodApply.get() == ACC_MOMENTS:
@@ -264,14 +330,34 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                             self._insertFunctionStep('_gaussianFilterStep', m)
                         else:
                             self._insertFunctionStep('_gaussianFilterRelionStep', m)
+                    if self.doPCA.get():
+                        self._insertFunctionStep('_pcaBufferVolumeStep', m, 'real')
+                        if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
+                            self._insertFunctionStep('_pcaRecomputeBaseStep', m, 'real')
+                        self._insertFunctionStep('_pcaProjectAndWriteStep', m, 'real')
+
                     self._insertFunctionStep('_calculateMoments', m)
 
                 if domain in [FOURIER_SPACE, BOTH]:
                     # Not applying Gaussian filtering in Fourier space
+                    if self.doPCA.get():
+                        self._insertFunctionStep('_pcaBufferVolumeStep', m, 'fourier')
+                        if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
+                            self._insertFunctionStep('_pcaRecomputeBaseStep', m, 'fourier')
+                        self._insertFunctionStep('_pcaProjectAndWriteStep', m, 'fourier')
+
                     self._insertFunctionStep('_calculateFourierMoments', m)
 
                 self._insertFunctionStep('_removePreviousVolume', m)
 
+            if self.doPCA.get():
+                domain = self.momentDomain.get()
+                if domain in [REAL_SPACE, BOTH]:
+                    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep', 'real')
+                    self._insertFunctionStep('_saveEigenvolumes', 'real')
+                if domain in [FOURIER_SPACE, BOTH]:
+                    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep', 'fourier')
+                    # Not saving the eigen volumes as the phase is missing and
 
     def convertInputStep(self):
         """ Create the input file in STAR format as expected by Relion.
@@ -289,7 +375,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         writeSetOfParticlesXmipp(imgSet, imgXmd)
 
     def _loadVolume(self, m_index):
-        return NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
+        return NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc')) #_getExtraPath
 
     def _getVolumeForProcessing(self, m_index):
         """
@@ -299,7 +385,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         if self.applyFilter.get():
             vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
         else:
-            vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+            vol_fn = self._getTmpPath(f'vol_{m_index}.mrc') #_getExtraPath
         return NumpyImgHandler.loadMrc(vol_fn)
 
     def _prepareParticleClassesStep(self):
@@ -507,7 +593,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         outputParticles.close()
 
         if self.reconstruction == RELION_RECONSTRUCTION:
-            output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
+            output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
             writeSetOfParticles(
                 outputParticles,
                 output_star,
@@ -535,8 +621,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         if self.reconstruction == RELION_RECONSTRUCTION:
 
-            params_relion = ' --i %s' % self._getExtraPath(f'sample_{m_index}.star') #'inputParticles.star'
-            params_relion += ' --o %s' % self._getExtraPath(volume_name) #_getTmpPath   #_getPath
+            params_relion = ' --i %s' % self._getTmpPath(f'sample_{m_index}.star') #'inputParticles.star'
+            params_relion += ' --o %s' % self._getTmpPath(volume_name) #_getTmpPath   #_getPath
             params_relion += ' --sym %s' % self.relionSymmetryGroup.get()
             params_relion += ' --pad %0.1f' % self.paddingFactorRelion.get()
             #params_relion += ' --subset -1 --class -1'
@@ -600,8 +686,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         files = [
             self._getTmpPath(f'vol_{m_index}.mrc'),
             self._getTmpPath(f'sample_{m_index}.xmd'),
-            #self._getTmpPath(f'sample_{m_index}.star')
-            #self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+            self._getTmpPath(f'sample_{m_index}.star')
+            , self._getExtraPath(f'vol_{m_index}_filtered.mrc')
         ]
 
         for fn in files:
@@ -623,7 +709,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _normalizeVolumeStep(self, m_index):
 
-        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')   # _getTmpPath
         #vol = NumpyImgHandler.loadMrc(vol_fn)
         vol = np.array(self._loadVolume(m_index))
 
@@ -656,7 +742,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # If normalization is enabled, the Gaussian filter is applied on the normalized volume because _normalizeVolumeStep runs first.
         #vol_fn_inicial = self._getExtraPath(f'vol_{m_index}.mrc')
         #vol = NumpyImgHandler.loadMrc(vol_fn_inicial)
-        vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
+        vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')  # _getTmpPath
         vol = np.array(self._loadVolume(m_index))
 
         sigma = self.gaussianSigma.get()
@@ -678,7 +764,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
     def _gaussianFilterRelionStep(self, m_index):
         # If normalization is enabled, the filter is applied on the normalized volume because _normalizeVolumeStep runs first.
-        vol_fn = self._getExtraPath(f'vol_{m_index}.mrc')
+        vol_fn = self._getTmpPath(f'vol_{m_index}.mrc')   # _getTmpPath
         vol_filtered = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
 
         # Cutoff resolution for the low-pass filter, in Angstroms
@@ -693,6 +779,319 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         self.runJob('relion_image_handler', args)
         print(f'RELION lowpass filter applied (batch={m_index}, lowpass={lowpass_res} A)')
+
+
+    # PCA (online) — helper and step functions
+    # ==================================================================
+    def _getReducedVolumeVector(self, m_index, domain='real'):
+        """
+        domain='real': uses the processing volume (filtered/normalized as
+        configured, via _getVolumeForProcessing).
+        domain='fourier': always uses the unfiltered volume (_loadVolume),
+        magnitude of its FFT — same criterion as _calculateFourierMoments.
+        """
+        if domain == 'fourier':
+            vol_real = self._loadVolume(m_index)
+            # TF only with the magnitude, that is why the eigenvolumes are only
+            # saved in real space. No phase spectrum
+            vol = np.abs(np.fft.fftn(vol_real))
+        else:
+            vol = self._getVolumeForProcessing(m_index)
+
+        original_shape = vol.shape
+
+        if self.pcaMaskFile.get() is not None:
+            mask = NumpyImgHandler.loadMrc(self.pcaMaskFile.get().getFileName())
+            vol = vol * mask
+
+        factor = self.pcaBinningFactor.get()
+        if factor > 1:
+            vol = zoom(vol, 1.0 / factor, order=1)
+
+        return vol.reshape(-1).astype(np.float64), vol.shape, original_shape
+
+
+    def _pcaBufferVolumeStep(self, m_index, domain='real'):
+        suffix = '' if domain == 'real' else '_fourier'
+        vec, reduced_shape, original_shape = self._getReducedVolumeVector(m_index, domain)
+
+        if m_index == 1:
+            np.save(self._getPath(f'pca_reduced_shape{suffix}.npy'), np.array(reduced_shape))
+            np.save(self._getPath(f'pca_original_shape{suffix}.npy'), np.array(original_shape))
+
+        np.save(self._getExtraPath(f'pca_vec{suffix}_{m_index}.npy'), vec)
+        print(f'PCA buffer ({domain}): stored reduced volume for batch {m_index} '
+              f'(dim={vec.size})')
+
+
+    def _pcaRecomputeBaseStep(self, m_index, domain='real'):
+        suffix = '' if domain == 'real' else '_fourier'
+
+        vecs = [np.load(self._getExtraPath(f'pca_vec{suffix}_{i}.npy'))
+                for i in range(1, m_index + 1)]
+
+        # Save vectors in columns
+        X = np.stack(vecs, axis=1)  # (V_reduced, T)
+        mean_vec = X.mean(axis=1)
+        Xc = X - mean_vec[:, None]
+
+        T = Xc.shape[1]
+        G = Xc.T @ Xc / (T - 1) #covariance matrix between volumes
+        eigvals, eigvecs = np.linalg.eigh(G)
+        order = np.argsort(eigvals)[::-1]
+        eigvals, eigvecs = eigvals[order], eigvecs[:, order]
+
+        r = min(self.numComponents.get(), T - 1)
+        eigvals_r = np.maximum(eigvals[:r], 1e-12)
+        U_new = Xc @ eigvecs[:, :r] / np.sqrt(eigvals_r * (T - 1))
+        U_new = U_new / np.linalg.norm(U_new, axis=0, keepdims=True)
+        explained_var = eigvals_r / np.sum(eigvals)
+
+        prev_U_fn = self._getPath(f'pca_U{suffix}.npy')
+        is_stable = False
+        if os.path.exists(prev_U_fn):
+            U_prev = np.load(prev_U_fn)
+            k_common = min(U_prev.shape[1], U_new.shape[1])
+            # angles similar (0), angles different (π/2)
+            angles = subspace_angles(U_prev[:, :k_common], U_new[:, :k_common])
+            max_angle = np.max(angles)
+            print(f'PCA ({domain}) subspace angle vs previous base: {max_angle:.4f} rad')
+            is_stable = max_angle < self.pcaStabilityThreshold.get()
+
+            # Procrustes-style alignment: fix sign/order to match previous base
+            corr = U_prev[:, :k_common].T @ U_new[:, :k_common]
+            # Which old component has mayor correlation in absolute value
+            assign = np.argmax(np.abs(corr), axis=1)
+            # Sign of the correlation
+            signs = np.sign(corr[np.arange(k_common), assign])
+            signs[signs == 0] = 1.0
+            # Align: reorder and flip signs so components match the previous base
+            U_aligned = U_new[:, assign] * signs    # new version
+            eigvals_r_aligned = eigvals_r[assign]   # new version
+            explained_var_aligned = explained_var[assign]
+            # Extra components in the new base
+            if U_new.shape[1] > k_common:
+                U_aligned = np.concatenate([U_aligned, U_new[:, k_common:]], axis=1)
+                eigvals_r_aligned = np.concatenate([eigvals_r_aligned, eigvals_r[k_common:]])
+                explained_var_aligned = np.concatenate([explained_var_aligned, explained_var[k_common:]])
+            U_new = U_aligned
+            eigvals_r = eigvals_r_aligned
+            explained_var = explained_var_aligned
+
+        else:
+            print(f'PCA ({domain}): first base estimate, no previous base to compare against')
+
+        np.save(self._getPath(f'pca_mean{suffix}.npy'), mean_vec)
+        np.save(self._getPath(f'pca_U{suffix}.npy'), U_new) #aligned
+        np.save(self._getPath(f'pca_singvals{suffix}.npy'), np.sqrt(eigvals_r * (T - 1)))
+        np.save(self._getPath(f'pca_explained_var{suffix}.npy'), explained_var)
+        np.save(self._getPath(f'pca_stable{suffix}.npy'), np.array([is_stable]))
+        np.save(self._getPath(f'pca_n{suffix}.npy'), np.array([T]))
+
+        if is_stable:
+            print(f'PCA ({domain}) basis considered STABLE at batch {m_index}')
+        print(f'PCA ({domain}) base recomputed at batch {m_index} (T={T}, r={r})')
+        print(f'Explained variance per component: {explained_var}')
+
+
+    def _pcaProjectAndWriteStep(self, m_index, domain='real'):
+        suffix = '' if domain == 'real' else '_fourier'
+        stable_fn = self._getPath(f'pca_stable{suffix}.npy')
+        # If the archive does not exist or it exists but the angle is still greater than the threshold
+        if not os.path.exists(stable_fn) or not np.load(stable_fn)[0]:
+            print(f'PCA ({domain}) basis not stable yet at batch {m_index}: skipping')
+            return
+
+        mean_vec = np.load(self._getPath(f'pca_mean{suffix}.npy'))
+        U = np.load(self._getPath(f'pca_U{suffix}.npy'))
+
+        # Recovers the current batch volume
+        vec, _, _ = self._getReducedVolumeVector(m_index, domain)
+        coeffs = U.T @ (vec - mean_vec)
+
+        coeffs_fn = self._getPath(f'pca_coefficients{suffix}.npy')
+        ### OPTIMIZAR EL GUARDADO EN EL DICCIONARIO, SE ACTIALIZA CADA VEZ
+        # PROBLEMA: con muchas iteraciones es ineficiente
+        all_coeffs = (np.load(coeffs_fn, allow_pickle=True).item()
+                      if os.path.exists(coeffs_fn) else {})
+        all_coeffs[m_index] = coeffs
+        np.save(coeffs_fn, all_coeffs, allow_pickle=True)
+
+        self._appendPcaCoefficientsToStar(m_index, coeffs, suffix=suffix)
+        print(f'PCA ({domain}) coefficients stored for batch {m_index}: {coeffs}')
+
+
+
+    def _parseStarDataBlock(self, star_fn, block_name='data_particles'):
+        """
+        Parses a specific data_ block (e.g. data_particles) from a RELION-style
+        STAR file that may contain multiple blocks (e.g. data_optics +
+        data_particles), and returns (col_names, data_lines).
+        """
+        with open(star_fn, 'r') as f:
+            lines = f.readlines()
+
+        col_names = []
+        data_lines = []
+        in_target_block = False
+        in_loop = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            if stripped.startswith('data_'):
+                in_target_block = (stripped == block_name)
+                in_loop = False
+                continue
+
+            if not in_target_block:
+                continue
+
+            if stripped.startswith('loop_'):
+                in_loop = True
+                continue
+
+            if in_loop and stripped.startswith('_'):
+                col_names.append(stripped.split()[0])
+                continue
+
+            if in_loop and stripped and not stripped.startswith('#'):
+                data_lines.append(stripped)
+
+        return col_names, data_lines
+
+
+
+    def _appendPcaCoefficientsToStar(self, m_index, coeffs, suffix=''):
+        """
+        Reads the particle block of this batch's STAR/XMD (already containing
+        angles and CTF, written by _processParticles, currently in _getTmpPath),
+        and appends a plain-text STAR block with one row per particle, repeating
+        the same PCA coefficients for all particles of that batch, into a
+        cumulative pca_particles.star (in _getExtraPath).
+
+        NOTE: written as plain STAR text rather than via xmippLib.MetaData,
+        since Xmipp's MetaData uses a fixed MDL_* label set and does not
+        support arbitrary custom columns like pcaCoeff1..pcaCoeffR.
+        """
+        if self.reconstruction == RELION_RECONSTRUCTION:
+            src_fn = self._getTmpPath(f'sample_{m_index}.star')
+            block_name = 'data_particles'
+        else:
+            src_fn = self._getTmpPath(f'sample_{m_index}.xmd')
+            block_name = 'data_'
+
+        if not os.path.exists(src_fn):
+            print(f'WARNING: {src_fn} not found, skipping PCA STAR export '
+                  f'for batch {m_index}')
+            return
+
+        col_names, data_lines = self._parseStarDataBlock(src_fn, block_name)
+
+        if not col_names or not data_lines:
+            print(f'WARNING: could not parse {block_name} block in {src_fn}, '
+                  f'skipping PCA STAR export for batch {m_index}')
+            return
+
+        n_pca = len(coeffs)
+        pca_col_names = [f'_pcaCoeff{suffix}{i + 1}' for i in range(n_pca)]
+        # Transform each number to string
+        coeff_str = ' '.join(f'{c:.6f}' for c in coeffs)
+
+        out_fn = self._getExtraPath(f'pca_particles{suffix}.star')
+        # writes header in first batch, adds new rows in the rest
+        write_header = not os.path.exists(out_fn)
+
+        # write .star with all columns and new PCA columns in order
+        with open(out_fn, 'a') as f:
+            if write_header:
+                f.write('\ndata_particles\n\nloop_\n')
+                for c in col_names:
+                    f.write(f'{c}\n')
+                for c in pca_col_names:
+                    f.write(f'{c}\n')
+            # add values of the columns in order
+            # all particles in a same batch must have the same coeff
+            for row in data_lines:
+                f.write(f'{row} {coeff_str}\n')
+
+        print(f'PCA coefficients appended to {out_fn} for batch {m_index} '
+              f'({len(data_lines)} particles)')
+
+
+    def _pcaAnalyzeCoefficientsStep(self, domain='real'):
+        suffix = '' if domain == 'real' else '_fourier'
+
+        coeffs_fn = self._getPath(f'pca_coefficients{suffix}.npy')
+        if not os.path.exists(coeffs_fn):
+            print(f'No PCA ({domain}) coefficients were stored '
+                  f'(basis never became stable)')
+            return
+
+        all_coeffs = np.load(coeffs_fn, allow_pickle=True).item()
+        # Row: number of batches that are stable; columns: number of components
+        C = np.stack(list(all_coeffs.values()), axis=0)  # (T_stable, r)
+
+        results = []
+        for i in range(C.shape[1]):
+            stat, pvalue = jarque_bera(C[:, i])
+            results.append((i + 1, stat, pvalue))
+            print(f'PC{i + 1} ({domain}): Jarque-Bera stat={stat:.4f}, '
+                  f'p-value={pvalue:.4g} '
+                  f'{"(non-normal: possible discrete mixture)" if pvalue < 0.05 else "(consistent with normal)"}')
+
+        np.save(self._getExtraPath(f'pca_jarque_bera{suffix}.npy'), np.array(results))
+
+
+
+    def _matchShape(self, vol, target_shape):
+        """Crop or zero-pad vol to exactly match target_shape."""
+        # Allocate a zero-filled array with the exact target shape
+        result = np.zeros(target_shape, dtype=vol.dtype)
+        # Per axis, take the overlapping region: min(current size, target size)
+        slices = tuple(slice(0, min(s, t)) for s, t in zip(vol.shape, target_shape))
+        # Copy that overlapping region from vol into the zero-filled array
+        result[slices] = vol[slices]
+        return result
+
+    def _upsampleEigenvolume(self, vec_reduced, suffix=''):
+        """Undo binning to bring an eigenvolume back to the original box size."""
+        reduced_shape = tuple(np.load(self._getPath(f'pca_reduced_shape{suffix}.npy')))
+        original_shape = tuple(np.load(self._getPath(f'pca_original_shape{suffix}.npy')))
+        vol_reduced = vec_reduced.reshape(reduced_shape)
+
+        factor = self.pcaBinningFactor.get()
+        if factor > 1:
+            vol_full = zoom(vol_reduced, factor, order=1)
+            # Adjust its size to the original one if the zoom rounds it higher than expected
+            vol_full = self._matchShape(vol_full, original_shape)
+        else:
+            vol_full = vol_reduced
+
+        return vol_full
+
+
+    def _saveEigenvolumes(self, domain='real'):
+        suffix = '' if domain == 'real' else '_fourier'
+        U_fn = self._getPath(f'pca_U{suffix}.npy')
+        if not os.path.exists(U_fn):
+            print(f'No PCA ({domain}) basis was computed: skipping eigenvolume export')
+            return
+
+        U = np.load(U_fn)
+        # Shape is (V_reduced, r) -- v_reduced: number of voxels after binning, r: number of components
+        for k in range(U.shape[1]):
+            # Gets each component
+            u_k = U[:, k]
+            full_vol = self._upsampleEigenvolume(u_k, suffix=suffix)
+            mrcfile.write(
+                self._getExtraPath(f'eigenvol{suffix}_{k + 1}.mrc'),
+                full_vol.astype(np.float32),
+                overwrite=True,
+                voxel_size=self.voxel_size
+            )
+        print(f'Saved {U.shape[1]} eigenvolumes ({domain}) to disk')
+
 
 
     def _calculateMoments(self, m_index):
