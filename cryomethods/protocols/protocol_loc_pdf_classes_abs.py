@@ -26,6 +26,8 @@ FOURIER_SPACE = 1
 BOTH = 2
 GAUSSIAN_SCIPY = 0
 LOWPASS_RELION = 1
+FOURIER_MAGNITUDE = 0
+FOURIER_REAL_IMAG = 1
 
 class ProtLocPDF_classes_abs(ProtAnalysis3D):
     """
@@ -34,6 +36,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
     _label = 'locPDF_classes_abs'
         # --------------------------- DEFINE param functions ----------------------
     def _defineParams(self, form):
+        # -------------------------------- INPUT ----------------------------------------
         form.addSection(label='Input')
         form.addParam('inputParticles', PointerParam,
                       pointerClass='SetOfParticles',
@@ -41,17 +44,9 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                       label="Input particles",
                       help='Select the input images from the project.')
 
-        form.addParam('methodApply', EnumParam,
-                  choices=['pdf', 'accumulative moments'],
-                  default=PROB_DENSITY_FUNCT,
-                  label='Method to apply', display=EnumParam.DISPLAY_COMBO,
-                  help='Decide which method you want to apply to your particles.\n'
-                       '1. Probability density function, calculates it based on the range.\n'
-                       '2. Accumulative moments. Apply the method of moments, where 4 moments '
-                       'will be calculated (mean, variance, skewness and kurtosis).\n'
-                      )
-
-        # -------------------------------- Normalization ----------------------------------------
+        # -------------------------------- FILTERING/NORMALIZATION ----------------------------------------
+        # --------- Normalization -------------
+        form.addSection(label='Filtering')
         form.addParam('normalizeVolumes', BooleanParam, default=False,
                       label="Normalize reconstructed volumes",
                       help='If YES, each reconstructed volume will be Z-score normalized '
@@ -61,7 +56,58 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                            'For Moments: \n   if ON, moments capture shape variability only; '
                            '\n   if OFF, they also capture global scale differences between reconstructions.')
 
-        # -------------------------------- Pdf ----------------------------------------
+        # --------- Filtering -------------
+        form.addParam('applyFilter', BooleanParam,
+                      default=False,
+                      label='Apply filter?',
+                      help='If set to Yes, a smoothing filter will be applied '
+                           'to each volume after normalization (if enabled) '
+                           'and before the statistical moments calculation.')
+
+        form.addParam('filterMethod', EnumParam,
+                             choices=['Gaussian filter (scipy)', 'Low-pass filter (RELION)'],
+                             default=GAUSSIAN_SCIPY,
+                             condition='applyFilter',
+                             display=EnumParam.DISPLAY_COMBO,
+                             label='Filtering method',
+                             help='Choose the filtering method:\n'
+                                  '1. Gaussian filter: real-space Gaussian smoothing '
+                                  '(scipy.ndimage.gaussian_filter), sigma expressed '
+                                  'in voxels.\n'
+                                  '2. Low-pass filter: Fourier-space low-pass filter '
+                                  'applied via RELION\'s relion_image_handler, cutoff '
+                                  'expressed as a resolution in Angstroms.')
+
+        form.addParam('gaussianSigma', FloatParam,
+                             default=2.0,
+                             condition='applyFilter and filterMethod==%d' % GAUSSIAN_SCIPY,
+                             label='Gaussian sigma',
+                             help='Sigma of the Gaussian kernel, expressed in voxels.')
+
+        form.addParam('lowpassResolution', FloatParam,
+                             default=20,
+                             condition='applyFilter and filterMethod==%d' % LOWPASS_RELION,
+                             label='Low-pass resolution cutoff (A)',
+                             help='Resolution cutoff, in Angstroms, for the low-pass '
+                                  'filter applied via relion_image_handler (--lowpass '
+                                  'option). Lower values (finer resolution) preserve '
+                                  'more detail; higher values (coarser resolution) '
+                                  'apply stronger smoothing.')
+
+
+        # -------------------------------- METHODS ----------------------------------------
+        form.addSection(label='Methods')
+        form.addParam('methodApply', EnumParam,
+                      choices=['pdf', 'accumulative moments'],
+                      default=PROB_DENSITY_FUNCT,
+                      label='Method to apply', display=EnumParam.DISPLAY_COMBO,
+                      help='Decide which method you want to apply to your particles.\n'
+                           '1. Probability density function, calculates it based on the range.\n'
+                           '2. Accumulative moments. Apply the method of moments, where 4 moments '
+                           'will be calculated (mean, variance, skewness and kurtosis).\n'
+                      )
+
+        # --------- Pdf -------------
         form.addParam('numBins', IntParam, default=10,
                       condition='methodApply==%d' % PROB_DENSITY_FUNCT,
                       label="Number of bins",
@@ -81,7 +127,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                            'If normalization is ON (recommended): use 4.0 to cover ~99.99% of data.\n'
                            'If normalization is OFF: set according to your original density scale.')
 
-        # -------------------------------- Moments ----------------------------------------
+        # --------- Moments -------------
         form.addParam('momentDomain', EnumParam,
                       choices = ['Real space', 'Fourier space', 'Both'],
                       default = REAL_SPACE,
@@ -90,51 +136,35 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                       display=EnumParam.DISPLAY_COMBO,
                       help='Select where accumulative moments will be calculated:\n' 
                                 '1. Real space.\n'
-                                '2. Fourier space, but only aplied on |FFT|\n'
-                                '3. Both domains')
+                                '2. Fourier space. \n'
+                                '3. Both domains.')
 
-        # ----------------------------------Filtering---------------------------------
-        groupFilter = form.addGroup('Filtering')
-        groupFilter.addParam('applyFilter', BooleanParam,
-                      default=False,
-                      label='Apply filter?',
-                      help='If set to Yes, a smoothing filter will be applied '
-                           'to each volume after normalization (if enabled) '
-                           'and before the statistical moments calculation.')
+        form.addParam('fourierMethod', EnumParam,
+                      choices = ['Magnitude |FFT|', 'Real and Imaginary parts'],
+                      default = FOURIER_MAGNITUDE,
+                      condition='methodApply==%d and momentDomain in [%d, %d]' % (
+                                ACC_MOMENTS, FOURIER_SPACE, BOTH),
+                      label="Fourier moments method",
+                      display=EnumParam.DISPLAY_COMBO,
+                      help='Select how Fourier-space moments are computed:\n'
+                           '1. Magnitude: moments are computed on |FFT| only, '
+                           'discarding phase information.\n'
+                           '2. Real and Imaginary: moments are computed '
+                           'separately on the real and imaginary parts of the '
+                           'FFT, preserving phase information split into two '
+                           'channels.')
 
-        groupFilter.addParam('filterMethod', EnumParam,
-                             choices=['Gaussian filter (scipy)', 'Low-pass filter (RELION)'],
-                             default=GAUSSIAN_SCIPY,
-                             condition='applyFilter',
-                             display=EnumParam.DISPLAY_COMBO,
-                             label='Filtering method',
-                             help='Choose the filtering method:\n'
-                                  '1. Gaussian filter: real-space Gaussian smoothing '
-                                  '(scipy.ndimage.gaussian_filter), sigma expressed '
-                                  'in voxels.\n'
-                                  '2. Low-pass filter: Fourier-space low-pass filter '
-                                  'applied via RELION\'s relion_image_handler, cutoff '
-                                  'expressed as a resolution in Angstroms.')
+        form.addParam('momentsMaskFile', PointerParam,
+                      pointerClass='VolumeMask', allowsNull=True,
+                      label='Mask for moment/\nPDF statistics (optional)',
+                      help='Optional mask to compute the overall average value of each '
+                           'voxel-wise output map (mean, std, skewness and kurtosis for moments; '
+                           'weighted mean, weighted std, weighted skewness and weighted kurtosis '
+                           'for PDF) inside and outside the masked region, in real space.')
 
-        groupFilter.addParam('gaussianSigma', FloatParam,
-                             default=2.0,
-                             condition='applyFilter and filterMethod==%d' % GAUSSIAN_SCIPY,
-                             label='Gaussian sigma',
-                             help='Sigma of the Gaussian kernel, expressed in voxels.')
-
-        groupFilter.addParam('lowpassResolution', FloatParam,
-                             default=20,
-                             condition='applyFilter and filterMethod==%d' % LOWPASS_RELION,
-                             label='Low-pass resolution cutoff (A)',
-                             help='Resolution cutoff, in Angstroms, for the low-pass '
-                                  'filter applied via relion_image_handler (--lowpass '
-                                  'option). Lower values (finer resolution) preserve '
-                                  'more detail; higher values (coarser resolution) '
-                                  'apply stronger smoothing.')
-
-        # ----------------------------------PCA---------------------------------
-        groupPCA = form.addGroup('PCA (online)')
-        groupPCA.addParam('doPCA', BooleanParam,
+        # -------------------------------- PCA ----------------------------------------
+        form.addSection(label='PCA')
+        form.addParam('doPCA', BooleanParam,
                           default=False,
                           label='Compute online PCA basis?',
                           help='If set to Yes, an incremental PCA basis (eigenvolumes) '
@@ -144,26 +174,26 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                                'of subsequent volumes onto this basis will be stored '
                                'once the basis is considered stable.')
 
-        groupPCA.addParam('numComponents', IntParam, default=10,
+        form.addParam('numComponents', IntParam, default=10,
                           condition='doPCA',
                           label='Number of PCA components',
                           help='Number of eigenvolumes (principal components) to '
                                'compute and retain.')
 
-        groupPCA.addParam('pcaMinBatches', IntParam, default=2, #20
+        form.addParam('pcaMinBatches', IntParam, default=2, #20
                           condition='doPCA',
                           label='Minimum batches before first PCA estimate',
                           help='No PCA basis will be attempted before this many '
                                'reconstructed volumes are available.')
 
-        groupPCA.addParam('pcaRecomputeEvery', IntParam, default=10,
+        form.addParam('pcaRecomputeEvery', IntParam, default=10,
                           condition='doPCA',
                           label='Recompute basis every N batches',
                           help='The PCA basis is recomputed from scratch (exact dual/'
                                'Gram PCA) every N new batches, once pcaMinBatches has '
                                'been reached.')
 
-        groupPCA.addParam('pcaStabilityThreshold', FloatParam, default=0.1,
+        form.addParam('pcaStabilityThreshold', FloatParam, default=0.1,
                           condition='doPCA',
                           label='Subspace angle stability threshold (rad)',
                           help='Maximum principal subspace angle (radians, from '
@@ -172,7 +202,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                                'considered stable. Coefficients are only stored once '
                                'this threshold is met.')
 
-        groupPCA.addParam('pcaMaskFile', PointerParam,
+        form.addParam('pcaMaskFile', PointerParam,
                           pointerClass='VolumeMask', allowsNull=True,
                           condition='doPCA',
                           label='Mask (optional)',
@@ -180,35 +210,37 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                                'for the PCA, to reduce dimensionality and exclude '
                                'solvent/background.')
 
-        groupPCA.addParam('pcaBinningFactor', IntParam, default=1,
+        form.addParam('pcaBinningFactor', IntParam, default=1,
                           condition='doPCA',
                           label='Binning factor',
                           help='Downsampling factor applied to volumes before PCA, '
                                'to further reduce dimensionality (1 = no binning).')
 
-        # ----------------------------------Bootstrap---------------------------------
-        group = form.addGroup('Bootstrap')
-        group.addParam('inputProt', PointerParam,
+        # -------------------------------- RECONSTRUCTION ----------------------------------------
+        form.addSection(label='Reconstruction')
+        # --------- Bootstrap -------------
+        groupBootstrap = form.addGroup('Bootstrap')
+        groupBootstrap.addParam('inputProt', PointerParam,
                        label="Input 2D classes",
                        pointerClass='SetOfClasses2D',
                        help='Select the 2D classification output. '
                              'Particles will be sampled from each class to generate '
                              'bootstrap reconstructions.')
 
-        group.addParam('numBatches', IntParam, default=10,
+        groupBootstrap.addParam('numBatches', IntParam, default=10,
                              label="Number of reconstructions",
                              help='Number of independent particle subsets to generate. '
                                   'Each subset will be used to compute a separate reconstruction '
                                   'using random sampling (bootstrap).')
 
-        group.addParam('numParticlesPerClass', IntParam, default=5,
+        groupBootstrap.addParam('numParticlesPerClass', IntParam, default=5,
                              label="Particles per class",
                              help='Maximum number of particles to sample from each class for each reconstruction. '
                                   'If a class contains fewer particles, all will be included. '
                                   'The total number of particles per reconstruction depends '
                                   'on the number of classes.')
 
-        group.addParam('reconstruction', EnumParam,
+        form.addParam('reconstruction', EnumParam,
                       choices=['Relion reconstruction', 'Xmipp reconstruction'],
                       default=XMIPP_RECONSTRUCTION,
                       label='Reconstruction to be applied', display=EnumParam.DISPLAY_COMBO,
@@ -216,7 +248,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                            '1. Relion reconstruction.\n'
                            '2. Xmipp reconstruction. \n')
 
-        # ----------------------------------Relion reconstruction---------------------------------
+        # --------- Relion reconstruction -------------
         groupRelion = form.addGroup('Relion', condition="reconstruction==%d" % RELION_RECONSTRUCTION)
 
         ##===================== use GPU ========================
@@ -247,7 +279,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                  label="Extra parameters", help='Extra parameters for Relion \n'
                                                 'recontruction')
 
-        #----------------------------------Xmipp reconstruction---------------------------------
+        # --------- Xmipp reconstruction -------------
         groupXmipp = form.addGroup('Xmipp', condition="reconstruction==%d" % XMIPP_RECONSTRUCTION) #"not reconstructRelion"
         groupXmipp.addParam('xmippSymmetryGroup', StringParam, default='c1',
                        label="Symmetry group Xmipp",
@@ -288,6 +320,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         num_batches = self.numBatches.get()
 
+        # METHOD 1: Probability Density Function (PDF)
+        # ================================================================
         if self.methodApply.get() == PROB_DENSITY_FUNCT:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
@@ -300,21 +334,26 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                     else:
                         self._insertFunctionStep('_gaussianFilterRelionStep', m)
 
-                #if self.doPCA.get():
-                #    self._insertFunctionStep('_pcaBufferVolumeStep', m)
-                #    if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
-                #        self._insertFunctionStep('_pcaRecomputeBaseStep', m)
-                #    self._insertFunctionStep('_pcaProjectAndWriteStep', m)
+                #PCA (real space only) for the PDF method
+                if self.doPCA.get():
+                    self._insertFunctionStep('_pcaBufferVolumeStep', m, 'real')
+                    if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
+                        self._insertFunctionStep('_pcaRecomputeBaseStep', m, 'real')
+                    self._insertFunctionStep('_pcaProjectAndWriteStep', m, 'real')
 
                 self._insertFunctionStep('_calculatePDF', m)
                 self._insertFunctionStep('_removePreviousVolume', m)
 
             self._insertFunctionStep('statistic_volumes')
-            #if self.doPCA.get():
-            #    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep')
-            #    self._insertFunctionStep('_saveEigenvolumes')
+            self._insertFunctionStep('_calculateMaskedPDFStats')
 
+            #PCA analysis/export (real space only) for the PDF method
+            if self.doPCA.get():
+                self._insertFunctionStep('_pcaAnalyzeCoefficientsStep')
+                self._insertFunctionStep('_saveEigenvolumes')
 
+        # METHOD 2: Accumulative Moments
+        # ================================================================
         elif self.methodApply.get() == ACC_MOMENTS:
             for m in range(1, num_batches + 1):
                 self._insertFunctionStep('_processParticles', m)
@@ -340,24 +379,36 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
                 if domain in [FOURIER_SPACE, BOTH]:
                     # Not applying Gaussian filtering in Fourier space
-                    if self.doPCA.get():
-                        self._insertFunctionStep('_pcaBufferVolumeStep', m, 'fourier')
-                        if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
-                            self._insertFunctionStep('_pcaRecomputeBaseStep', m, 'fourier')
-                        self._insertFunctionStep('_pcaProjectAndWriteStep', m, 'fourier')
-
                     self._insertFunctionStep('_calculateFourierMoments', m)
+                    #if self.doPCA.get():
+                    #    self._insertFunctionStep('_pcaBufferVolumeStep', m, 'fourier')
+                    #    if m >= self.pcaMinBatches.get() and m % self.pcaRecomputeEvery.get() == 0:
+                    #        self._insertFunctionStep('_pcaRecomputeBaseStep', m, 'fourier')
+                    #    self._insertFunctionStep('_pcaProjectAndWriteStep', m, 'fourier')
+
+                    ##Choose which Fourier moments to compute based on the selected method:
+                    #if self.fourierMethod.get() == FOURIER_MAGNITUDE:
+                    #    #magnitude |FFT| (phase discarded)
+                    #    self._insertFunctionStep('_calculateFourierMoments', m)
+                    #else:
+                    #    #real/imaginary parts (phase preserved)
+                    #    self._insertFunctionStep('_calculateFourierMomentsRealImag', m)
+
 
                 self._insertFunctionStep('_removePreviousVolume', m)
+
+            if domain in [REAL_SPACE, BOTH]:
+                self._insertFunctionStep('_calculateMaskedMomentStats')
 
             if self.doPCA.get():
                 domain = self.momentDomain.get()
                 if domain in [REAL_SPACE, BOTH]:
                     self._insertFunctionStep('_pcaAnalyzeCoefficientsStep', 'real')
                     self._insertFunctionStep('_saveEigenvolumes', 'real')
-                if domain in [FOURIER_SPACE, BOTH]:
-                    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep', 'fourier')
-                    # Not saving the eigen volumes as the phase is missing and
+                #if domain in [FOURIER_SPACE, BOTH]:
+                #    self._insertFunctionStep('_pcaAnalyzeCoefficientsStep', 'fourier')
+                    # Not saving the eigen volumes as the phase is missing
+
 
     def convertInputStep(self):
         """ Create the input file in STAR format as expected by Relion.
@@ -374,8 +425,10 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         imgXmd = self._getExtraPath('inputParticles.xmd')
         writeSetOfParticlesXmipp(imgSet, imgXmd)
 
+
     def _loadVolume(self, m_index):
         return NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc')) #_getExtraPath
+
 
     def _getVolumeForProcessing(self, m_index):
         """
@@ -610,6 +663,153 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             print("XMD written:", output_xmd)
 
 
+    def _computeMaskedStats(self, vol, mask_bool):
+        """
+            Compute the average value of a voxel-wise map inside and outside a
+            boolean mask.
+
+            vol: 3D numpy array with the voxel-wise values (e.g. a moment map).
+            mask_bool: 3D boolean numpy array, same shape as vol. True = inside
+                       the region of interest, False = outside.
+
+            Returns a tuple (mean_inside, mean_outside). If one of the regions
+            has no voxels, its average is returned as NaN instead of raising a
+            numpy warning.
+        """
+        #Select only the voxels of vol where the mask is True (inside region)
+        inside_vals = vol[mask_bool]
+
+        #Select only the voxels of vol where the mask is False (outside region)
+        outside_vals = vol[~mask_bool]
+
+        #Compute the mean of the inside voxels, only if there is at least one voxel inside
+        mean_inside = float(np.mean(inside_vals)) if inside_vals.size > 0 else float('nan')
+        mean_outside = float(np.mean(outside_vals)) if outside_vals.size > 0 else float('nan')
+
+        return mean_inside, mean_outside
+
+
+    def _computeMaskedStatsFromFiles(self, moment_files, output_prefix):
+        """
+        Generic helper that reads a set of voxel-wise .mrc maps already written
+        to disk, and, if a mask was provided by the user, computes the overall
+        average of each map inside and outside the masked region.
+
+        moment_files: dict mapping a short stat name (e.g. 'mean') to the
+                      corresponding .mrc filename inside _getExtraPath()
+                      (e.g. '1_mean.mrc').
+        output_prefix: string used to build the output filenames, so different
+                       callers (moments, PDF, ...) don't overwrite each other's
+                       results (e.g. 'moments' -> moments_mask_stats.pkl).
+        """
+        # If the user did not provide a mask, there is nothing to compute
+        if self.momentsMaskFile.get() is None:
+            print('No mask provided: skipping masked statistics')
+            return
+
+        # Load the mask volume from disk as a numpy array
+        mask = np.asarray(
+            NumpyImgHandler.loadMrc(self.momentsMaskFile.get().getFileName())
+        )
+
+        # Nonzero voxel is treated as "inside", zero voxels are treated as "outside"
+        mask_bool = mask.astype(bool)
+        stats = {}
+
+        # Loop over each statistic (e.g. mean, std, skewness, kurtosis)
+        for name, fname in moment_files.items():
+            vol_fn = self._getExtraPath(fname)
+
+            # Skip if the expected file does not exist
+            if not os.path.exists(vol_fn):
+                print(f'WARNING: {vol_fn} not found, skipping {name}')
+                continue
+
+            # Load the voxel-wise map for this statistic as a numpy array
+            vol_map = np.asarray(NumpyImgHandler.loadMrc(vol_fn))
+
+            # Making sure the mask and the map have the same dimensions
+            if mask_bool.shape != vol_map.shape:
+                print(f'WARNING: mask shape {mask_bool.shape} does not match '
+                      f'{name} map shape {vol_map.shape}; skipping {name}')
+                continue
+
+            # Compute the inside/outside average for this map using the boolean mask
+            mean_in, mean_out = self._computeMaskedStats(vol_map, mask_bool)
+
+            # Store the result for this statistic in the results dictionary
+            stats[name] = {'inside': mean_in, 'outside': mean_out}
+            print(f'Average {name} inside mask: {mean_in:.6f}, '
+                  f'outside mask: {mean_out:.6f}')
+
+        # Save as pickle for structured re-loading (e.g. in _summary)
+        pkl_fn = self._getExtraPath(f'{output_prefix}_mask_stats.pkl')
+        with open(pkl_fn, 'wb') as f:
+            pickle.dump(stats, f)
+
+        # Save the information in a txt file
+        txt_fn = self._getExtraPath(f'{output_prefix}_mask_stats.txt')
+        with open(txt_fn, 'w') as f:
+            for name, vals in stats.items():
+                f.write(f"{name}: inside={vals['inside']:.6f}, "
+                        f"outside={vals['outside']:.6f}\n")
+
+        # Confirm to the log where the output files were saved
+        print(f'Masked statistics saved to {pkl_fn}')
+
+
+    def _calculateMaskedMomentStats(self):
+        """
+        Scipion step: compute masked (inside/outside) statistics for the
+        real-space accumulative-moments output maps produced by
+        _calculateMoments (mean, std, skewness, kurtosis).
+        """
+        # Map each statistic name to the .mrc filename written by _calculateMoments
+        moment_files = {
+            'mean': '1_mean.mrc',
+            'std': '2_std.mrc',
+            'skewness': '3_skewness.mrc',
+            'kurtosis': '4_kurtosis.mrc',
+        }
+
+        # Delegate the actual computation to the generic helper, tagging the
+        # output files with the 'moments' prefix
+        self._computeMaskedStatsFromFiles(moment_files, output_prefix='moments')
+
+
+    def _calculateMaskedPDFStats(self):
+        """
+        Scipion step: compute masked (inside/outside) statistics for the
+        weighted PDF-derived output maps produced by statistic_volumes
+        (weighted mean, std, skewness, kurtosis).
+        """
+        # Map each statistic name to the .mrc filename written by statistic_volumes
+        moment_files = {
+            'weighted_mean': 'weighted_mean.mrc',
+            'weighted_std': 'weighted_std.mrc',
+            'weighted_skewness': 'weighted_skewness.mrc',
+            'weighted_kurtosis': 'weighted_kurtosis.mrc',
+        }
+
+        # Delegate the actual computation to the generic helper, tagging the
+        # output files with the 'pdf' prefix
+        self._computeMaskedStatsFromFiles(moment_files, output_prefix='pdf')
+
+
+    def _loadMaskedStats(self, output_prefix):
+        """
+        Reads the masked (inside/outside) statistics saved by
+        _computeMaskedStatsFromFiles for a given method ('moments' or 'pdf').
+        Returns the stats dict, or None if the file does not exist yet
+        (e.g. protocol has not finished running, or no mask was used).
+        """
+        pkl_fn = self._getExtraPath(f'{output_prefix}_mask_stats.pkl')
+        if not os.path.exists(pkl_fn):
+            return None
+        with open(pkl_fn, 'rb') as f:
+            return pickle.load(f)
+
+
     def reconstructStep(self, m_index=1):
         env = Plugin.getEnviron()
 
@@ -790,31 +990,40 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         domain='fourier': always uses the unfiltered volume (_loadVolume),
         magnitude of its FFT — same criterion as _calculateFourierMoments.
         """
-        if domain == 'fourier':
-            vol_real = self._loadVolume(m_index)
-            # TF only with the magnitude, that is why the eigenvolumes are only
-            # saved in real space. No phase spectrum
-            vol = np.abs(np.fft.fftn(vol_real))
-        else:
-            vol = self._getVolumeForProcessing(m_index)
+        ## COMENTADO EL CALCULO DE PCA EN FOURIER
+        #if domain == 'fourier':
+        #    vol_real = self._loadVolume(m_index)
+        #    # TF only with the magnitude, that is why the eigenvolumes are only
+        #    # saved in real space. No phase spectrum
+        #    vol = np.abs(np.fft.fftn(vol_real))
+        #else:
+        #    vol = self._getVolumeForProcessing(m_index)
 
+        vol = self._getVolumeForProcessing(m_index)
+        # Keep the full-size shape, needed later to undo binning
         original_shape = vol.shape
 
+        # Optional mask: restricts PCA to voxels of interest
         if self.pcaMaskFile.get() is not None:
             mask = NumpyImgHandler.loadMrc(self.pcaMaskFile.get().getFileName())
             vol = vol * mask
 
+        # Optional binning: downsamples the volume to further reduce dimensionality before PCA
         factor = self.pcaBinningFactor.get()
         if factor > 1:
             vol = zoom(vol, 1.0 / factor, order=1)
 
+        # Flatten to a 1D vector
         return vol.reshape(-1).astype(np.float64), vol.shape, original_shape
 
 
     def _pcaBufferVolumeStep(self, m_index, domain='real'):
         suffix = '' if domain == 'real' else '_fourier'
+
+        # Reduce (mask/bin) and flatten the current batch's volume
         vec, reduced_shape, original_shape = self._getReducedVolumeVector(m_index, domain)
 
+        # Shapes never change across batches, so only save them once, on batch 1
         if m_index == 1:
             np.save(self._getPath(f'pca_reduced_shape{suffix}.npy'), np.array(reduced_shape))
             np.save(self._getPath(f'pca_original_shape{suffix}.npy'), np.array(original_shape))
@@ -827,35 +1036,53 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
     def _pcaRecomputeBaseStep(self, m_index, domain='real'):
         suffix = '' if domain == 'real' else '_fourier'
 
+        # Snapshot PCA: reload ALL buffered vectors from batch 1 to m_index and
+        # recompute the basis from scratch — not an incremental/online update
         vecs = [np.load(self._getExtraPath(f'pca_vec{suffix}_{i}.npy'))
                 for i in range(1, m_index + 1)]
 
-        # Save vectors in columns
+        # Stack as columns: (V_reduced, T) — each column is one reconstruction
         X = np.stack(vecs, axis=1)  # (V_reduced, T)
+        # Stack as columns: (V_reduced, T) — each column is one reconstruction
         mean_vec = X.mean(axis=1)
+        # Center each volume against that mean — required before any PCA/SVD
         Xc = X - mean_vec[:, None]
 
-        T = Xc.shape[1]
+        T = Xc.shape[1]     # number of accumulated batches so far
+
         G = Xc.T @ Xc / (T - 1) #covariance matrix between volumes
+        # G is symmetric: faster and numerically stable
         eigvals, eigvecs = np.linalg.eigh(G)
+        # eigh returns ascending order; flip to descending (largest variance first)
         order = np.argsort(eigvals)[::-1]
         eigvals, eigvecs = eigvals[order], eigvecs[:, order]
 
+        # Cannot keep more components than requested, nor more than T-1
         r = min(self.numComponents.get(), T - 1)
+        # Clip to avoid negative/zero eigenvalues (numerical noise)
         eigvals_r = np.maximum(eigvals[:r], 1e-12)
+
+        # Recover eigenvectors in VOXEL space
         U_new = Xc @ eigvecs[:, :r] / np.sqrt(eigvals_r * (T - 1))
+        # Normalize each eigenvolume to unit norm: magnitude lives entirely in
+        # the projection coefficients, not in the eigenvolume itself
         U_new = U_new / np.linalg.norm(U_new, axis=0, keepdims=True)
+        # Fraction of TOTAL variance (sum over ALL eigenvalues, not just the
+        # r retained) explained by each kept component
         explained_var = eigvals_r / np.sum(eigvals)
 
         prev_U_fn = self._getPath(f'pca_U{suffix}.npy')
         is_stable = False
         if os.path.exists(prev_U_fn):
+            # A previous basis exists: compare it against the new one
             U_prev = np.load(prev_U_fn)
             k_common = min(U_prev.shape[1], U_new.shape[1])
             # angles similar (0), angles different (π/2)
             angles = subspace_angles(U_prev[:, :k_common], U_new[:, :k_common])
             max_angle = np.max(angles)
             print(f'PCA ({domain}) subspace angle vs previous base: {max_angle:.4f} rad')
+            # Basis is considered stable once the worst-case angle drops
+            # below the configured threshold
             is_stable = max_angle < self.pcaStabilityThreshold.get()
 
             # Procrustes-style alignment: fix sign/order to match previous base
@@ -863,24 +1090,34 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             # Which old component has mayor correlation in absolute value
             assign = np.argmax(np.abs(corr), axis=1)
             # Sign of the correlation
+            # -> if negative, the new component points in the opposite
+            #    direction and must be flipped to match the old one
             signs = np.sign(corr[np.arange(k_common), assign])
             signs[signs == 0] = 1.0
             # Align: reorder and flip signs so components match the previous base
+            # NOTE: this re-ordering is by "identity" (matching the old
+            # component), NOT strictly by current variance — so the final
+            # order may no longer be perfectly descending by explained_var
             U_aligned = U_new[:, assign] * signs    # new version
             eigvals_r_aligned = eigvals_r[assign]   # new version
             explained_var_aligned = explained_var[assign]
+
             # Extra components in the new base
             if U_new.shape[1] > k_common:
                 U_aligned = np.concatenate([U_aligned, U_new[:, k_common:]], axis=1)
                 eigvals_r_aligned = np.concatenate([eigvals_r_aligned, eigvals_r[k_common:]])
                 explained_var_aligned = np.concatenate([explained_var_aligned, explained_var[k_common:]])
+
+            # Overwrite working variables with their aligned versions
             U_new = U_aligned
             eigvals_r = eigvals_r_aligned
             explained_var = explained_var_aligned
 
         else:
+            # First time computing a basis: nothing to align/compare against yet
             print(f'PCA ({domain}): first base estimate, no previous base to compare against')
 
+        # Persist the full basis state for the next recompute/projection
         np.save(self._getPath(f'pca_mean{suffix}.npy'), mean_vec)
         np.save(self._getPath(f'pca_U{suffix}.npy'), U_new) #aligned
         np.save(self._getPath(f'pca_singvals{suffix}.npy'), np.sqrt(eigvals_r * (T - 1)))
@@ -902,11 +1139,13 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             print(f'PCA ({domain}) basis not stable yet at batch {m_index}: skipping')
             return
 
+        # Load the (already stable and aligned) basis
         mean_vec = np.load(self._getPath(f'pca_mean{suffix}.npy'))
         U = np.load(self._getPath(f'pca_U{suffix}.npy'))
 
         # Recovers the current batch volume
         vec, _, _ = self._getReducedVolumeVector(m_index, domain)
+        # Project the centered volume onto each eigenvolume
         coeffs = U.T @ (vec - mean_vec)
 
         coeffs_fn = self._getPath(f'pca_coefficients{suffix}.npy')
@@ -917,6 +1156,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         all_coeffs[m_index] = coeffs
         np.save(coeffs_fn, all_coeffs, allow_pickle=True)
 
+        # Append these coefficients as new columns to the batch's particle STAR
         self._appendPcaCoefficientsToStar(m_index, coeffs, suffix=suffix)
         print(f'PCA ({domain}) coefficients stored for batch {m_index}: {coeffs}')
 
@@ -933,28 +1173,35 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
         col_names = []
         data_lines = []
-        in_target_block = False
-        in_loop = False
+        in_target_block = False     # True while inside the block we care about
+        in_loop = False             # True once past the block's loop_ line
 
         for line in lines:
             stripped = line.strip()
 
+            # Every "data_X" line marks the start of a new block; only stay
+            # "inside" if it exactly matches the block we're looking for
             if stripped.startswith('data_'):
                 in_target_block = (stripped == block_name)
                 in_loop = False
                 continue
 
+            # Skip everything belonging to blocks we don't care about
             if not in_target_block:
                 continue
 
+            # Inside the right block: loop_ marks where columns/rows begin
             if stripped.startswith('loop_'):
                 in_loop = True
                 continue
 
+            # Column name lines (start with '_'); split()[0] drops any
+            # trailing index like "#1" some STAR writers append
             if in_loop and stripped.startswith('_'):
                 col_names.append(stripped.split()[0])
                 continue
 
+            # Anything else non-empty, non-comment inside loop_ is a data row
             if in_loop and stripped and not stripped.startswith('#'):
                 data_lines.append(stripped)
 
@@ -1506,6 +1753,180 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print("Finished _calculateFourierMoments for batch:", m_index)
 
 
+    #def _pebayWelfordUpdate(self, x, n_old, mean_old, M2_old, M3_old, M4_old):
+    #    """
+    #    Single online update step (Pébay/Welford) for voxel-wise accumulative
+    #    moments. Returns the updated (n, mean, M2, M3, M4) accumulators after
+    #    incorporating the new observation x.
+    #    """
+    #    n_new = n_old + 1.0
+    #    delta = x - mean_old
+    #    delta_n = delta / n_new
+    #    delta_n2 = delta_n * delta_n
+    #    term1 = delta * delta_n * n_old
+
+    #    mean_new = mean_old + delta_n
+    #    M4_new = (
+    #            M4_old
+    #            + term1 * delta_n2 * (n_new ** 2.0 - 3.0 * n_new + 3.0)
+    #            + 6.0 * delta_n2 * M2_old
+    #            - 4.0 * delta_n * M3_old
+    #    )
+    #    M3_new = (
+    #            M3_old
+    #            + term1 * delta_n * (n_new - 2.0)
+    #            - 3.0 * delta_n * M2_old
+    #    )
+    #    M2_new = M2_old + term1
+
+    #    return n_new, mean_new, M2_new, M3_new, M4_new
+
+
+    #def _derivedMomentsFromAccumulators(self, n, M2, M3, M4, eps=1e-12):
+    #    """
+    #    Computes variance, std, skewness and (excess) kurtosis from the
+    #    accumulators n, M2, M3, M4, masking voxels with negligible variance.
+    #    """
+    #    variance = np.divide(
+    #        M2, np.maximum(n, eps),
+    #        out=np.zeros_like(M2, dtype=np.float64),
+    #        where=n > 0
+    #    )
+    #    std = np.sqrt(variance)
+
+    #    skewness = np.zeros_like(M2, dtype=np.float64)
+    #    kurtosis = np.zeros_like(M2, dtype=np.float64)
+    #    mask = M2 > eps
+
+    #    # Skewness and kurtosis will only be calculated when variance is not significant
+    #    with np.errstate(divide='ignore', invalid='ignore'):
+    #        skewness[mask] = (np.sqrt(n[mask]) * M3[mask]) / (M2[mask] ** 1.5)
+    #        kurtosis[mask] = ((n[mask] * M4[mask]) / (M2[mask] ** 2)) - 3.0
+
+    #    skewness = np.nan_to_num(skewness, nan=0.0, posinf=0.0, neginf=0.0)
+    #    kurtosis = np.nan_to_num(kurtosis, nan=0.0, posinf=0.0, neginf=0.0)
+
+    #    return variance, std, skewness, kurtosis
+
+
+    #def _calculateFourierMomentsRealImag(self, m_index):
+    #    """
+    #    Calculate accumulative moments in Fourier space using the REAL and
+    #    IMAGINARY parts of the FFT separately (instead of the magnitude |FFT|
+    #    used by _calculateFourierMoments). Each part is treated as an
+    #    independent voxel-wise signal, with its own set of moment volumes:
+    #      - mean, variance, std, skewness, kurtosis  (real part)
+    #      - mean, variance, std, skewness, kurtosis  (imaginary part)
+    #    """
+    #    eps = 1e-12
+
+    #    # ------------------------------------------------------------
+    #    # 1. FFT of the reconstructed (unfiltered) volume, split into
+    #    #    real and imaginary channels
+    #    # ------------------------------------------------------------
+    #    vol_real = np.asarray(self._loadVolume(m_index), dtype=np.float64)
+    #    vol_fft = np.fft.fftn(vol_real).astype(np.complex128)
+
+    #    re_part = vol_fft.real.astype(np.float64)
+    #    im_part = vol_fft.imag.astype(np.float64)
+
+    #    print("RE FFT MIN/MAX/MEAN:", re_part.min(), re_part.max(), re_part.mean())
+    #    print("IM FFT MIN/MAX/MEAN:", im_part.min(), im_part.max(), im_part.mean())
+
+    #    # ------------------------------------------------------------
+    #    # 2. Initialize or load accumulators (shared n across Re/Im,
+    #    #    since both come from the same batch count)
+    #    # ------------------------------------------------------------
+    #    if m_index == 1:
+    #        self.n_fft_ri = np.zeros_like(re_part, dtype=np.float64)
+    #        self.mean_fft_re = np.zeros_like(re_part, dtype=np.float64)
+    #        self.M2_fft_re = np.zeros_like(re_part, dtype=np.float64)
+    #        self.M3_fft_re = np.zeros_like(re_part, dtype=np.float64)
+    #        self.M4_fft_re = np.zeros_like(re_part, dtype=np.float64)
+    #        self.mean_fft_im = np.zeros_like(im_part, dtype=np.float64)
+    #        self.M2_fft_im = np.zeros_like(im_part, dtype=np.float64)
+    #        self.M3_fft_im = np.zeros_like(im_part, dtype=np.float64)
+    #        self.M4_fft_im = np.zeros_like(im_part, dtype=np.float64)
+    #    else:
+    #        self.n_fft_ri = np.load(os.path.join(self._getPath(), "n_fft_ri.npy"))
+    #        self.mean_fft_re = np.load(os.path.join(self._getPath(), "mean_fft_re.npy"))
+    #        self.M2_fft_re = np.load(os.path.join(self._getPath(), "M2_fft_re.npy"))
+    #        self.M3_fft_re = np.load(os.path.join(self._getPath(), "M3_fft_re.npy"))
+    #        self.M4_fft_re = np.load(os.path.join(self._getPath(), "M4_fft_re.npy"))
+    #        self.mean_fft_im = np.load(os.path.join(self._getPath(), "mean_fft_im.npy"))
+    #        self.M2_fft_im = np.load(os.path.join(self._getPath(), "M2_fft_im.npy"))
+    #        self.M3_fft_im = np.load(os.path.join(self._getPath(), "M3_fft_im.npy"))
+    #        self.M4_fft_im = np.load(os.path.join(self._getPath(), "M4_fft_im.npy"))
+
+    #    # ------------------------------------------------------------
+    #    # 3. Online update (real and imaginary channels updated with
+    #    #    the same n, since they come from the same reconstruction)
+    #    # ------------------------------------------------------------
+    #    n_new, self.mean_fft_re, self.M2_fft_re, self.M3_fft_re, self.M4_fft_re = \
+    #        self._pebayWelfordUpdate(re_part, self.n_fft_ri, self.mean_fft_re,
+    #                                 self.M2_fft_re, self.M3_fft_re, self.M4_fft_re)
+
+    #    _, self.mean_fft_im, self.M2_fft_im, self.M3_fft_im, self.M4_fft_im = \
+    #        self._pebayWelfordUpdate(im_part, self.n_fft_ri, self.mean_fft_im,
+    #                                 self.M2_fft_im, self.M3_fft_im, self.M4_fft_im)
+
+    #    self.n_fft_ri = n_new
+
+    #    # ------------------------------------------------------------
+    #    # 4. Derived moments
+    #    # ------------------------------------------------------------
+    #    variance_re, std_re, skewness_re, kurtosis_re = \
+    #        self._derivedMomentsFromAccumulators(
+    #            self.n_fft_ri, self.M2_fft_re, self.M3_fft_re, self.M4_fft_re, eps)
+
+    #    variance_im, std_im, skewness_im, kurtosis_im = \
+    #        self._derivedMomentsFromAccumulators(
+    #            self.n_fft_ri, self.M2_fft_im, self.M3_fft_im, self.M4_fft_im, eps)
+
+    #    print("RE variance min/max:", variance_re.min(), variance_re.max())
+    #    print("IM variance min/max:", variance_im.min(), variance_im.max())
+
+    #    # ------------------------------------------------------------
+    #    # 5. Save accumulators for next bootstrap batch
+    #    # ------------------------------------------------------------
+    #    np.save(os.path.join(self._getPath(), "n_fft_ri.npy"), self.n_fft_ri)
+    #    np.save(os.path.join(self._getPath(), "mean_fft_re.npy"), self.mean_fft_re)
+    #    np.save(os.path.join(self._getPath(), "M2_fft_re.npy"), self.M2_fft_re)
+    #    np.save(os.path.join(self._getPath(), "M3_fft_re.npy"), self.M3_fft_re)
+    #    np.save(os.path.join(self._getPath(), "M4_fft_re.npy"), self.M4_fft_re)
+    #    np.save(os.path.join(self._getPath(), "mean_fft_im.npy"), self.mean_fft_im)
+    #    np.save(os.path.join(self._getPath(), "M2_fft_im.npy"), self.M2_fft_im)
+    #    np.save(os.path.join(self._getPath(), "M3_fft_im.npy"), self.M3_fft_im)
+    #    np.save(os.path.join(self._getPath(), "M4_fft_im.npy"), self.M4_fft_im)
+
+    #    # ------------------------------------------------------------
+    #    # 6. Save MRC volumes only on the last batch (fftshift for
+    #    #    visualization, same convention as _calculateFourierMoments)
+    #    # ------------------------------------------------------------
+    #    if m_index == self.numBatches.get():
+    #        outputs = {
+    #            "1_mean_fft_re.mrc": self.mean_fft_re,
+    #            "2_variance_fft_re.mrc": variance_re,
+    #            "2_std_fft_re.mrc": std_re,
+    #            "3_skewness_fft_re.mrc": skewness_re,
+    #            "4_kurtosis_fft_re.mrc": kurtosis_re,
+    #            "1_mean_fft_im.mrc": self.mean_fft_im,
+    #            "2_variance_fft_im.mrc": variance_im,
+    #            "2_std_fft_im.mrc": std_im,
+    #            "3_skewness_fft_im.mrc": skewness_im,
+    #            "4_kurtosis_fft_im.mrc": kurtosis_im,
+    #        }
+    #        for fname, vol in outputs.items():
+    #            mrcfile.write(
+    #                os.path.join(self._getExtraPath(), fname),
+    #                np.fft.fftshift(vol).astype(np.float32),
+    #                voxel_size=self.voxel_size,
+    #                overwrite=True  # habria que dejar el overwrite?
+    #            )
+
+    #    print("Finished _calculateFourierMomentsRealImag for batch:", m_index)
+
+
     def _calculatePDF(self, m_index): ##REVISAR
 
         #vol = NumpyImgHandler.loadMrc(self._getExtraPath(f'vol_{m_index}.mrc'))
@@ -1877,6 +2298,27 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         summary = []
         summary.append("Input volume: %s" % self.inputParticles.getNameId())
         summary.append(" ")
+
+        # Determine which output prefix corresponds to the selected method
+        if self.methodApply.get() == PROB_DENSITY_FUNCT:
+            output_prefix = 'pdf'
+        else:
+            output_prefix = 'moments'
+
+        # Only attempt to report masked statistics if a mask was provided
+        if self.momentsMaskFile.get() is not None:
+            stats = self._loadMaskedStats(output_prefix)
+            if stats:
+                summary.append("Masked statistics (inside vs outside mask):")
+                for name, vals in stats.items():
+                    summary.append(
+                        "  %s: inside=%.6f, outside=%.6f"
+                        % (name, vals['inside'], vals['outside'])
+                    )
+            else:
+                summary.append("Masked statistics: not yet computed "
+                               "(protocol may still be running).")
+
         return summary
 
     def _citations(self):

@@ -30,7 +30,6 @@ import os
 from pwem import viewers
 from pwem.viewers import EmPlotter, ChimeraView, showj #ChimeraOldViewer,
 from pyworkflow import gui
-from sympy.abc import lamda
 
 from cryomethods.functions import NumpyImgHandler
 
@@ -59,10 +58,10 @@ from .protocols.protocol_loc_pdf import ProtLocPDF, PROB_DENSITY_FUNCT, ACC_MOME
 from .protocols.protocol_loc_pdf_classes import ProtLocPDF_classes
 from .protocols.protocol_loc_pdf_classes_abs import ProtLocPDF_classes_abs
 from glob import glob
-from scipy.stats import johnsonsu, lognorm
+from scipy.stats import johnsonsu, norm
 from tkinter import messagebox
 #from cryomethods.j_johnson_M import f_johnson_M
-import mrcfile
+import mrcfile, pickle
 print("🔥 VIEWERS MODULE IMPORTED")
 #from fitter import Fitter, get_common_distributions
 
@@ -1215,6 +1214,25 @@ class CalculateHistogram(ProtocolViewer):
             label='Radial shell statistics'
         )
 
+        # --------------------------- Voxel-wise statistic map histograms -------------------------------------
+        groupStatMaps = form.addGroup('Statistic map histograms (by mask)')
+        groupStatMaps.addParam('statMapHistogramsInsideMask', params.LabelParam,
+                           label='View statistic map histograms inside mask')
+        groupStatMaps.addParam('statMapHistogramsOutsideMask', params.LabelParam,
+                           label='View statistic map histograms outside mask')
+
+        # --------------------------- Average PDF histogram by mask -------------------------------------
+        groupAvgHist = form.addGroup('Average PDF bin histogram (by mask)',
+                                     condition='methodApplied==%d' % PROB_DENSITY_FUNCT)
+        groupAvgHist.addParam('pdfBinHistogramByMask', params.LabelParam,
+                              label='View average PDF histogram (inside vs outside mask)')
+
+        # --------------------------- Average moments Edgeworth distribution by mask -------------------------------------
+        groupAvgMoments = form.addGroup('Average moments distribution (Edgeworth, by mask)',
+                                        condition='methodApplied==%d' % ACC_MOMENTS)
+        groupAvgMoments.addParam('momentsEdgeworthByMask', params.LabelParam,
+                                 label='View average Edgeworth distribution (inside vs outside mask)')
+
 
     def _loadMoments(self, suffix=''):
 
@@ -1656,10 +1674,437 @@ class CalculateHistogram(ProtocolViewer):
             #self._plotMomentSet(both_files, nrows=4, ncols=2)
 
 
+    def _loadMask(self):
+        """
+        Loads the mask volume used by the protocol (momentsMaskFile) as a
+        boolean numpy array. Shows an error dialog and returns None if no
+        mask is available.
+        """
+        maskParam = getattr(self.protocol, 'momentsMaskFile', None)
+        if maskParam is None or maskParam.get() is None:
+            messagebox.showerror(
+                "No mask available",
+                "This protocol run did not use a mask "
+                "(momentsMaskFile is empty)."
+            )
+            return None
+
+        mask = NumpyImgHandler.loadMrc(maskParam.get().getFileName())
+        return np.asarray(mask).astype(bool)
+
+
+    def _loadMaskedStatsPkl(self, output_prefix):
+        """
+        Loads the {stat_name: {'inside': ..., 'outside': ...}} dict already
+        saved by the protocol's _computeMaskedStatsFromFiles step.
+        """
+        pkl_fn = self.protocol._getExtraPath(f'{output_prefix}_mask_stats.pkl')
+        if not os.path.exists(pkl_fn):
+            return None
+        with open(pkl_fn, 'rb') as f:
+            return pickle.load(f)
+
+
+    def _getStatMapFiles(self):
+        """
+        Returns a dict {stat_name: filename} of the voxel-wise output maps
+        to histogram, depending on the method applied. Only real-space maps.
+        """
+        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
+            return {
+                'weighted_mean': 'weighted_mean.mrc',
+                'weighted_std': 'weighted_std.mrc',
+                'weighted_skewness': 'weighted_skewness.mrc',
+                'weighted_kurtosis': 'weighted_kurtosis.mrc',
+            }
+        else:
+            return {
+                'mean': '1_mean.mrc',
+                'std': '2_std.mrc',
+                'skewness': '3_skewness.mrc',
+                'kurtosis': '4_kurtosis.mrc',
+            }
+
+    def _getStatKeys(self):
+        """
+        Returns the dict keys in the .pkl that hold the overall
+        (already-computed) statistics for the current method:
+          - PDF: (mean_key, std_key) -- 2 values, used for the reference Gaussian.
+          - Moments: (mean_key, std_key, skew_key, kurt_key) -- 4 values, used
+            for the Edgeworth expansion.
+        The number of returned values depends on methodApplied; callers of
+        this function are always guarded to run only for the matching method,
+        so the unpacking on each side is always consistent.
+        """
+        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
+            # mean of weighted mean and weighted std (inside/outside the mask)
+            return 'weighted_mean', 'weighted_std'
+        else:
+            # same for ACC_MOM
+            return 'mean', 'std', 'skewness', 'kurtosis'
+
+
+    def _plotStatMapHistograms(self, inside=True):
+        """
+        For each voxel-wise moment map (mean, std, skewness, kurtosis, or
+        their weighted PDF equivalents), plots the histogram of its values
+        inside (or outside) the mask. Works for both PDF and Moments methods.
+        """
+        mask_bool = self._loadMask()
+        if mask_bool is None:
+            return
+
+        region_mask = mask_bool if inside else ~mask_bool
+        region_key = "inside" if inside else "outside"
+
+        stat_files = self._getStatMapFiles()
+
+        # Number of stats in the dictionary created by _getStatMapFiles()
+        nStats = len(stat_files)
+        ncols = 2
+
+        # Rows needed to fit nStats plots in ncols columns
+        nrows = int(np.ceil(nStats / ncols))
+
+        fig, axs = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows))
+        axs = np.array(axs).ravel()
+
+        for ax, (name, fname) in zip(axs, stat_files.items()):
+            vol_fn = self.protocol._getExtraPath(fname)
+
+            if not os.path.exists(vol_fn):
+                ax.set_visible(False)
+                continue
+
+            vol = np.asarray(NumpyImgHandler.loadMrc(vol_fn))
+
+            if mask_bool.shape != vol.shape:
+                messagebox.showerror(
+                    "Shape mismatch",
+                    f"Mask shape {mask_bool.shape} does not match "
+                    f"{name} map shape {vol.shape}."
+                )
+                ax.set_visible(False)
+                continue
+
+            # Voxel values of THIS map, restricted to the region
+            values = vol[region_mask]
+
+            if values.size == 0:
+                ax.set_title(f"{name} ({region_key} mask) — no voxels")
+                continue
+
+            # Histogram of this map's values
+            ax.hist(values, bins=50, density=True, color='tab:blue',
+                    alpha=0.6, edgecolor='black', label='Voxel values')
+
+            ax.set_title(f"{name} ({region_key} mask)")
+            ax.set_xlabel("Value")
+            ax.set_ylabel("Density")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+        for ax in axs[nStats:]:
+            ax.set_visible(False)
+
+        plt.tight_layout()
+        plt.show()
+
+    def _viewStatMapHistogramsInsideMask(self, paramName=None):
+        self._plotStatMapHistograms(inside=True)
+
+    def _viewStatMapHistogramsOutsideMask(self, paramName=None):
+        self._plotStatMapHistograms(inside=False)
+
+
+    def _plotPdfBinHistogramByMask(self, paramName=None):
+        """
+        For the PDF method only: builds an averaged histogram profile by
+        averaging, bin by bin, the frequency values (rangeVol_i.mrc, etc) of the
+        voxels inside and outside the mask, and plots both side by side for
+        direct comparison.
+
+        A reference Gaussian N(mu, sigma) is overlaid on each subplot,
+        using the already-computed spatial averages of
+        weighted_mean/weighted_std stored in pdf_mask_stats.pkl
+        """
+        if self.methodApplied.get() != PROB_DENSITY_FUNCT:
+            messagebox.showerror(
+                "Not available",
+                "This view is only available for the PDF method."
+            )
+            return
+
+        mask_bool = self._loadMask()
+        if mask_bool is None:
+            return
+
+        rango_fn = self.protocol._getExtraPath('rango.npy')
+        if not os.path.exists(rango_fn):
+            messagebox.showerror("File not found", f"{rango_fn} does not exist.")
+            return
+        rango = np.load(rango_fn)
+        bin_centers = np.array(
+            [(rango[i] + rango[i + 1]) / 2.0 for i in range(len(rango) - 1)]
+        )
+
+        numBins = self.protocol.numBins.get()
+        mean_key, std_key = self._getStatKeys()
+
+        stats = self._loadMaskedStatsPkl('pdf')
+        if stats is None:
+            pkl_fn = self.protocol._getExtraPath('pdf_mask_stats.pkl')
+            messagebox.showerror(
+                "File not found",
+                f"{pkl_fn} does not exist."
+            )
+            return
+
+        fig, axs = plt.subplots(1, 2, figsize=(14, 6))
+
+        for ax, inside in zip(axs, [True, False]):
+            region_mask = mask_bool if inside else ~mask_bool
+            region_key = "inside" if inside else "outside"
+
+            # Mean and std for this mask region, obtained from the PKL
+            mu = stats[mean_key][region_key]
+            sigma = stats[std_key][region_key]
+
+            avg_counts = np.zeros(numBins)
+            std_counts = np.zeros(numBins)
+
+            # Loop bin by bin, applying the mask to each rangeVol_i.mrc
+            for i in range(1, numBins + 1):
+                vol_fn = self.protocol._getExtraPath(f'rangeVol_{i}.mrc')
+                if not os.path.exists(vol_fn):
+                    messagebox.showerror("File not found", f"{vol_fn} does not exist.")
+                    return
+
+                vol = np.asarray(NumpyImgHandler.loadMrc(vol_fn))
+
+                if mask_bool.shape != vol.shape:
+                    messagebox.showerror(
+                        "Shape mismatch",
+                        f"Mask shape {mask_bool.shape} does not match "
+                        f"rangeVol_{i} shape {vol.shape}."
+                    )
+                    return
+
+                values = vol[region_mask]
+
+                # Mean and std cannot be calculated in an empty array
+                if values.size == 0:
+                    # i goes from 1 to numBins but numpy indexes start from 0
+                    avg_counts[i - 1] = 0.0
+                    std_counts[i - 1] = 0.0
+                    continue
+
+                # Mean and std of the voxel counts within each bin
+                avg_counts[i - 1] = np.mean(values)
+                std_counts[i - 1] = np.std(values)
+
+            # Set the bar width to 80% of the distance between consecutive bin centers
+            width = (bin_centers[1] - bin_centers[0]) * 0.8 if len(bin_centers) > 1 else 0.1
+
+            # Plot the averaged histogram, with error bars showing the std
+            # across voxels for each bin
+            ax.bar(bin_centers, avg_counts, width=width, color='tab:blue',
+                   alpha=0.7, edgecolor='black', yerr=std_counts, capsize=3,
+                   label='Average frequency (± std across voxels)')
+            ax.plot(bin_centers, avg_counts, 'o-', color='orange')
+
+            # Gaussian using the mean/std stored in the PKL
+            # Case 1: mu/sigma are NaN (region had no voxels) -> nothing to overlay
+            if not (np.isfinite(mu) and np.isfinite(sigma)):
+                ax.set_title(f"Average PDF histogram ({region_key} mask) — no valid stats")
+
+            # Case 2: valid mu/sigma with meaningful spread -> draw the full Gaussian
+            elif sigma > 1e-12:
+                x_plot = np.linspace(rango[0], rango[-1], 500)
+                gaussian = norm.pdf(x_plot, loc=mu, scale=sigma)
+
+                # Scale Gaussian to the histogram amplitude
+                if len(bin_centers) > 1:
+                    dx = bin_centers[1] - bin_centers[0]
+                    gaussian *= np.sum(avg_counts) * dx
+
+                ax.plot(x_plot, gaussian, linewidth=2, color='red',
+                            label=(f'Gaussian (μ={mu:.4g}, σ={sigma:.4g})'))
+                ax.set_title(f"Average PDF histogram ({region_key} mask)")
+
+            # Case 3: valid mu but sigma ~ 0 (no spread) -> mark the mean instead
+            else:
+                ax.axvline(mu, color='red', linestyle='--',
+                           label=f"Mean={mu:.4g} (σ≈0)")
+                ax.set_title(f"Average PDF histogram ({region_key} mask)")
+
+            ax.set_xlabel("Voxel intensity")
+            ax.set_ylabel("Average frequency")
+            ax.grid(axis='y', linestyle='--', alpha=0.6)
+            ax.legend()
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def _checkMomentValidity(self, skew, excess_kurt):
+        """
+        Checks the necessary condition for a valid probability distribution to
+        exist with the given skewness and excess kurtosis:
+            excess_kurtosis >= skewness^2 - 2
+        (derived from the Cauchy-Schwarz inequality applied to moments; a
+        universal mathematical requirement, not specific to any particular
+        approximation method). If this fails, no probability distribution can
+        have exactly these moments.
+
+        Returns (is_valid, min_required_excess_kurt).
+        """
+        min_required_excess_kurt = skew ** 2 - 2
+        return excess_kurt >= min_required_excess_kurt, min_required_excess_kurt
+
+
+    def _edgeworthPdf(self, x, mu, sigma, skew, excess_kurt):
+        """
+        Edgeworth expansion (type A) approximating a density with the given
+        mean, std, skewness and excess kurtosis, built as explicit corrections
+        on top of a base Gaussian using Hermite polynomials. Unlike Johnson SU,
+        mu/sigma/skew/excess_kurt here ARE directly the moments of the curve
+        being drawn (no intermediate transformation).
+
+        Note: this is an asymptotic approximation. For large |skew| or
+        |excess_kurt|, the resulting curve can go negative in some regions
+        (not a valid density there) -- callers should check for this.
+        """
+        z = (x - mu) / sigma
+        phi = norm.pdf(z)  # standard normal density
+
+        H3 = z ** 3 - 3.0 * z
+        H4 = z ** 4 - 6.0 * z ** 2 + 3.0
+
+        correction = 1.0 + (skew / 6.0) * H3 + (excess_kurt / 24.0) * H4
+
+        return phi * correction / sigma
+
+
+    def _plotMomentsEdgeworthByMask(self, paramName=None):
+        """
+        For the Accumulative Moments method only: builds an Edgeworth-expansion
+        distribution curve per region (inside/outside the mask), using the
+        already-computed spatial averages of mean, std, skewness and excess
+        kurtosis stored in moments_mask_stats.pkl. Plots both regions side by
+        side for direct comparison.
+
+        Before drawing, the necessary moment inequality
+        (excess_kurtosis >= skewness^2 - 2) is checked: if it fails, no
+        probability distribution can have those exact moments, so nothing is
+        drawn for that region. If it passes, the Edgeworth curve is computed
+        and checked for negative density (a known limitation of this
+        asymptotic approximation for large skewness/kurtosis).
+        """
+        if self.methodApplied.get() != ACC_MOMENTS:
+            messagebox.showerror(
+                "Not available",
+                "This view is only available for the Accumulative Moments method."
+            )
+            return
+
+        stats = self._loadMaskedStatsPkl('moments')
+        if stats is None:
+            pkl_fn = self.protocol._getExtraPath('moments_mask_stats.pkl')
+            messagebox.showerror("File not found", f"{pkl_fn} does not exist.")
+            return
+
+        mean_key, std_key, skew_key, kurt_key = self._getStatKeys()
+
+        required_keys = [mean_key, std_key, skew_key, kurt_key]
+        missing = [k for k in required_keys if k not in stats]
+        if missing:
+            messagebox.showerror(
+                "Missing statistics",
+                f"Missing keys in {self.protocol._getExtraPath('moments_mask_stats.pkl')}: {missing}"
+            )
+            return
+
+        fig, axs = plt.subplots(1, 2, figsize=(16, 7))
+
+        for ax, inside in zip(axs, [True, False]):
+            region_key = "inside" if inside else "outside"
+
+            mu = stats[mean_key][region_key]
+            sigma = stats[std_key][region_key]
+            skew = stats[skew_key][region_key]
+            # Excess kurtosis as stored in the .pkl, holds kurtosis - 3
+            excess_kurt = stats[kurt_key][region_key]
+
+            # Case 1: any value is NaN (region had no voxels) -> nothing to draw
+            if not (np.isfinite(mu) and np.isfinite(sigma) and
+                    np.isfinite(skew) and np.isfinite(excess_kurt)):
+                ax.set_title(f"Average moments distribution ({region_key} mask) — no valid stats")
+
+            # Case 2: valid mu but sigma is ~0 (no spread) -> mark the mean instead
+            elif sigma <= 1e-12:
+                ax.axvline(mu, color='blue', linestyle='--',
+                           label=f"Mean={mu:.4g} (σ≈0)")
+                ax.set_title(f"Average moments distribution ({region_key} mask)")
+
+            else:
+                # Necessary condition for ANY distribution to have these exact
+                # moments: excess_kurtosis >= skewness^2 - 2 (Cauchy-Schwarz).
+                # This is a universal requirement, independent of Edgeworth
+                is_valid, min_required = self._checkMomentValidity(skew, excess_kurt)
+
+                # Case 3: the moments themselves are mathematically impossible
+                # for any distribution -> nothing to draw
+                if not is_valid:
+                    ax.set_title(f"Average moments distribution ({region_key} mask) "
+                                 f"— invalid moments (kurtosis < skew²-2)")
+                    print(f"WARNING [{region_key}]: skewness={skew:.4g}, "
+                          f"excess kurtosis={excess_kurt:.4g} violate the moment "
+                          f"inequality (need excess kurtosis >= {min_required:.4g}). "
+                          f"No probability distribution can have these exact moments.")
+
+                # Case 4: moments are valid -> draw the Edgeworth expansion
+                else:
+                    x_plot = np.linspace(mu - 4 * sigma, mu + 4 * sigma, 500)
+                    y_edgeworth = self._edgeworthPdf(x_plot, mu, sigma, skew, excess_kurt)
+
+                    # The Edgeworth approximation broke down (negative
+                    # density) for this skewness/kurtosis combination
+                    if np.any(y_edgeworth < 0):
+                        print(f"WARNING [{region_key}]: Edgeworth density went "
+                              f"negative (min value: {np.min(y_edgeworth):.6g}). "
+                              f"The approximation may not be reliable here.")
+                        y_edgeworth = np.clip(y_edgeworth, 0, None)
+                        ax.plot(x_plot, y_edgeworth, color='blue', linewidth=2,
+                                linestyle='--',
+                                label=(f"Edgeworth (μ={mu:.4g}, σ={sigma:.4g}, "
+                                       f"skew={skew:.4g}, kurt={excess_kurt:.4g}) "
+                                       f"— clipped, negative density detected"))
+                    else:
+                        ax.plot(x_plot, y_edgeworth, color='blue', linewidth=2,
+                                linestyle='-',
+                                label=(f"Edgeworth (μ={mu:.4g}, σ={sigma:.4g}, "
+                                       f"skew={skew:.4g}, kurt={excess_kurt:.4g})"))
+
+                    ax.set_title(f"Average moments distribution ({region_key} mask)")
+
+
+            ax.set_xlabel("Value")
+            ax.set_ylabel("Density")
+            ax.legend(loc='best', fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
 
     def _getVisualizeDict(self):
         visualizeDict = {'histogram': self._calculateHistogram,
-                         'shellStatistics': self._plotShellStatistics}
+                         'shellStatistics': self._plotShellStatistics,
+                         'statMapHistogramsInsideMask': self._viewStatMapHistogramsInsideMask,
+                         'statMapHistogramsOutsideMask': self._viewStatMapHistogramsOutsideMask,
+                         'pdfBinHistogramByMask': self._plotPdfBinHistogramByMask,
+                         'momentsEdgeworthByMask': self._plotMomentsEdgeworthByMask
+                         }
 
         return visualizeDict
 
