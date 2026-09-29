@@ -154,13 +154,13 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                            'FFT, preserving phase information split into two '
                            'channels.')
 
-        form.addParam('momentsMaskFile', PointerParam,
-                      pointerClass='VolumeMask', allowsNull=True,
-                      label='Mask for moment/\nPDF statistics (optional)',
-                      help='Optional mask to compute the overall average value of each '
-                           'voxel-wise output map (mean, std, skewness and kurtosis for moments; '
-                           'weighted mean, weighted std, weighted skewness and weighted kurtosis '
-                           'for PDF) inside and outside the masked region, in real space.')
+        #form.addParam('momentsMaskFile', PointerParam,
+        #              pointerClass='VolumeMask', allowsNull=True,
+        #              label='Mask for moment/\nPDF statistics (optional)',
+        #              help='Optional mask to compute the overall average value of each '
+        #                   'voxel-wise output map (mean, std, skewness and kurtosis for moments; '
+        #                   'weighted mean, weighted std, weighted skewness and weighted kurtosis '
+        #                   'for PDF) inside and outside the masked region, in real space.')
 
         # -------------------------------- PCA ----------------------------------------
         form.addSection(label='PCA')
@@ -345,7 +345,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                 self._insertFunctionStep('_removePreviousVolume', m)
 
             self._insertFunctionStep('statistic_volumes')
-            self._insertFunctionStep('_calculateMaskedPDFStats')
+            #self._insertFunctionStep('_calculateMaskedPDFStats')
 
             #PCA analysis/export (real space only) for the PDF method
             if self.doPCA.get():
@@ -397,8 +397,8 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
                 self._insertFunctionStep('_removePreviousVolume', m)
 
-            if domain in [REAL_SPACE, BOTH]:
-                self._insertFunctionStep('_calculateMaskedMomentStats')
+            #if domain in [REAL_SPACE, BOTH]:
+            #    self._insertFunctionStep('_calculateMaskedMomentStats')
 
             if self.doPCA.get():
                 domain = self.momentDomain.get()
@@ -661,153 +661,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
             writeSetOfParticlesXmipp(outputParticles, output_xmd)
             print("XMD written:", output_xmd)
-
-
-    def _computeMaskedStats(self, vol, mask_bool):
-        """
-            Compute the average value of a voxel-wise map inside and outside a
-            boolean mask.
-
-            vol: 3D numpy array with the voxel-wise values (e.g. a moment map).
-            mask_bool: 3D boolean numpy array, same shape as vol. True = inside
-                       the region of interest, False = outside.
-
-            Returns a tuple (mean_inside, mean_outside). If one of the regions
-            has no voxels, its average is returned as NaN instead of raising a
-            numpy warning.
-        """
-        #Select only the voxels of vol where the mask is True (inside region)
-        inside_vals = vol[mask_bool]
-
-        #Select only the voxels of vol where the mask is False (outside region)
-        outside_vals = vol[~mask_bool]
-
-        #Compute the mean of the inside voxels, only if there is at least one voxel inside
-        mean_inside = float(np.mean(inside_vals)) if inside_vals.size > 0 else float('nan')
-        mean_outside = float(np.mean(outside_vals)) if outside_vals.size > 0 else float('nan')
-
-        return mean_inside, mean_outside
-
-
-    def _computeMaskedStatsFromFiles(self, moment_files, output_prefix):
-        """
-        Generic helper that reads a set of voxel-wise .mrc maps already written
-        to disk, and, if a mask was provided by the user, computes the overall
-        average of each map inside and outside the masked region.
-
-        moment_files: dict mapping a short stat name (e.g. 'mean') to the
-                      corresponding .mrc filename inside _getExtraPath()
-                      (e.g. '1_mean.mrc').
-        output_prefix: string used to build the output filenames, so different
-                       callers (moments, PDF, ...) don't overwrite each other's
-                       results (e.g. 'moments' -> moments_mask_stats.pkl).
-        """
-        # If the user did not provide a mask, there is nothing to compute
-        if self.momentsMaskFile.get() is None:
-            print('No mask provided: skipping masked statistics')
-            return
-
-        # Load the mask volume from disk as a numpy array
-        mask = np.asarray(
-            NumpyImgHandler.loadMrc(self.momentsMaskFile.get().getFileName())
-        )
-
-        # Nonzero voxel is treated as "inside", zero voxels are treated as "outside"
-        mask_bool = mask.astype(bool)
-        stats = {}
-
-        # Loop over each statistic (e.g. mean, std, skewness, kurtosis)
-        for name, fname in moment_files.items():
-            vol_fn = self._getExtraPath(fname)
-
-            # Skip if the expected file does not exist
-            if not os.path.exists(vol_fn):
-                print(f'WARNING: {vol_fn} not found, skipping {name}')
-                continue
-
-            # Load the voxel-wise map for this statistic as a numpy array
-            vol_map = np.asarray(NumpyImgHandler.loadMrc(vol_fn))
-
-            # Making sure the mask and the map have the same dimensions
-            if mask_bool.shape != vol_map.shape:
-                print(f'WARNING: mask shape {mask_bool.shape} does not match '
-                      f'{name} map shape {vol_map.shape}; skipping {name}')
-                continue
-
-            # Compute the inside/outside average for this map using the boolean mask
-            mean_in, mean_out = self._computeMaskedStats(vol_map, mask_bool)
-
-            # Store the result for this statistic in the results dictionary
-            stats[name] = {'inside': mean_in, 'outside': mean_out}
-            print(f'Average {name} inside mask: {mean_in:.6f}, '
-                  f'outside mask: {mean_out:.6f}')
-
-        # Save as pickle for structured re-loading (e.g. in _summary)
-        pkl_fn = self._getExtraPath(f'{output_prefix}_mask_stats.pkl')
-        with open(pkl_fn, 'wb') as f:
-            pickle.dump(stats, f)
-
-        # Save the information in a txt file
-        txt_fn = self._getExtraPath(f'{output_prefix}_mask_stats.txt')
-        with open(txt_fn, 'w') as f:
-            for name, vals in stats.items():
-                f.write(f"{name}: inside={vals['inside']:.6f}, "
-                        f"outside={vals['outside']:.6f}\n")
-
-        # Confirm to the log where the output files were saved
-        print(f'Masked statistics saved to {pkl_fn}')
-
-
-    def _calculateMaskedMomentStats(self):
-        """
-        Scipion step: compute masked (inside/outside) statistics for the
-        real-space accumulative-moments output maps produced by
-        _calculateMoments (mean, std, skewness, kurtosis).
-        """
-        # Map each statistic name to the .mrc filename written by _calculateMoments
-        moment_files = {
-            'mean': '1_mean.mrc',
-            'std': '2_std.mrc',
-            'skewness': '3_skewness.mrc',
-            'kurtosis': '4_kurtosis.mrc',
-        }
-
-        # Delegate the actual computation to the generic helper, tagging the
-        # output files with the 'moments' prefix
-        self._computeMaskedStatsFromFiles(moment_files, output_prefix='moments')
-
-
-    def _calculateMaskedPDFStats(self):
-        """
-        Scipion step: compute masked (inside/outside) statistics for the
-        weighted PDF-derived output maps produced by statistic_volumes
-        (weighted mean, std, skewness, kurtosis).
-        """
-        # Map each statistic name to the .mrc filename written by statistic_volumes
-        moment_files = {
-            'weighted_mean': 'weighted_mean.mrc',
-            'weighted_std': 'weighted_std.mrc',
-            'weighted_skewness': 'weighted_skewness.mrc',
-            'weighted_kurtosis': 'weighted_kurtosis.mrc',
-        }
-
-        # Delegate the actual computation to the generic helper, tagging the
-        # output files with the 'pdf' prefix
-        self._computeMaskedStatsFromFiles(moment_files, output_prefix='pdf')
-
-
-    def _loadMaskedStats(self, output_prefix):
-        """
-        Reads the masked (inside/outside) statistics saved by
-        _computeMaskedStatsFromFiles for a given method ('moments' or 'pdf').
-        Returns the stats dict, or None if the file does not exist yet
-        (e.g. protocol has not finished running, or no mask was used).
-        """
-        pkl_fn = self._getExtraPath(f'{output_prefix}_mask_stats.pkl')
-        if not os.path.exists(pkl_fn):
-            return None
-        with open(pkl_fn, 'rb') as f:
-            return pickle.load(f)
 
 
     def reconstructStep(self, m_index=1):
@@ -2178,97 +2031,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         mrcfile.write(output_path_kurtosis, weighted_kurtosis.astype(np.float32), voxel_size=self.voxel_size)
 
 
-    #def statistic_volumes(self): ##### REVISAR
-    #    ''''si para relion hay que añadir el valor de 10**-15 en el denominador del calculo de las
-    #    ponderaciones, pero para xmipp no es necesario porque se realizan correctamente todos los
-    #    calculos, lo ideal es crear una funcion que tenga ese parametro, por ejemplo, epsilon,
-    #    de tal manera que cuando se haga la reconstr por relion valga 10**-15, pero cuando sea por
-    #    medio de xmipp entonces valga 0 '''''
-
-
-    #    self.range_volumes = []
-    #    for i in range(1, self.numBins.get() + 1):
-    #        volume = self._getExtraPath("rangeVol_%s.mrc" % i)
-    #        #vol = NumpyImgHandler.loadMrc(volume)
-    #        self.range_volumes.append(NumpyImgHandler.loadMrc(volume).copy())
-
-    #    bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)],
-    #                           dtype=np.float32)
-    #    print(f'bin_centers {bin_centers}')
-    #    print(f'bin_centers SHAPE {bin_centers.shape}')
-
-    #    bin_centers_expanded = bin_centers[:, np.newaxis, np.newaxis, np.newaxis]
-    #    print(f'bin_centers_expanded SHAPE {bin_centers_expanded.shape}')
-    #    print('TIPO DE DATOS DE bin_centers_expanded', type(bin_centers_expanded))
-    #    print('TIPO DE DATOS DE range_volumes', type(self.range_volumes))
-
-
-    #    # ------------------------ WEIGHTED MEAN ----------------------------------------
-    #    sum_mean = np.sum(self.range_volumes * bin_centers_expanded, axis=0)
-    #    print(f'weighted_sum {sum_mean}')
-
-    #    weighted_mean = sum_mean/(np.sum(self.range_volumes, axis=0)) #+ 10**-15
-    #    print(f'valor de media ponderada {weighted_mean}')
-    #    print(f'TAMAÑO de media ponderada {weighted_mean.shape}')
-
-    #    # ------------------------ MOST PROBABLE BIN ----------------------------------------
-    #    most_probable_freq = np.max(self.range_volumes, axis=0)
-    #    print(f'Valor más probable por voxel:\n {most_probable_freq}'
-    #          f'\n {most_probable_freq.shape}')
-
-    #    max_index = np.argmax(self.range_volumes, axis=0)
-    #    print(f'VALOR DE LOS INDICES: {max_index}')
-
-    #    bin_values = np.squeeze(bin_centers_expanded[max_index])
-    #    print(f'DIMENSIONES DE VALORES_BIN {bin_values.shape}')
-    #    print(f'Valor real correspondiente al máximo de frecuencia:{bin_values}')
-
-    #    # ------------------------ WEIGHTED VARIANCE AND STD ----------------------------------------
-    #    sum_weighted_variance = np.sum(self.range_volumes * (bin_centers_expanded - weighted_mean) ** 2, axis=0)
-    #    print(f'suma de varianza ponderada \n{sum_weighted_variance}')
-    #    weighted_variance = sum_weighted_variance/(np.sum(self.range_volumes, axis=0))# + 10**-15)
-    #    print(f'Varianza ponderada SEPARADA: \n{weighted_variance}')
-    #    print(f'TAMAÑO de varianza ponderada {weighted_variance.shape}')
-
-    #    #weighted_variance = np.average((bin_centers_expanded - weighted_mean) ** 2, axis=0, weights=self.range_volumes)
-    #    #print(f'Varianza ponderada: \n{weighted_variance}')
-
-    #    weighted_std = np.sqrt(weighted_variance)
-    #    print(f'desviacion tipica \n{weighted_std}')
-
-    #    # ------------------------ WEIGHTED SKEWNESS ----------------------------------------
-    #    sum_weighted_skew = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 3, axis=0)
-    #    weighted_skewness = sum_weighted_skew/(np.sum(self.range_volumes, axis=0)) # + 10**-15)
-
-    #    #weighted_skewness = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 3, axis=0, weights=self.range_volumes)
-    #    print(f'Skewness ponderado \n{weighted_skewness}')
-
-    #    # ------------------------   WEIGHTED KURTOSIS ----------------------------------------
-    #    sum_weighted_kurt = np.sum(self.range_volumes * ((bin_centers_expanded - weighted_mean)/weighted_std) ** 4, axis=0)
-    #    weighted_kurtosis = sum_weighted_kurt/(np.sum(self.range_volumes, axis=0)) - 3
-    #    #weighted_kurtosis = sum_weighted_kurt / (np.sum(self.range_volumes, axis=0) + 10 ** -15) - 3
-
-    #    #weighted_kurtosis = np.average(((bin_centers_expanded - weighted_mean) / weighted_std) ** 4 - 3, axis=0, weights=self.range_volumes)
-    #    print(f'curtosis ponderada \n{weighted_kurtosis}')
-
-
-    #    output_weighted_mean = os.path.join(self._getExtraPath(), 'weighted_mean.mrc')
-    #    output_max_freq = os.path.join(self._getExtraPath(), 'most_probable_freq.mrc')
-    #    output_max_bin = os.path.join(self._getExtraPath(), 'most_probable_bin.mrc')
-    #    output_path_std = os.path.join(self._getExtraPath(), 'weighted_std.mrc')
-    #    output_path_skewness = os.path.join(self._getExtraPath(), 'weighted_skewness.mrc')
-    #    output_path_kurtosis = os.path.join(self._getExtraPath(), 'weighted_kurtosis.mrc')
-
-
-    #    mrcfile.write(output_weighted_mean, weighted_mean.astype(np.float32), voxel_size=self.voxel_size)
-    #    mrcfile.write(output_max_freq, most_probable_freq.astype(np.float32), voxel_size=self.voxel_size)
-    #    mrcfile.write(output_max_bin, bin_values.astype(np.float32), voxel_size=self.voxel_size)
-    #    mrcfile.write(output_path_std, weighted_std.astype(np.float32), voxel_size=self.voxel_size)
-    #    mrcfile.write(output_path_skewness, weighted_skewness.astype(np.float32), voxel_size=self.voxel_size)
-    #    mrcfile.write(output_path_kurtosis, weighted_kurtosis.astype(np.float32), voxel_size=self.voxel_size)
-
-
-
     # --------------------------- INFO functions ------------------------------
     def _getOutStack(self, index, fn):
         """ Return the output stack filename based on the input. """
@@ -2299,25 +2061,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         summary.append("Input volume: %s" % self.inputParticles.getNameId())
         summary.append(" ")
 
-        # Determine which output prefix corresponds to the selected method
-        if self.methodApply.get() == PROB_DENSITY_FUNCT:
-            output_prefix = 'pdf'
-        else:
-            output_prefix = 'moments'
-
-        # Only attempt to report masked statistics if a mask was provided
-        if self.momentsMaskFile.get() is not None:
-            stats = self._loadMaskedStats(output_prefix)
-            if stats:
-                summary.append("Masked statistics (inside vs outside mask):")
-                for name, vals in stats.items():
-                    summary.append(
-                        "  %s: inside=%.6f, outside=%.6f"
-                        % (name, vals['inside'], vals['outside'])
-                    )
-            else:
-                summary.append("Masked statistics: not yet computed "
-                               "(protocol may still be running).")
 
         return summary
 
