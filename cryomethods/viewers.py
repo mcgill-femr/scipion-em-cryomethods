@@ -1214,6 +1214,26 @@ class CalculateHistogram(ProtocolViewer):
             label='Radial shell statistics'
         )
 
+        # --------------------------- Mask input + mask-based analysis -------------------------------------
+        groupMask = form.addGroup('Mask for statistics')
+        groupMask.addParam('momentsMaskFile', params.PointerParam,
+                           pointerClass='VolumeMask', allowsNull=True,
+                           label='Mask (optional)',
+                           help='Optional binary/soft mask. If provided, the inside/outside '
+                                'statistics (average of each voxel-wise within and outside the'
+                                'mask) will be computed for each method. In real space.')
+
+        # Average PDF histogram by mask
+        groupMask.addParam('pdfBinHistogramByMask', params.LabelParam,
+                           condition='methodApplied==%d' % PROB_DENSITY_FUNCT,
+                           label='View average PDF histogram (inside vs outside mask)')
+
+        # Average moments Edgeworth distribution by mask
+        groupMask.addParam('momentsEdgeworthByMask', params.LabelParam,
+                           condition='methodApplied==%d' % ACC_MOMENTS,
+                           label='View average Edgeworth distribution (inside vs outside mask)')
+
+
         # --------------------------- Voxel-wise statistic map histograms -------------------------------------
         groupStatMaps = form.addGroup('Statistic map histograms (by mask)')
         groupStatMaps.addParam('statMapHistogramsInsideMask', params.LabelParam,
@@ -1221,17 +1241,96 @@ class CalculateHistogram(ProtocolViewer):
         groupStatMaps.addParam('statMapHistogramsOutsideMask', params.LabelParam,
                            label='View statistic map histograms outside mask')
 
-        # --------------------------- Average PDF histogram by mask -------------------------------------
-        groupAvgHist = form.addGroup('Average PDF bin histogram (by mask)',
-                                     condition='methodApplied==%d' % PROB_DENSITY_FUNCT)
-        groupAvgHist.addParam('pdfBinHistogramByMask', params.LabelParam,
-                              label='View average PDF histogram (inside vs outside mask)')
+    # Mask helpers
+    def _loadMask(self):
+       """
+        Loads the mask provided by the user in the viewer form (momentsMaskFile)
+        as a boolean numpy array.
+        Returns None and shows an error dialog if no mask was given.
+       """
+       # If the user did not provide a mask, there is nothing to compute
+       maskParam = self.momentsMaskFile.get()
+       if maskParam is None:
+           messagebox.showerror(
+               "No mask available",
+               "Please provide a mask in the 'Mask for statistics' section."
+           )
+           return None
 
-        # --------------------------- Average moments Edgeworth distribution by mask -------------------------------------
-        groupAvgMoments = form.addGroup('Average moments distribution (Edgeworth, by mask)',
-                                        condition='methodApplied==%d' % ACC_MOMENTS)
-        groupAvgMoments.addParam('momentsEdgeworthByMask', params.LabelParam,
-                                 label='View average Edgeworth distribution (inside vs outside mask)')
+       mask = NumpyImgHandler.loadMrc(maskParam.getFileName())
+       return np.asarray(mask).astype(bool)
+
+
+    def _computeMaskedStats(self, vol, mask_bool):
+       """
+           Compute the average value of a voxel-wise map inside and outside a
+           boolean mask.
+
+           vol: 3D numpy array with the voxel-wise values (e.g. a moment map).
+           mask_bool: 3D boolean numpy array, same shape as vol. True = inside
+                      the region of interest, False = outside.
+
+           Returns a tuple (mean_inside, mean_outside). If one of the regions
+           has no voxels, its average is returned as NaN instead of raising a
+           numpy warning.
+       """
+       #Select only the voxels of vol where the mask is True (inside region)
+       inside_vals = vol[mask_bool]
+
+       #Select only the voxels of vol where the mask is False (outside region)
+       outside_vals = vol[~mask_bool]
+
+       #Compute the mean of the inside voxels, only if there is at least one voxel inside
+       mean_inside = float(np.mean(inside_vals)) if inside_vals.size > 0 else float('nan')
+       mean_outside = float(np.mean(outside_vals)) if outside_vals.size > 0 else float('nan')
+
+       return mean_inside, mean_outside
+
+
+    def _computeMaskedStatsForMethod(self, mask_bool):
+       """
+        Computes inside/outside averages for all voxel-wise maps relevant to
+        the currently selected method (PDF or Moments). Nonzero voxels are
+        treated as "inside", zero voxels are treated as "outside".
+
+        Returns a dict:
+            {stat_name: {'inside': float, 'outside': float}}
+        Missing map files are silently skipped (the key will be absent).
+       """
+       stat_files = self._getStatMapFiles()
+       stats = {}
+
+       # Loop over each statistic (e.g. mean, std, skewness, kurtosis)
+       for name, fname in stat_files.items():
+           vol_fn = self.protocol._getExtraPath(fname)
+
+           # Skip if the expected file does not exist
+           if not os.path.exists(vol_fn):
+               print(f'WARNING: {vol_fn} not found, skipping {name}')
+               continue
+
+           # Load the voxel-wise map for this statistic as a numpy array
+           vol_map = np.asarray(NumpyImgHandler.loadMrc(vol_fn))
+
+           # Making sure the mask and the map have the same dimensions
+           if mask_bool.shape != vol_map.shape:
+               messagebox.showerror(
+                   "Shape mismatch",
+                   f"Mask shape {mask_bool.shape} does not match "
+                   f"{name} map shape {vol_map.shape}."
+               )
+               return None
+
+           # Compute the inside/outside average for this map using the boolean mask
+           mean_in, mean_out = self._computeMaskedStats(vol_map, mask_bool)
+
+           # Store the result for this statistic
+           stats[name] = {'inside': mean_in, 'outside': mean_out}
+           print(f'Average {name} inside mask: {mean_in:.6f}, '
+                 f'outside mask: {mean_out:.6f}')
+
+       return stats
+
 
 
     def _loadMoments(self, suffix=''):
@@ -1674,37 +1773,6 @@ class CalculateHistogram(ProtocolViewer):
             #self._plotMomentSet(both_files, nrows=4, ncols=2)
 
 
-    def _loadMask(self):
-        """
-        Loads the mask volume used by the protocol (momentsMaskFile) as a
-        boolean numpy array. Shows an error dialog and returns None if no
-        mask is available.
-        """
-        maskParam = getattr(self.protocol, 'momentsMaskFile', None)
-        if maskParam is None or maskParam.get() is None:
-            messagebox.showerror(
-                "No mask available",
-                "This protocol run did not use a mask "
-                "(momentsMaskFile is empty)."
-            )
-            return None
-
-        mask = NumpyImgHandler.loadMrc(maskParam.get().getFileName())
-        return np.asarray(mask).astype(bool)
-
-
-    def _loadMaskedStatsPkl(self, output_prefix):
-        """
-        Loads the {stat_name: {'inside': ..., 'outside': ...}} dict already
-        saved by the protocol's _computeMaskedStatsFromFiles step.
-        """
-        pkl_fn = self.protocol._getExtraPath(f'{output_prefix}_mask_stats.pkl')
-        if not os.path.exists(pkl_fn):
-            return None
-        with open(pkl_fn, 'rb') as f:
-            return pickle.load(f)
-
-
     def _getStatMapFiles(self):
         """
         Returns a dict {stat_name: filename} of the voxel-wise output maps
@@ -1824,9 +1892,7 @@ class CalculateHistogram(ProtocolViewer):
         voxels inside and outside the mask, and plots both side by side for
         direct comparison.
 
-        A reference Gaussian N(mu, sigma) is overlaid on each subplot,
-        using the already-computed spatial averages of
-        weighted_mean/weighted_std stored in pdf_mask_stats.pkl
+        A reference Gaussian N(mu, sigma) is overlaid on each subplot.
         """
         if self.methodApplied.get() != PROB_DENSITY_FUNCT:
             messagebox.showerror(
@@ -1851,14 +1917,20 @@ class CalculateHistogram(ProtocolViewer):
         numBins = self.protocol.numBins.get()
         mean_key, std_key = self._getStatKeys()
 
-        stats = self._loadMaskedStatsPkl('pdf')
+        # Compute inside/outside averages on-the-fly
+        stats = self._computeMaskedStatsForMethod(mask_bool)
         if stats is None:
-            pkl_fn = self.protocol._getExtraPath('pdf_mask_stats.pkl')
-            messagebox.showerror(
-                "File not found",
-                f"{pkl_fn} does not exist."
-            )
             return
+
+        # Check that the required keys are present (maps must exist on disk)
+        for key in [mean_key, std_key]:
+            if key not in stats:
+                messagebox.showerror(
+                    "Missing statistics",
+                    f"Could not compute statistics for '{key}'. "
+                    f"Make sure the corresponding .mrc file exists."
+                )
+                return
 
         fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -1866,7 +1938,7 @@ class CalculateHistogram(ProtocolViewer):
             region_mask = mask_bool if inside else ~mask_bool
             region_key = "inside" if inside else "outside"
 
-            # Mean and std for this mask region, obtained from the PKL
+            # Mean and std for this mask region
             mu = stats[mean_key][region_key]
             sigma = stats[std_key][region_key]
 
@@ -1913,7 +1985,7 @@ class CalculateHistogram(ProtocolViewer):
                    label='Average frequency (± std across voxels)')
             ax.plot(bin_centers, avg_counts, 'o-', color='orange')
 
-            # Gaussian using the mean/std stored in the PKL
+            # Gaussian using the mean/std
             # Case 1: mu/sigma are NaN (region had no voxels) -> nothing to overlay
             if not (np.isfinite(mu) and np.isfinite(sigma)):
                 ax.set_title(f"Average PDF histogram ({region_key} mask) — no valid stats")
@@ -1989,9 +2061,8 @@ class CalculateHistogram(ProtocolViewer):
     def _plotMomentsEdgeworthByMask(self, paramName=None):
         """
         For the Accumulative Moments method only: builds an Edgeworth-expansion
-        distribution curve per region (inside/outside the mask), using the
-        already-computed spatial averages of mean, std, skewness and excess
-        kurtosis stored in moments_mask_stats.pkl. Plots both regions side by
+        distribution curve per region (inside/outside the mask), using the averages
+        of mean, std, skewness and excess kurtosis. Plots both regions side by
         side for direct comparison.
 
         Before drawing, the necessary moment inequality
@@ -2008,10 +2079,13 @@ class CalculateHistogram(ProtocolViewer):
             )
             return
 
-        stats = self._loadMaskedStatsPkl('moments')
+        mask_bool = self._loadMask()
+        if mask_bool is None:
+            return
+
+        # Compute stats on-the-fly
+        stats = self._computeMaskedStatsForMethod(mask_bool)
         if stats is None:
-            pkl_fn = self.protocol._getExtraPath('moments_mask_stats.pkl')
-            messagebox.showerror("File not found", f"{pkl_fn} does not exist.")
             return
 
         mean_key, std_key, skew_key, kurt_key = self._getStatKeys()
@@ -2021,7 +2095,8 @@ class CalculateHistogram(ProtocolViewer):
         if missing:
             messagebox.showerror(
                 "Missing statistics",
-                f"Missing keys in {self.protocol._getExtraPath('moments_mask_stats.pkl')}: {missing}"
+                f"Could not compute statistics for: {missing}. "
+                f"Make sure the corresponding .mrc files exist."
             )
             return
 
@@ -2033,7 +2108,7 @@ class CalculateHistogram(ProtocolViewer):
             mu = stats[mean_key][region_key]
             sigma = stats[std_key][region_key]
             skew = stats[skew_key][region_key]
-            # Excess kurtosis as stored in the .pkl, holds kurtosis - 3
+            # Excess kurtosis --> kurtosis - 3
             excess_kurt = stats[kurt_key][region_key]
 
             # Case 1: any value is NaN (region had no voxels) -> nothing to draw
