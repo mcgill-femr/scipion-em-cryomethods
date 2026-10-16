@@ -1155,64 +1155,42 @@ class CalculateHistogram(ProtocolViewer):
 
     def _defineParams(self, form):
         form.addSection(label='Results')
-        # --------------------------- Method applied -------------------------------------
-        group = form.addGroup('Method used')
-        group.addParam('methodApplied', params.EnumParam,
-                  choices=['PROB_DENSITY_FUNCT', 'ACC_MOMENTS'],
-                  important=True,
-                  label='Method applied earlier', display=params.EnumParam.DISPLAY_COMBO,
-                  help='Methods applied to particles.\n'
-                       '1. PROB_DENSITY_FUNCT calculates the pdf of a selected voxel from '
-                       'the volumes obtained in each range interval.\n'
-                       '2. ACC_MOMENTS calculates the pdf of the 4 moments from a selected voxel.'
-                      )
 
-        # --------------------------- Reconstructed input volume -------------------------------------
-        group.addParam('inputVolume', params.PointerParam,
-                     condition='methodApplied==%d' % PROB_DENSITY_FUNCT,
-                     pointerClass='Volume',  #SetOfParticles
-                     label="Reconstructed input volume\n"
-                           "(resolution Nyquist)",
-                     help='Select the reconstructed input volume with resolution Nyquist\n'
-                          'by default.')
-
-        # --------------------------- Noise threshold -------------------------------------
-        group.addParam('threshNoise', params.FloatParam,
-                       condition="methodApplied==%d" % PROB_DENSITY_FUNCT,
-                       label="Noise threshold",
-                       help='Value of noise threshold.')
-        #Value of noise threshold from which we can calculate the noise volumes of mean, std, skewness and kurtosis.'
-
-        # --------------------------- Moments domain -------------------------------------
-        group.addParam('momentDomain', params.EnumParam,
-                        choices=['Real space', 'Fourier space', 'Both'],
-                        default=REAL_SPACE,
-                        condition='methodApplied==%d' % ACC_MOMENTS,
-                        display=params.EnumParam.DISPLAY_COMBO,
-                        label='Moment domain',
-                        help='Select the domain where moments were calculated.')
+        # Detect method once
+        isPdf = self.protocol.methodApply.get() == PROB_DENSITY_FUNCT
+        isMoments = self.protocol.methodApply.get() == ACC_MOMENTS
 
         # --------------------------- Voxel value -------------------------------------
         groupVoxel = form.addGroup('Voxel')
-        groupVoxel.addParam('z_value', params.IntParam, default=191,
-                       label="Z value",
-                       help='Z coordinate of voxel')
 
-        groupVoxel.addParam('y_value', params.IntParam, default=183,
-                       label="Y value",
-                       help='Y coordinate of voxel')
+        if isPdf:
+            # ---------------- Reconstructed input volume --------------------
+            groupVoxel.addParam('inputVolume', params.PointerParam,
+                           pointerClass='Volume',
+                           label="Reconstructed input volume\n"
+                                 "(resolution Nyquist)",
+                           help='Select the reconstructed input volume with resolution Nyquist\n'
+                                'by default.')
 
-        groupVoxel.addParam('x_value', params.IntParam, default=200,
-                       label="X value",
-                       help='X coordinate of voxel')
+        if isMoments:
+            # ------------- Moments domain -----------------
+            groupVoxel.addParam('momentDomain', params.EnumParam,
+                           choices=['Real space', 'Fourier space', 'Both'],
+                           default=REAL_SPACE,
+                           display=params.EnumParam.DISPLAY_COMBO,
+                           label='Moment domain',
+                           help='Select the domain where moments were calculated.')
 
-        groupVoxel.addParam('histogram', params.LabelParam,
-                       label='View histogram of the voxel')
+            groupVoxel.addParam('shellStatistics', params.LabelParam,
+                                label='Radial shell statistics')
 
-        groupVoxel.addParam('shellStatistics', params.LabelParam,
-            condition='methodApplied==%d' % ACC_MOMENTS,
-            label='Radial shell statistics'
-        )
+
+        groupVoxel.addParam('z_value', params.IntParam, default=113, label="Z value", help='Z coordinate of voxel')
+        groupVoxel.addParam('y_value', params.IntParam, default=103, label="Y value", help='Y coordinate of voxel')
+        groupVoxel.addParam('x_value', params.IntParam, default=100, label="X value", help='X coordinate of voxel')
+        groupVoxel.addParam('histogram', params.LabelParam, label='View histogram of the voxel')
+
+
 
         # --------------------------- Mask input + mask-based analysis -------------------------------------
         groupMask = form.addGroup('Mask for statistics')
@@ -1223,23 +1201,23 @@ class CalculateHistogram(ProtocolViewer):
                                 'statistics (average of each voxel-wise within and outside the'
                                 'mask) will be computed for each method. In real space.')
 
-        # Average PDF histogram by mask
-        groupMask.addParam('pdfBinHistogramByMask', params.LabelParam,
-                           condition='methodApplied==%d' % PROB_DENSITY_FUNCT,
-                           label='View average PDF histogram (inside vs outside mask)')
+        if isPdf:
+            # Average PDF histogram by mask
+            groupMask.addParam('pdfBinHistogramByMask', params.LabelParam,
+                               label='View average PDF histogram (inside vs outside mask)')
+        if isMoments:
+            # Average moments Edgeworth distribution by mask
+            groupMask.addParam('momentsEdgeworthByMask', params.LabelParam,
+                               label='View average Edgeworth distribution (inside vs outside mask)')
 
-        # Average moments Edgeworth distribution by mask
-        groupMask.addParam('momentsEdgeworthByMask', params.LabelParam,
-                           condition='methodApplied==%d' % ACC_MOMENTS,
-                           label='View average Edgeworth distribution (inside vs outside mask)')
 
-
-        # --------------------------- Voxel-wise statistic map histograms -------------------------------------
+        # --------- Voxel-wise statistic map histograms (both methods) ------------
         groupStatMaps = form.addGroup('Statistic map histograms (by mask)')
         groupStatMaps.addParam('statMapHistogramsInsideMask', params.LabelParam,
                            label='View statistic map histograms inside mask')
         groupStatMaps.addParam('statMapHistogramsOutsideMask', params.LabelParam,
                            label='View statistic map histograms outside mask')
+
 
     # Mask helpers
     def _loadMask(self):
@@ -1347,7 +1325,7 @@ class CalculateHistogram(ProtocolViewer):
         from cryomethods import Plugin
         Plugin.setEnviron()
 
-        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
+        if self.protocol.methodApply.get() == PROB_DENSITY_FUNCT:
 
             self.rango = np.load(self.protocol._getExtraPath("rango.npy"))
             print(f'Range: \n{self.rango}')
@@ -1355,21 +1333,21 @@ class CalculateHistogram(ProtocolViewer):
             bin_centers = np.array([(self.rango[i] + self.rango[i + 1]) / 2.0 for i in range(len(self.rango) - 1)])
             print(f'Bin_centers: \n{bin_centers}')
 
-            print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ \n'
-                  f'Noise threshold: {self.threshNoise.get()} '
-                  f'\n ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+            #print(f'~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ \n'
+            #      f'Noise threshold: {self.threshNoise.get()} '
+            #      f'\n ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 
-            bins_noise = bin_centers[bin_centers <= self.threshNoise.get()]
-            print(f'bines correspondientes al ruido {bins_noise}')
-            bins_prot = bin_centers[bin_centers > self.threshNoise.get()]
-            print(f'bines correspondientes a proteina {bins_prot}')
+            #bins_noise = bin_centers[bin_centers <= self.threshNoise.get()]
+            #print(f'bines correspondientes al ruido {bins_noise}')
+            #bins_prot = bin_centers[bin_centers > self.threshNoise.get()]
+            #print(f'bines correspondientes a proteina {bins_prot}')
 
-            print(f'---------------------------------------')
-            indices_noise = np.where(bin_centers <= self.threshNoise.get())[0]
-            print(f'Índices de bins ruido: {indices_noise}')
-            indices_prot = np.where(bin_centers > self.threshNoise.get())[0]
-            print(f'Índices de bins proteina: {indices_prot}')
-            print(f'---------------------------------------')
+            #print(f'---------------------------------------')
+            #indices_noise = np.where(bin_centers <= self.threshNoise.get())[0]
+            #print(f'Índices de bins ruido: {indices_noise}')
+            #indices_prot = np.where(bin_centers > self.threshNoise.get())[0]
+            #print(f'Índices de bins proteina: {indices_prot}')
+            #print(f'---------------------------------------')
 
             range_volumes = []
             for i in range(1, self.protocol.numBins.get() +1):
@@ -1399,10 +1377,10 @@ class CalculateHistogram(ProtocolViewer):
 
             print("Voxel values:", voxel_values)
             print(f'---------------------------------------')
-            voxel_noise = voxel_values[bin_centers <= self.threshNoise.get()]
-            voxel_prot = voxel_values[bin_centers > self.threshNoise.get()]
-            print(f'Voxel values referred to noise {voxel_noise}')
-            print(f'Voxel values referred to protein {voxel_prot}')
+            #voxel_noise = voxel_values[bin_centers <= self.threshNoise.get()]
+            #voxel_prot = voxel_values[bin_centers > self.threshNoise.get()]
+            #print(f'Voxel values referred to noise {voxel_noise}')
+            #print(f'Voxel values referred to protein {voxel_prot}')
             print(f'---------------------------------------')
 
             valueVox_inputVol = NumpyImgHandler.loadMrc(self.inputVolume.get().getFileName())[z, y, x]
@@ -1444,31 +1422,32 @@ class CalculateHistogram(ProtocolViewer):
 
 
             # -------------------------------------- Noise histogram ------------------------------------------
-            plt.figure(figsize=(8, 6))
-            plt.bar(bins_noise, voxel_noise, width=0.00001, edgecolor="black", align="edge", color="black",
-                    alpha=0.7)
-            plt.plot(bins_noise, voxel_noise, 'o', color='black')
-            plt.plot(bins_noise, voxel_noise, color='orange')
-            plt.title(f"Noise voxel intensities {z, y, x} "
-                      f"below threshold {self.threshNoise.get()}",
-                      fontsize=14)
+            #plt.figure(figsize=(8, 6))
+            #plt.bar(bins_noise, voxel_noise, width=0.00001, edgecolor="black", align="edge", color="black",
+            #        alpha=0.7)
+            #plt.plot(bins_noise, voxel_noise, 'o', color='black')
+            #plt.plot(bins_noise, voxel_noise, color='orange')
+            #plt.title(f"Noise voxel intensities {z, y, x} "
+            #          f"below threshold {self.threshNoise.get()}",
+            #          fontsize=14)
 
-            # ------------------------------------- Protein histogram -----------------------------------------
-            plt.figure(figsize=(8, 6))
-            plt.bar(bins_prot, voxel_prot, width=0.00001, edgecolor="black", align="edge", color="black",
-                    alpha=0.7)
-            plt.plot(bins_prot, voxel_prot, 'o', color='black')
-            plt.plot(bins_prot, voxel_prot, color='orange')
-            plt.title(f"Protein voxel intensities {z, y, x} "
-                      f"above threshold {self.threshNoise.get()}",
-                      fontsize=14)
+            ## ------------------------------------- Protein histogram -----------------------------------------
+            #plt.figure(figsize=(8, 6))
+            #plt.bar(bins_prot, voxel_prot, width=0.00001, edgecolor="black", align="edge", color="black",
+            #        alpha=0.7)
+            #plt.plot(bins_prot, voxel_prot, 'o', color='black')
+            #plt.plot(bins_prot, voxel_prot, color='orange')
+            #plt.title(f"Protein voxel intensities {z, y, x} "
+            #          f"above threshold {self.threshNoise.get()}",
+            #          fontsize=14)
+
             plt.show()
 
             ##plt.figure(figsize=(8, 6))
-            #plt.plot(bin_centers, y_johnson, color='blue', linewidth=2, linestyle="solid", label="Johnson SU")
-            #plt.show()
+            ##plt.plot(bin_centers, y_johnson, color='blue', linewidth=2, linestyle="solid", label="Johnson SU")
+            ##plt.show()
 
-        elif self.methodApplied.get() == ACC_MOMENTS:
+        elif self.protocol.methodApply.get() == ACC_MOMENTS:
 
             if not self._checkMomentDomain():
                 return
@@ -1778,7 +1757,7 @@ class CalculateHistogram(ProtocolViewer):
         Returns a dict {stat_name: filename} of the voxel-wise output maps
         to histogram, depending on the method applied. Only real-space maps.
         """
-        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
+        if self.protocol.methodApply.get() == PROB_DENSITY_FUNCT:
             return {
                 'weighted_mean': 'weighted_mean.mrc',
                 'weighted_std': 'weighted_std.mrc',
@@ -1800,11 +1779,11 @@ class CalculateHistogram(ProtocolViewer):
           - PDF: (mean_key, std_key) -- 2 values, used for the reference Gaussian.
           - Moments: (mean_key, std_key, skew_key, kurt_key) -- 4 values, used
             for the Edgeworth expansion.
-        The number of returned values depends on methodApplied; callers of
+        The number of returned values depends on methodApply from the protocol; callers of
         this function are always guarded to run only for the matching method,
         so the unpacking on each side is always consistent.
         """
-        if self.methodApplied.get() == PROB_DENSITY_FUNCT:
+        if self.protocol.methodApply.get() == PROB_DENSITY_FUNCT:
             # mean of weighted mean and weighted std (inside/outside the mask)
             return 'weighted_mean', 'weighted_std'
         else:
@@ -1894,7 +1873,7 @@ class CalculateHistogram(ProtocolViewer):
 
         A reference Gaussian N(mu, sigma) is overlaid on each subplot.
         """
-        if self.methodApplied.get() != PROB_DENSITY_FUNCT:
+        if self.protocol.methodApply.get() != PROB_DENSITY_FUNCT:
             messagebox.showerror(
                 "Not available",
                 "This view is only available for the PDF method."
@@ -2072,7 +2051,7 @@ class CalculateHistogram(ProtocolViewer):
         and checked for negative density (a known limitation of this
         asymptotic approximation for large skewness/kurtosis).
         """
-        if self.methodApplied.get() != ACC_MOMENTS:
+        if self.protocol.methodApply.get() != ACC_MOMENTS:
             messagebox.showerror(
                 "Not available",
                 "This view is only available for the Accumulative Moments method."
@@ -2173,13 +2152,22 @@ class CalculateHistogram(ProtocolViewer):
         plt.show()
 
     def _getVisualizeDict(self):
+        isPdf = self.protocol.methodApply.get() == PROB_DENSITY_FUNCT
+        isMoments = self.protocol.methodApply.get() == ACC_MOMENTS
+
         visualizeDict = {'histogram': self._calculateHistogram,
-                         'shellStatistics': self._plotShellStatistics,
                          'statMapHistogramsInsideMask': self._viewStatMapHistogramsInsideMask,
-                         'statMapHistogramsOutsideMask': self._viewStatMapHistogramsOutsideMask,
-                         'pdfBinHistogramByMask': self._plotPdfBinHistogramByMask,
-                         'momentsEdgeworthByMask': self._plotMomentsEdgeworthByMask
+                         'statMapHistogramsOutsideMask': self._viewStatMapHistogramsOutsideMask
                          }
+
+        if isPdf:
+            visualizeDict['pdfBinHistogramByMask'] = self._plotPdfBinHistogramByMask
+
+        if isMoments:
+            visualizeDict['shellStatistics'] =  self._plotShellStatistics
+            visualizeDict['momentsEdgeworthByMask'] =  self._plotMomentsEdgeworthByMask
+
+
 
         return visualizeDict
 
