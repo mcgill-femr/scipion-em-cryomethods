@@ -441,7 +441,162 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             vol_fn = self._getTmpPath(f'vol_{m_index}.mrc') #_getExtraPath
         return NumpyImgHandler.loadMrc(vol_fn)
 
+
     def _prepareParticleClassesStep(self):
+        # 1. Collect all (particle_id, class_id) pairs into flat arrays
+        # ----------------------------------------------------------------
+        ids_l, cls_l = [], []
+        for cls in self.inputProt.get():
+            # Transform all particle ids from a class to array numpy
+            ids = np.fromiter(cls.getIdSet(), dtype=np.int64)
+
+            # Skip empty class
+            if ids.size == 0:
+                continue
+
+            # For each particle in this class, its corresponding class_id is recorded
+            ids_l.append(ids)
+            cls_l.append(np.full(ids.size, cls.getObjId(), dtype=np.int64))
+
+        # Concatenates all accumulated arrays into two final flat arrays
+        # If a particle appears in more than one class, it will show up multiple times in ids
+        # with different values in cls.
+        ids = np.concatenate(ids_l)
+        cls = np.concatenate(cls_l)
+
+        # 2. Compute the size of each class for every particle entry
+        # ----------------------------------------------------------------
+        # Get the unique class ids and how many particles each class has
+        labels, counts = np.unique(cls, return_counts=True)
+        size_of = counts[np.searchsorted(labels, cls)]
+
+        # 3. Resolve overlaps
+        # ----------------------------------------------------------------
+        #    np.lexsort sorts by the last key first, so the effective
+        #    ordering is:
+        #      - by ids: groups all occurrences of the same particle_id
+        #      - by size_of: within each group, the smallest class comes first
+        #      - by cls: deterministic tiebreaker by class_id
+        order = np.lexsort((cls, size_of, ids))
+        ids, cls = ids[order], cls[order]
+
+        # Keeps only the first occurrence of each id, which by construction is always
+        # the minority class
+        first = np.ones(ids.size, dtype=bool)
+        first[1:] = ids[1:] != ids[:-1]            # False where the id is repeated
+        n_overlap = np.unique(ids[~first]).size    # particles found in >1 class
+        # Keeps only the first occurrence of each particle_id
+        ids, cls = ids[first], cls[first]
+
+        # 4. Final validation: after resolving overlaps, each particle_id
+        #    must appear exactly once, no duplicates
+        # ----------------------------------------------------------------
+        if not np.all(np.diff(ids) > 0):
+            raise RuntimeError('Overlap still exists after resolving classes')
+
+        # 5. Group particles by class using a flat array and offsets
+        # ----------------------------------------------------------------
+        # Sorts arrays by class_id, so all particles of the same class are contiguous
+        o = np.argsort(cls, kind='stable')
+        ids, cls = ids[o], cls[o]
+        # get unique class ids
+        class_labels, starts = np.unique(cls, return_index=True)
+
+        # Saves arrays to a compressed .npz
+        np.savez(self._getExtraPath('allowed_ids_by_class.npz'),
+                 ids=ids, class_labels=class_labels, starts=starts)
+
+        print(f'Particles in multiple classes: {n_overlap}; '
+              f'unique particles kept: {ids.size}')
+
+
+    def _selectParticleIds(self, m_index):
+        # 1. Load all particle_ids sorted by class
+        # ----------------------------------------------------------------
+        data = np.load(self._getExtraPath('allowed_ids_by_class.npz'))
+        # Unpacks the three array
+        ids_all, labels, starts = data['ids'], data['class_labels'], data['starts']
+        ends = np.append(starts[1:], ids_all.size)  # end index of each class
+        # Maximum number of particles to sample per class
+        k_sample_per_class = self.numParticlesPerClass.get()
+
+        # 2. Random sampling without replacement, per class
+        #     A dedicated random.Random instance is created for every
+        #     (class, batch) pair, seeded with a TEXT built from the three values:
+        #     f'42-{label}-{m_index}'
+        #      - 42: arbitrary constant
+        #      - label: class_id, so different classes get different seeds
+        #      - m_index: batch index, so each reconstruction samples
+        #        different particles from the same class
+        #    rng.sample operates on range(e - s) (local indices within the
+        #    class slice)
+        # ----------------------------------------------------------------
+        chosen = []
+        # Iterates over each class
+        for label, s, e in zip(labels, starts, ends):
+            rng = random.Random(f'42-{int(label)}-{m_index}')   #(42 + int(label) + m_index)
+            # no replacements due to random.sample()
+            idx = rng.sample(range(e - s), min(k_sample_per_class, e - s))
+
+            # Print class partition info
+            #print(f'Class {label}: {e - s} available particles, '
+            #      f'{len(idx)} selected -> ids: {ids_all[s + np.asarray(idx)]}')
+
+            # Converts the local indices to global positions by adding the class start offset
+            chosen.append(ids_all[s + np.asarray(idx)])
+        selected = np.concatenate(chosen)
+        print(f'Batch {m_index}: {selected.size} particles selected from '
+              f'{len(labels)} classes')
+
+        sizes = ends - starts
+        print(f'Smallest class has {sizes.min()} available particles '
+              f'(numParticlesPerClass = {k_sample_per_class})')
+
+
+        # 3. Uniqueness check within the batch.
+        #    Since _prepareParticleClassesStep already guarantees that each
+        #    particle belongs to exactly one class, duplicates in selected
+        #    should never occur. This check is a safeguard against
+        #    unexpected internal errors
+        # ----------------------------------------------------------------
+        if np.unique(selected).size != selected.size:
+            raise RuntimeError(f'WARNING! Duplicated particles in bootstrap {m_index}')
+        return selected
+
+
+    def _processParticles(self, m_index=1):
+        # Load selected particle ids for this batch
+        selected_ids = self._selectParticleIds(m_index)
+
+        inputParticles = self.inputProt.get().getImages()
+        outputParticles = self._createSetOfParticles()
+        outputParticles.copyInfo(inputParticles)
+
+        for particle_id in selected_ids:
+            outputParticles.append(inputParticles[int(particle_id)].clone())
+
+        outputParticles.write()
+        outputParticles.close()
+
+        if self.reconstruction == RELION_RECONSTRUCTION:
+            output_star = self._getTmpPath(f'sample_{m_index}.star')
+            writeSetOfParticles(
+                outputParticles,
+                output_star,
+                outputDir=self._getExtraPath(),
+                alignType=ALIGN_PROJ
+            )
+
+            print("STAR written:", output_star)
+
+        else:
+            # Save new .xmd
+            output_xmd = self._getTmpPath(f'sample_{m_index}.xmd')  #_getExtraPath
+            writeSetOfParticlesXmipp(outputParticles, output_xmd)
+            print("XMD written:", output_xmd)
+
+
+    def _prepareParticleClassesStep2(self):
         prot_classes = self.inputProt.get()
 
         # 1. COLLECT CLASS INFORMATION
@@ -567,7 +722,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         print("==============================================")
 
 
-    def _processParticles(self, m_index=1):
+    def _processParticles2(self, m_index=1):
 
         assignment_file = self._getExtraPath('allowed_ids_by_class.pkl')
         if not os.path.exists(assignment_file):
@@ -2054,7 +2209,19 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         return messages
 
     def _validate(self):
-        return []
+        errors = []
+
+        if self.numParticlesPerClass.get() < 1:
+            errors.append('"Particles per class" must be at least 1.')
+
+        if self.numBatches.get() < 1:
+            errors.append('"Number of reconstructions" must be at least 1.')
+
+        classes = self.inputProt.get()
+        if classes is not None and classes.getSize() == 0:
+            errors.append('The input set of 2D classes is empty.')
+
+        return errors
 
     def _summary(self):
         summary = []
