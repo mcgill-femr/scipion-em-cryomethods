@@ -328,6 +328,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                 self._insertFunctionStep('reconstructStep', m)
                 if self.normalizeVolumes.get():
                     self._insertFunctionStep('_normalizeVolumeStep', m)
+                # Filter every reconstrucion
                 if self.applyFilter.get():
                     if self.filterMethod.get() == GAUSSIAN_SCIPY:
                         self._insertFunctionStep('_gaussianFilterStep', m)
@@ -345,7 +346,10 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                 self._insertFunctionStep('_removePreviousVolume', m)
 
             self._insertFunctionStep('statistic_volumes')
-            #self._insertFunctionStep('_calculateMaskedPDFStats')
+            # Filter after calculating moments
+            #if self.applyFilter.get():
+            #    self._insertFunctionStep('_filterMomentMapsStep')
+
 
             #PCA analysis/export (real space only) for the PDF method
             if self.doPCA.get():
@@ -364,6 +368,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
                 domain = self.momentDomain.get()
                 if domain in [REAL_SPACE, BOTH]:
+                    # Filter every reconstrucion
                     if self.applyFilter.get():
                         if self.filterMethod.get() == GAUSSIAN_SCIPY:
                             self._insertFunctionStep('_gaussianFilterStep', m)
@@ -397,8 +402,9 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
 
                 self._insertFunctionStep('_removePreviousVolume', m)
 
-            #if domain in [REAL_SPACE, BOTH]:
-            #    self._insertFunctionStep('_calculateMaskedMomentStats')
+            # Filter after calculating moments
+            #if self.applyFilter.get():
+            #    self._insertFunctionStep('_filterMomentMapsStep')
 
             if self.doPCA.get():
                 domain = self.momentDomain.get()
@@ -435,11 +441,15 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         Returns the volume that should be used for moments/PDF calculation,
         taking into account whether a filter step was applied.
         """
+        # Filter every reconstruction
         if self.applyFilter.get():
             vol_fn = self._getExtraPath(f'vol_{m_index}_filtered.mrc')
         else:
             vol_fn = self._getTmpPath(f'vol_{m_index}.mrc') #_getExtraPath
         return NumpyImgHandler.loadMrc(vol_fn)
+
+        # Get volume
+        #return NumpyImgHandler.loadMrc(self._getTmpPath(f'vol_{m_index}.mrc'))
 
 
     def _prepareParticleClassesStep(self):
@@ -596,228 +606,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
             print("XMD written:", output_xmd)
 
 
-    def _prepareParticleClassesStep2(self):
-        prot_classes = self.inputProt.get()
-
-        # 1. COLLECT CLASS INFORMATION
-        # =========================================================
-        class_info = []
-        for cls in prot_classes:
-            # returns the IDs of the particles belonging to that class
-            particle_ids = set(cls.getIdSet())
-
-            if not particle_ids:
-                continue
-
-            class_info.append({
-                "class_id": cls.getObjId(),  #identifies the Class2D object
-                "ids": particle_ids,
-                "size": len(particle_ids)
-            })
-
-        # 2. FIND PARTICLES THAT APPEAR IN MULTIPLE CLASSES
-        # =========================================================
-        # Map each particle ID to the classes it belongs to
-        particle_classes = {}
-        for info in class_info:
-            class_id = info["class_id"]
-
-            # Assign the current class ID to each particle in the class
-            for particle_id in info["ids"]:
-                if particle_id not in particle_classes:
-                    particle_classes[particle_id] = []
-
-                particle_classes[particle_id].append(class_id)
-
-        # 3. FIND OVERLAPPING PARTICLES
-        # =========================================================
-        # Identify particles assigned to more than one class
-        overlapping_particles = {
-            particle_id: class_ids
-            for particle_id, class_ids in particle_classes.items() if len(class_ids) > 1
-        }
-        print("Particle/class overlap check")
-        print("==============================================")
-
-        print(f"Total unique particles before resolving overlap: {len(particle_classes)}")
-        print(f"Particles present in multiple classes: {len(overlapping_particles)}")
-
-        # If a particle belongs to several classes, keep it in the MINORITY class, i.e. the class
-        # containing fewer particles
-        # In case of a tie, the class with the smallest class ID wins. This makes the decision deterministic
-        allowed_ids_by_class = {
-            info["class_id"]: set(info["ids"])
-            for info in class_info
-        }
-
-        if overlapping_particles:
-            print("Resolving overlapping particles...")
-            print("----------------------------------------------")
-
-            class_sizes = {
-                info["class_id"]: info["size"]
-                for info in class_info
-            }
-
-            for particle_id, class_ids in overlapping_particles.items():
-                # Sort by number of particles in the class and class ID. The smallest class wins
-                winning_class = min(
-                                class_ids,
-                                key=lambda class_id: (
-                                    class_sizes[class_id],
-                                    class_id)
-                                )
-
-                print(f"Particle {particle_id}: "
-                      f"classes {class_ids} -> "
-                      f"keeping in minority class {winning_class} "
-                      f"(size={class_sizes[winning_class]})")
-
-                # Remove the particle from every class except the winning class
-                for class_id in class_ids:
-                    if class_id != winning_class:
-                        allowed_ids_by_class[class_id].discard(particle_id)
-
-            print("----------------------------------------------")
-            print(f"Resolved {len(overlapping_particles)} overlapping particles")
-            print("----------------------------------------------")
-
-        else:
-            print("No particle overlap detected")
-
-        # 4. FINAL VALIDATION
-        # After resolving overlaps, no particle should belong to more than one class.
-        # =========================================================
-        particle_occurrences = {}
-
-        for class_id, particle_ids in allowed_ids_by_class.items():
-
-            for particle_id in particle_ids:
-                particle_occurrences.setdefault(
-                    particle_id,
-                    []
-                ).append(class_id)
-
-        remaining_overlaps = {
-            particle_id: class_ids
-            for particle_id, class_ids in particle_occurrences.items() if len(class_ids) > 1
-        }
-
-        if remaining_overlaps:
-            raise RuntimeError(
-                f"Overlap still exists after resolving classes: {remaining_overlaps}")
-
-        print("----------------------------------------------")
-        print("Overlap resolution completed successfully")
-        print("----------------------------------------------")
-
-        # 5. SAVE RESULT
-        # =========================================================
-        output_file_particles = self._getExtraPath('allowed_ids_by_class.pkl')
-
-        with open(output_file_particles, 'wb') as f:
-            pickle.dump(allowed_ids_by_class, f)
-
-        print("Saved resolved particle assignment to:", output_file_particles )
-        print("==============================================")
-
-
-    def _processParticles2(self, m_index=1):
-
-        assignment_file = self._getExtraPath('allowed_ids_by_class.pkl')
-        if not os.path.exists(assignment_file):
-            raise RuntimeError(f"Particle assignment file not found: {assignment_file}")
-
-        with open(assignment_file, 'rb') as f:
-            allowed_ids_by_class = pickle.load(f)
-
-        prot_classes = self.inputProt.get()
-        inputParticles = prot_classes.getImages()
-        outputParticles = self._createSetOfParticles()
-        outputParticles.copyInfo(inputParticles)
-
-        # IMPORTANT:
-        # We sample from allowed_ids_by_class, NOT directly from cls.getIdSet().
-        # Therefore particles that were found in several classes are only available in their minority class.
-        used_ids = set()
-        duplicates_skipped = 0
-
-        for class_id, ids_set in allowed_ids_by_class.items():
-            ids = list(ids_set)
-
-            if not ids:
-                continue
-
-            # Deterministic seed for reproducibility
-            # 42: arbitrary constant
-            # class_id: ensures different classes get different seeds
-            # m_index: ensures different bootstrap iterations get different samples from the same
-            #          class; without it, every iteration would select the same particles, defeating
-            #          the purpose of bootstrapping
-            random.seed(42 + class_id + m_index)
-
-            # no replacement
-            selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
-            #print('selected_ids', selected_ids)
-            #print("------------------\n")
-
-            for particle_id in selected_ids:
-                # Even after resolving class overlaps, make sure the same particle can NEVER be added twice to
-                # the reconstruction.
-                if particle_id in used_ids:
-                    duplicates_skipped += 1
-
-                    print(f"WARNING: Particle {particle_id} was already selected in bootstrap {m_index}. "
-                          f"Skipping duplicate")
-                    continue
-
-                used_ids.add(particle_id)
-                particle = inputParticles[particle_id]
-                outputParticles.append(particle.clone())
-
-        num_selected = len(used_ids)
-        num_output = outputParticles.getSize()
-
-        print("==============================================")
-        print(f"BOOTSTRAP {m_index} CHECK")
-        print("==============================================")
-
-        print(f"Particles selected: {num_selected}")
-        print(f"Duplicates skipped during bootstrap: {duplicates_skipped}")
-        print(f"Particles in output: {num_output}")
-
-        # This should always be true because used_ids is a set and duplicates are filtered before append()
-        if num_selected != num_output:
-            raise RuntimeError(
-                f"Internal consistency error in bootstrap "
-                f"{m_index}: "
-                f"{num_selected} selected particles but "
-                f"{num_output} particles in output."
-            )
-
-        print("==============================================")
-
-        outputParticles.write()
-        outputParticles.close()
-
-        if self.reconstruction == RELION_RECONSTRUCTION:
-            output_star = self._getTmpPath(f'sample_{m_index}.star') #cambiar al temporal
-            writeSetOfParticles(
-                outputParticles,
-                output_star,
-                outputDir=self._getExtraPath(),
-                alignType=ALIGN_PROJ
-            )
-
-            print("STAR written:", output_star)
-
-        else:
-            # Save new .xmd
-            output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
-            writeSetOfParticlesXmipp(outputParticles, output_xmd)
-            print("XMD written:", output_xmd)
-
-
     def reconstructStep(self, m_index=1):
         env = Plugin.getEnviron()
 
@@ -944,6 +732,64 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
                       voxel_size=self.voxel_size
         )
         print(f"Normalization batch {m_index}: mean={mean:.4f}, std={std:.4f}")
+
+
+    def _filterMomentMapsStep(self):
+        """
+        Applies the configured filter to the final moment maps.
+        Called once after all moments have been computed, so that
+        individual reconstructions are not affected by the filter.
+        """
+        if self.methodApply.get() == PROB_DENSITY_FUNCT:
+            map_names = [
+                'weighted_mean.mrc',
+                'weighted_std.mrc',
+                'weighted_skewness.mrc',
+                'weighted_kurtosis.mrc',
+            ]
+        else:
+            map_names = [
+                '1_mean.mrc',
+                '2_std.mrc',
+                '3_skewness.mrc',
+                '4_kurtosis.mrc',
+            ]
+
+        for name in map_names:
+            vol_fn = self._getExtraPath(name)
+            if not os.path.exists(vol_fn):
+                print(f'WARNING: {vol_fn} not found, skipping filter for {name}')
+                continue
+
+            vol = np.asarray(NumpyImgHandler.loadMrc(vol_fn), dtype=np.float32)
+
+            if self.filterMethod.get() == GAUSSIAN_SCIPY:
+                sigma = self.gaussianSigma.get()
+                vol_filtered = gaussian_filter(vol, sigma=sigma)
+                print(f'Gaussian filter applied to {name} (sigma={sigma})')
+            else:
+                # relion_image_handler: needs to write to disk first
+                tmp_in = self._getExtraPath(f'tmp_filter_in_{name}')
+                tmp_out = self._getExtraPath(f'tmp_filter_out_{name}')
+                mrcfile.write(tmp_in, vol, voxel_size=self.voxel_size, overwrite=True)
+
+                # Cutoff resolution for the low-pass filter, in Angstroms
+                lowpass_res = self.lowpassResolution.get()
+                args = (f'--i {tmp_in} '
+                        f'--o {tmp_out} '
+                        f'--lowpass {lowpass_res} '
+                        f'--angpix {self.voxel_size}')
+
+                self.runJob('relion_image_handler', args)
+                vol_filtered = np.asarray(NumpyImgHandler.loadMrc(tmp_out), dtype=np.float32)
+                os.remove(tmp_in)
+                os.remove(tmp_out)
+                print(f'RELION lowpass filter applied to {name} (lowpass={lowpass_res} A)')
+
+            # Overwrite the original map with the filtered version
+            mrcfile.write(vol_fn, vol_filtered.astype(np.float32),
+                          voxel_size=self.voxel_size,
+                          overwrite=True)
 
 
     def _gaussianFilterStep(self, m_index):
@@ -1568,6 +1414,7 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         # ------------------------------------------------------------
         # 1. FFT of the reconstructed volume
         # ------------------------------------------------------------
+        #vol_real = np.asarray(self._getVolumeForProcessing(m_index), dtype=np.float64)
         vol_real = np.asarray(self._loadVolume(m_index), dtype=np.float64)
         #vol_real = np.asarray(self.one_volume, dtype=np.float64)
         #vol_real = np.nan_to_num(vol_real, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1993,48 +1840,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
         np.save(self._getExtraPath('first_bin.npy'), self.range_volumes[0])
 
 
-    #def _calculatePDF(self, m_index): ##RANGO INFLUENCIADO POR PRIMER VOLUMEN
-
-    #    if m_index == 1:
-    #        num_bins = self.numBins.get()
-    #        min_value = self.minRange.get()
-    #        max_value = self.maxRange.get()
-
-    #        vol_min = np.min(self.one_volume)
-    #        vol_max = np.max(self.one_volume)
-    #        print(f'VOL_MIN {vol_min}, VOL_MAX {vol_max}')
-
-    #        if min_value > vol_min or max_value < vol_max:
-    #            print(f"WARNING: rango [{min_value}, {max_value}] is outside range "
-    #                  f"[{vol_min}, {vol_max}]")
-    #            min_value = min(min_value, vol_min)
-    #            max_value = max(max_value, vol_max)
-
-    #        self.rango = np.linspace(min_value, max_value, num_bins + 1)
-
-    #        np.save(self._getExtraPath('rango.npy'), np.array(self.rango))
-    #        print(f'Min real: {min_value}, Max real: {max_value}')
-    #        print(self.rango)
-    #        self.range_volumes = [np.zeros_like(self.one_volume, dtype=float) for _ in range(len(self.rango) - 1)]
-
-    #    for i in range(len(self.rango) - 1):
-    #        inf_limit = self.rango[i]
-    #        sup_limit = self.rango[i + 1]
-
-    #        if i == len(self.rango) - 2: #last bin (39 of 40)
-    #            mask = (self.one_volume >= inf_limit) & (self.one_volume <= sup_limit)
-    #        else:
-    #            mask = (self.one_volume >= inf_limit) & (self.one_volume < sup_limit)
-
-    #        self.range_volumes[i][mask] += 1
-
-    #        mrcfile.write(os.path.join(self._getExtraPath(), f'rangeVol_{i + 1}.mrc'),
-    #                  self.range_volumes[i].astype(np.float32)
-    #                  , voxel_size=self.voxel_size, overwrite=True)
-
-    #    np.save(self._getExtraPath('first_bin.npy'), self.range_volumes[0])
-
-
     def statistic_volumes(self):
         self.range_volumes = []
         for i in range(1, self.numBins.get() + 1):
@@ -2234,248 +2039,6 @@ class ProtLocPDF_classes_abs(ProtAnalysis3D):
     def _citations(self):
         return ['Vargas2021']
 
-
-    #def _processParticles_old_ver(self, m_index=1):
-
-    #    prot_classes = self.inputProt.get()
-
-    #    inputParticles = prot_classes.getImages()
-
-    #    outputParticles = self._createSetOfParticles()
-    #    outputParticles.copyInfo(inputParticles)
-
-    #    for cls in prot_classes:
-    #        ids = list(cls.getIdSet())
-    #        #print('ids', sorted(ids))
-
-    #        if not ids:
-    #            continue
-
-    #        # Deterministic seed for reproducibility
-    #        # 42: arbitrary constant
-    #        # cls.getObjId(): ensures different classes get different seeds
-    #        # m_index: ensures different bootstrap iterations get different samples from the same
-    #        #          class; without it, every iteration would select the same particles, defeating
-    #        #          the purpose of bootstrapping
-    #        random.seed(42 + cls.getObjId() + m_index)
-
-    #        selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
-    #        #print('selected_ids', selected_ids)
-    #        #print("------------------\n")
-
-    #        for objId in selected_ids:
-    #            particle = inputParticles[objId]
-    #            outputParticles.append(particle.clone())
-
-    #    #self._defineOutputs(outputParticles=outputParticles)
-    #    outputParticles.write()
-    #    outputParticles.close()
-
-
-    #    if self.reconstruction == RELION_RECONSTRUCTION:
-    #        # Save new .star file
-    #        output_star = self._getExtraPath(f'sample_{m_index}.star') #cambiar al temporal
-    #        writeSetOfParticles(
-    #            outputParticles,
-    #            output_star,
-    #            outputDir=self._getExtraPath(),
-    #            alignType=ALIGN_PROJ
-    #        )
-
-    #        print("STAR written:", output_star)
-
-    #    else:
-    #        # Save new .xmd
-    #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd") #_getExtraPath
-    #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
-
-
-    #def _processParticles_completo(self, m_index=1):
-         # Esta el solpamaiento y el bootstrapping junto
-
-    #    prot_classes = self.inputProt.get()
-    #    inputParticles = prot_classes.getImages()
-
-    #    print("Input particles:")
-    #    print("  Size:", inputParticles.getSize())
-    #    print("  Dimensions:", inputParticles.getDimensions())
-
-    #    outputParticles = self._createSetOfParticles()
-    #    outputParticles.copyInfo(inputParticles)
-
-    #    class_info = []
-    #    for cls in prot_classes:
-    #        # returns the IDs of the particles belonging to that class
-    #        particle_ids = set(cls.getIdSet())
-
-    #        if not particle_ids:
-    #            continue
-
-    #        class_info.append({
-    #            "class_id": cls.getObjId(),  # identifies the Class2D object
-    #            "ids": particle_ids,
-    #            "size": len(particle_ids)
-    #        })
-
-    #    # 2. FIND PARTICLES THAT APPEAR IN MULTIPLE CLASSES
-    #    # =========================================================
-    #    # Map each particle ID to the classes it belongs to
-    #    particle_classes = {}
-    #    for info in class_info:
-    #        class_id = info["class_id"]
-
-    #        # Assign the current class ID to each particle in the class
-    #        for particle_id in info["ids"]:
-    #            if particle_id not in particle_classes:
-    #                particle_classes[particle_id] = []
-
-    #            particle_classes[particle_id].append(class_id)
-
-    #    # 3. FIND OVERLAPPING PARTICLES
-    #    # =========================================================
-    #    # Identify particles assigned to more than one class
-    #    overlapping_particles = {
-    #        particle_id: class_ids
-    #        for particle_id, class_ids in particle_classes.items() if len(class_ids) > 1
-    #    }
-    #    print("Particle/class overlap check")
-    #    print("==============================================")
-
-    #    print(f"Total unique particles before resolving overlap: {len(particle_classes)}")
-    #    print(f"Particles present in multiple classes: {len(overlapping_particles)}")
-
-    #    # If a particle belongs to several classes, keep it in the MINORITY class, i.e. the class
-    #    # containing fewer particles
-    #    # In case of a tie, the class with the smallest class ID wins. This makes the decision deterministic
-    #    allowed_ids_by_class = {
-    #        info["class_id"]: set(info["ids"])
-    #        for info in class_info
-    #    }
-
-    #    if overlapping_particles:
-    #        print("Resolving overlapping particles...")
-    #        print("----------------------------------------------")
-
-    #        class_sizes = {
-    #            info["class_id"]: info["size"]
-    #            for info in class_info
-    #        }
-
-    #        for particle_id, class_ids in overlapping_particles.items():
-    #            # Sort by number of particles in the class and class ID. The smallest class wins
-    #            winning_class = min(
-    #                class_ids,
-    #                key=lambda class_id: (
-    #                    class_sizes[class_id],
-    #                    class_id)
-    #            )
-
-    #            print(f"Particle {particle_id}: "
-    #                  f"classes {class_ids} -> "
-    #                  f"keeping in minority class {winning_class} "
-    #                  f"(size={class_sizes[winning_class]})")
-
-    #            # Remove the particle from every class except the winning class
-    #            for class_id in class_ids:
-    #                if class_id != winning_class:
-    #                    allowed_ids_by_class[class_id].discard(particle_id)
-
-    #        print("----------------------------------------------")
-    #        print(f"Resolved {len(overlapping_particles)} overlapping particles")
-    #        print("----------------------------------------------")
-
-    #    else:
-    #        print("No particle overlap detected")
-
-
-    #    # IMPORTANT:
-    #    # We sample from allowed_ids_by_class, NOT directly from cls.getIdSet().
-    #    # Therefore particles that were found in several classes are only available in their minority class.
-    #    used_ids = set()
-    #    duplicates_skipped = 0
-
-    #    for class_id, ids_set in allowed_ids_by_class.items():
-    #        ids = list(ids_set)
-
-    #        if not ids:
-    #            continue
-
-    #        # Deterministic seed for reproducibility
-    #        # 42: arbitrary constant
-    #        # class_id: ensures different classes get different seeds
-    #        # m_index: ensures different bootstrap iterations get different samples from the same
-    #        #          class; without it, every iteration would select the same particles, defeating
-    #        #          the purpose of bootstrapping
-    #        random.seed(42 + class_id + m_index)
-
-    #        selected_ids = random.sample(ids, min(self.numParticlesPerClass.get(), len(ids)))
-    #        #print('selected_ids', selected_ids)
-    #        #print("------------------\n")
-
-    #        for particle_id in selected_ids:
-    #            # Even after resolving class overlaps, make sure the same particle can NEVER be added twice to
-    #            # the reconstruction.
-    #            if particle_id in used_ids:
-    #                duplicates_skipped += 1
-
-    #                print(f"WARNING: Particle {particle_id} was already selected in bootstrap {m_index}. "
-    #                      f"Skipping duplicate")
-    #                continue
-
-    #            used_ids.add(particle_id)
-    #            particle = inputParticles[particle_id]
-    #            outputParticles.append(particle.clone())
-
-    #    # AÑADIDO AHORA
-    #    print("Output particles:")
-    #    print("  Size:", outputParticles.getSize())
-    #    print("  Dimensions:", outputParticles.getDimensions())
-
-
-    #    num_selected = len(used_ids)
-    #    num_output = outputParticles.getSize()
-
-    #    print("==============================================")
-    #    print(f"BOOTSTRAP {m_index} CHECK")
-    #    print("==============================================")
-
-    #    print(f"Particles selected: {num_selected}")
-    #    print(f"Duplicates skipped during bootstrap: {duplicates_skipped}")
-    #    print(f"Particles in output: {num_output}")
-
-    #    # This should always be true because used_ids is a set and duplicates are filtered before append()
-    #    if num_selected != num_output:
-    #        raise RuntimeError(
-    #            f"Internal consistency error in bootstrap "
-    #            f"{m_index}: "
-    #            f"{num_selected} selected particles but "
-    #            f"{num_output} particles in output."
-    #        )
-
-    #    print("==============================================")
-
-    #    outputParticles.write()
-    #    print("Output particles 2:")
-    #    print("  Size:", outputParticles.getSize())
-    #    print("  Dimensions:", outputParticles.getDimensions())
-    #    outputParticles.close()
-
-    #    if self.reconstruction == RELION_RECONSTRUCTION:
-    #        output_star = self._getExtraPath(f'sample_{m_index}.star')  #cambiar al temporal
-    #        writeSetOfParticles(
-    #            outputParticles,
-    #            output_star,
-    #            outputDir=self._getExtraPath(),
-    #            alignType=ALIGN_PROJ
-    #        )
-
-    #        print("STAR written:", output_star)
-
-    #    else:
-    #        # Save new .xmd
-    #        output_xmd = self._getTmpPath(f"sample_{m_index}.xmd")  #_getExtraPath
-    #        writeSetOfParticlesXmipp(outputParticles, output_xmd)
-    #        print("XMD written:", output_xmd)
 
 
 
