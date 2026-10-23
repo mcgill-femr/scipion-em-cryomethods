@@ -42,7 +42,6 @@ import numpy as np
 import tkinter as tk
 from shutil import copyfile
 
-from sklearn import manifold
 import scipy as sc
 import matplotlib.pyplot as plt
 
@@ -626,6 +625,7 @@ class PcaLandscapeViewer(ProtocolViewer):
         win.show()
 
     def _genralplot(self,paramName=None):
+        from sklearn import manifold
         nPCA = self.pcaCount.get()
         matProj = self._loadPcaCoordinates()
         if self.heatMap.get() == MDS:

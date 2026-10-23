@@ -390,3 +390,69 @@ Primero reproducir y clasificar la excepción. Después:
 - La corrección SQLite debe mantenerse separada de la corrección científica
   de ResLog para poder validar cada cambio.
 
+## Cambios implementados y publicados (2026-07-24)
+
+- Corregido `mergeClassesStep` en `protocol_auto_base.py`: las filas se
+  acumulan por clase antes de escribir cada STAR. La implementación anterior
+  sobrescribía una clase cuando sus bloques no eran contiguos y podía perder
+  partículas.
+- Añadido `cryomethods/alignlib_builder.py`: compilación validada de
+  SpharmonicKit27/FRM/SWIG, rpath y comprobación de importación Python.
+- Instalación simplificada en `cryomethods/__init__.py`: SWIG por pip,
+  compilación automática de alignLib y sin compilar `angular_neighbourhood`.
+- Corregidos README y `setup.py`.
+- Commit publicado en GitHub: `16abe2a` (`Fix hierarchical output and
+  simplify installation`). Rama `devel` local sincronizada con `origin/devel`.
+- No se publicaron los cambios locales de CTF ni `prompt`.
+
+### Validación posterior
+
+Los Runs siguientes terminaron correctamente con `createOutputStep`:
+
+- `000321_Prot3DAutoClassifier`
+- `000402_Prot3DAutoClassifier`
+- `000533_Prot3DAutoClassifier`
+
+En los tres casos `final_data.star` y `raw_final_data.star` contienen 5236
+partículas, las sumas de las clases son 5236 y todas las SQLite pasan
+`PRAGMA integrity_check`. No apareció error de inserción. El único contenido
+de `run.stderr` fue `Invalid MIT-MAGIC-COOKIE`, ajeno al problema SQLite.
+
+## Trabajo futuro: backend CryoSPARC
+
+Se considera viable añadir protocolos nuevos:
+
+```text
+protocol_2d_auto_classifier_cs.py
+protocol_3d_auto_classifier_cs.py
+```
+
+El plugin de Scipion para CryoSPARC ofrece clasificación 2D, clasificación 3D
+y Heterogeneous Refinement, pero CryoSPARC requiere instalación independiente
+y sus jobs/datasets no tienen la misma representación STAR de Relion.
+
+No duplicar los protocolos Relion completos. La arquitectura prevista es:
+
+```text
+ProtAutoBase                 lógica jerárquica común
+protocol_relion_auto_backend backend STAR/Relion
+protocol_cryosparc_auto_backend backend jobs/datasets CryoSPARC
+```
+
+El backend debe normalizar al menos `particle_id`, `class_id`, `class_size`,
+`representative` y `quality_metrics`. Hay que conservar una correspondencia
+robusta entre los IDs de partículas de Scipion y los `uid` de CryoSPARC; nunca
+suponer que el orden de filas coincide.
+
+Orden recomendado:
+
+1. Implementar una clasificación 2D CryoSPARC de una sola división binaria.
+2. Validar que entran y salen exactamente las mismas partículas.
+3. Activar la jerarquía completa y medir tiempo frente a Relion.
+4. Implementar 3D Classification con poses fijas.
+5. Evaluar después Heterogeneous Refinement, porque realinea/refina y no es
+   semánticamente idéntico al flujo 3D actual.
+
+La lógica de parada basada en `rlnResolution`, SSNR y ResLog no se puede
+reutilizar sin adaptación; el backend CryoSPARC debe proporcionar métricas
+equivalentes o un criterio de parada específico.
